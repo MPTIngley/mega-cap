@@ -28,6 +28,8 @@ class PositionManager:
 
     def __init__(self):
         """Initialize position manager."""
+        import os
+
         self.db = get_db()
         self.config = get_config()
         self.trading_config = self.config.get("trading", {})
@@ -35,13 +37,15 @@ class PositionManager:
         self.portfolio_config = self.config.get("portfolio", {})
         self.data_ingestion = DataIngestion()
 
-        # Portfolio capital (env var overrides config)
-        import os
+        # Portfolio settings (env vars override config)
         env_capital = os.environ.get("STOCKPULSE_INITIAL_CAPITAL")
-        if env_capital:
-            self.initial_capital = float(env_capital)
-        else:
-            self.initial_capital = self.portfolio_config.get("initial_capital", 100000.0)
+        self.initial_capital = float(env_capital) if env_capital else self.portfolio_config.get("initial_capital", 100000.0)
+
+        env_position_pct = os.environ.get("STOCKPULSE_POSITION_SIZE_PCT")
+        self.position_size_pct = float(env_position_pct) if env_position_pct else self.risk_config.get("max_position_size_pct", 5.0)
+
+        env_max_positions = os.environ.get("STOCKPULSE_MAX_POSITIONS")
+        self.max_positions = int(env_max_positions) if env_max_positions else self.risk_config.get("max_concurrent_positions", 20)
 
         # Transaction costs
         self.commission = self.trading_config.get("commission_per_trade", 0.0)
@@ -89,9 +93,8 @@ class PositionManager:
             logger.info(f"Risk limits prevent opening position for {signal.ticker}")
             return None
 
-        # Calculate position size
-        position_size_pct = self.risk_config.get("max_position_size_pct", 5.0)
-        max_position_value = capital * (position_size_pct / 100)
+        # Calculate position size using configured percentage
+        max_position_value = capital * (self.position_size_pct / 100)
 
         # Apply slippage to entry price
         if signal.direction == SignalDirection.BUY:
@@ -138,12 +141,11 @@ class PositionManager:
     def _check_risk_limits(self, signal: Signal) -> bool:
         """Check if opening a position would violate risk limits."""
         # Check max concurrent positions
-        max_positions = self.risk_config.get("max_concurrent_positions", 20)
         open_count = self.db.fetchone(
             "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
         )
-        if open_count and open_count[0] >= max_positions:
-            logger.warning(f"Max positions ({max_positions}) reached")
+        if open_count and open_count[0] >= self.max_positions:
+            logger.warning(f"Max positions ({self.max_positions}) reached")
             return False
 
         # Check if already have position in this ticker
