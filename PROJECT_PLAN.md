@@ -12,7 +12,13 @@ Before writing any code, do the following:
 
 ## Current Phase: **5 — Trade Tracker (COMPLETE)**
 ## Last Session: 2026-02-02
-## Next Steps: Set up Gmail App Password, test dashboard, run initial data ingestion
+## Next Steps:
+1. ✅ Gmail App Password configured in .env
+2. **NOW:** Test dashboard launch
+3. Run initial data ingestion (happens automatically on first launch)
+4. Verify email alerts work (send test)
+5. Run backtest to validate strategies on historical data
+6. Begin Phase 6 (Hardening) if everything works
 
 ---
 
