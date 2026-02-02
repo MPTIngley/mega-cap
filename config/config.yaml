@@ -1,0 +1,119 @@
+# StockPulse Configuration
+# ========================
+
+email:
+  smtp_server: smtp.gmail.com
+  smtp_port: 587
+  sender: ""  # Set via STOCKPULSE_EMAIL_SENDER env var
+  recipient: ""  # Set via STOCKPULSE_EMAIL_RECIPIENT env var
+  # Password via STOCKPULSE_EMAIL_PASSWORD env var
+
+database:
+  path: "data/stockpulse.duckdb"
+
+scanning:
+  interval_minutes: 15
+  market_open: "09:30"
+  market_close: "16:00"
+  timezone: "US/Eastern"
+
+# Transaction costs (realistic estimates)
+trading:
+  commission_per_trade: 0.0  # Most brokers are commission-free now
+  slippage_percent: 0.05  # 5 bps slippage estimate
+  spread_percent: 0.02  # 2 bps average spread for large caps
+  # Total round-trip cost estimate: ~0.14% (7 bps each way)
+
+strategies:
+  mean_reversion_rsi:
+    enabled: true
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+    min_confidence: 60
+    hold_days_min: 3
+    hold_days_max: 10
+    stop_loss_pct: 5.0
+    take_profit_pct: 8.0
+
+  bollinger_squeeze:
+    enabled: true
+    bb_period: 20
+    bb_std: 2.0
+    squeeze_threshold: 0.05  # Bandwidth percentile for squeeze
+    min_confidence: 60
+    hold_days_min: 2
+    hold_days_max: 15
+    stop_loss_pct: 4.0
+    take_profit_pct: 10.0
+
+  macd_volume:
+    enabled: true
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    volume_threshold: 1.5  # Volume must be 1.5x average
+    min_confidence: 60
+    hold_days_min: 5
+    hold_days_max: 20
+    stop_loss_pct: 5.0
+    take_profit_pct: 12.0
+
+  mean_reversion_zscore:
+    enabled: true
+    lookback_period: 20
+    zscore_entry: -2.0  # Enter when z-score < -2
+    zscore_exit: 0.0  # Exit when z-score returns to 0
+    min_confidence: 55
+    hold_days_min: 2
+    hold_days_max: 10
+    stop_loss_pct: 6.0
+    take_profit_pct: 8.0
+
+  momentum_breakout:
+    enabled: true
+    lookback_days: 20
+    breakout_threshold: 0.02  # 2% above recent high
+    volume_confirmation: 1.3  # Volume 1.3x average
+    min_confidence: 55
+    hold_days_min: 5
+    hold_days_max: 15
+    stop_loss_pct: 5.0
+    take_profit_pct: 10.0
+
+alerts:
+  min_confidence_for_email: 70
+  daily_digest_time: "17:00"
+  quiet_hours_start: "22:00"
+  quiet_hours_end: "07:00"
+  send_on_new_signal: true
+  send_on_position_exit: true
+  send_daily_digest: true
+  send_error_alerts: true
+
+universe:
+  source: "auto"  # "auto" fetches top 100 by market cap, "manual" uses list below
+  count: 100
+  manual_tickers: []  # Override list when source is "manual"
+  refresh_interval_days: 7
+
+risk_management:
+  max_position_size_pct: 5.0  # Max 5% of portfolio per position
+  max_portfolio_exposure_pct: 80.0  # Max 80% invested at once
+  max_concurrent_positions: 20
+  max_drawdown_disable_pct: 15.0  # Disable strategy if drawdown exceeds 15%
+  min_days_between_same_ticker: 3  # Don't re-enter same stock within 3 days
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: null  # null means use latest available
+  initial_capital: 100000.0
+  position_size_pct: 5.0  # 5% per position in backtest
+
+long_term_scanner:
+  enabled: true
+  run_time: "17:30"  # Run after market close
+  pe_percentile_threshold: 30  # Flag if P/E below 30th percentile of history
+  price_near_52w_low_pct: 15  # Within 15% of 52-week low
+  min_dividend_yield: 0.0  # Minimum dividend yield (0 = no filter)
+  min_score: 60  # Minimum composite score to flag
