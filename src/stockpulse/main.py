@@ -129,8 +129,40 @@ def run_scheduler():
 
     try:
         import time
+        from datetime import datetime
+        import pytz
+
+        et = pytz.timezone("US/Eastern")
+
         while True:
-            time.sleep(60)
+            # Show countdown to next scan
+            next_runs = scheduler.get_next_run_times()
+            now = datetime.now(et)
+
+            print("\n" + "=" * 60)
+            print(f"  StockPulse Scheduler | {now.strftime('%Y-%m-%d %H:%M:%S ET')}")
+            print("=" * 60)
+
+            for job_id, next_time in next_runs.items():
+                if next_time:
+                    delta = next_time - now
+                    total_seconds = int(delta.total_seconds())
+                    if total_seconds > 0:
+                        hours, remainder = divmod(total_seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        if hours > 0:
+                            countdown = f"{hours}h {minutes}m"
+                        else:
+                            countdown = f"{minutes}m {seconds}s"
+                        print(f"  {job_id}: {next_time.strftime('%H:%M:%S')} (in {countdown})")
+                    else:
+                        print(f"  {job_id}: running now...")
+
+            print("=" * 60)
+            print("  Press Ctrl+C to stop")
+            print()
+
+            time.sleep(30)  # Update countdown every 30 seconds
     except KeyboardInterrupt:
         logger.info("Shutting down...")
         scheduler.stop()
@@ -236,32 +268,110 @@ def run_ingestion():
 
 
 def run_scan():
-    """Run a single scan."""
+    """Run a single scan with market snapshot."""
     from stockpulse.data.universe import UniverseManager
     from stockpulse.strategies.signal_generator import SignalGenerator
     from stockpulse.alerts.alert_manager import AlertManager
+    from stockpulse.data.ingestion import DataIngestion
+    import pandas as pd
+    import numpy as np
 
     logger.info("Running scan...")
 
     universe = UniverseManager()
     signal_generator = SignalGenerator()
     alert_manager = AlertManager()
+    ingestion = DataIngestion()
 
     tickers = universe.get_active_tickers()
     if not tickers:
         logger.warning("No tickers in universe")
         return
 
+    # Generate signals
     signals = signal_generator.generate_signals(tickers)
 
-    logger.info(f"Generated {len(signals)} signals")
+    print("\n" + "=" * 70)
+    print("  STOCKPULSE SCAN RESULTS")
+    print("=" * 70)
 
-    for signal in signals:
-        logger.info(f"  {signal.direction.value} {signal.ticker} - {signal.strategy} - Confidence: {signal.confidence:.0f}%")
+    if signals:
+        print(f"\n  SIGNALS GENERATED: {len(signals)}")
+        print("-" * 70)
+        for signal in signals:
+            print(f"  {signal.direction.value:4} | {signal.ticker:5} | {signal.strategy:25} | Conf: {signal.confidence:.0f}%")
+            print(f"       Entry: ${signal.entry_price:.2f} | Target: ${signal.target_price:.2f} | Stop: ${signal.stop_price:.2f}")
+    else:
+        print("\n  NO SIGNALS - Market conditions don't meet strategy thresholds")
+
+    # Show market snapshot - what's close to triggering
+    print("\n" + "-" * 70)
+    print("  MARKET SNAPSHOT - Stocks Near Threshold")
+    print("-" * 70)
+
+    try:
+        # Get recent price data
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=60)
+        prices_df = ingestion.get_daily_prices(tickers[:30], start_date, end_date)  # Sample for speed
+
+        if not prices_df.empty:
+            near_triggers = []
+
+            for ticker in prices_df["ticker"].unique():
+                ticker_data = prices_df[prices_df["ticker"] == ticker].copy()
+                if len(ticker_data) < 20:
+                    continue
+
+                ticker_data = ticker_data.sort_values("date")
+                latest = ticker_data.iloc[-1]
+                close = latest["close"]
+
+                # Calculate RSI
+                delta = ticker_data["close"].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs))
+                current_rsi = rsi.iloc[-1] if not rsi.empty else 50
+
+                # Calculate Z-score
+                mean_20 = ticker_data["close"].rolling(20).mean().iloc[-1]
+                std_20 = ticker_data["close"].rolling(20).std().iloc[-1]
+                zscore = (close - mean_20) / std_20 if std_20 > 0 else 0
+
+                # Check for near-threshold conditions
+                status = []
+                if current_rsi < 35:
+                    status.append(f"RSI={current_rsi:.1f}")
+                if zscore < -1.5:
+                    status.append(f"Z={zscore:.2f}")
+                if current_rsi > 65:
+                    status.append(f"RSI={current_rsi:.1f}(OB)")
+
+                if status:
+                    near_triggers.append((ticker, close, " | ".join(status)))
+
+            if near_triggers:
+                for ticker, price, status in near_triggers[:10]:
+                    print(f"  {ticker:5} @ ${price:>8.2f} | {status}")
+            else:
+                print("  No stocks near threshold triggers")
+                print("  (RSI between 35-65, Z-score between -1.5 and 1.5)")
+
+    except Exception as e:
+        logger.debug(f"Could not generate market snapshot: {e}")
+        print("  Could not generate market snapshot")
+
+    print("\n" + "=" * 70)
+    print(f"  Scan complete. {len(signals)} signals generated.")
+    print("=" * 70 + "\n")
 
     # Send alerts
-    sent = alert_manager.process_signals(signals)
-    logger.info(f"Sent {sent} alerts")
+    if signals:
+        sent = alert_manager.process_signals(signals)
+        logger.info(f"Sent {sent} alerts")
 
 
 def run_init():
