@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize"],
         help="Command to execute"
     )
 
@@ -98,6 +98,8 @@ def main():
         run_scan()
     elif args.command == "init":
         run_init()
+    elif args.command == "optimize":
+        run_optimize()
 
 
 def run_scheduler():
@@ -453,6 +455,120 @@ def run_init():
       - stockpulse backtest   # Run backtests
     ==========================================
     """)
+
+
+def run_optimize():
+    """Run hyperparameter optimization for all strategies."""
+    from stockpulse.strategies.optimizer import StrategyOptimizer, STRATEGY_CLASSES
+    from stockpulse.data.universe import UniverseManager
+    from datetime import timedelta
+    import time
+
+    logger.info("Starting hyperparameter optimization...")
+
+    print("\n" + "=" * 70)
+    print("  STOCKPULSE STRATEGY OPTIMIZER")
+    print("  Maximizing returns with max 25% drawdown constraint")
+    print("=" * 70)
+
+    # Get tickers
+    universe = UniverseManager()
+    tickers = universe.get_active_tickers()
+
+    if not tickers:
+        logger.error("No tickers in universe. Run 'stockpulse init' first.")
+        return
+
+    # Use subset for faster optimization
+    tickers = tickers[:30]
+    print(f"\n  Using {len(tickers)} tickers for optimization")
+
+    # Date range - use 18 months of data
+    end_date = date.today()
+    start_date = end_date - timedelta(days=540)
+    print(f"  Date range: {start_date} to {end_date}")
+
+    # Initialize optimizer
+    optimizer = StrategyOptimizer(max_drawdown_pct=25.0)
+
+    all_results = {}
+    total_strategies = len(STRATEGY_CLASSES)
+
+    for i, strategy_name in enumerate(STRATEGY_CLASSES.keys(), 1):
+        print(f"\n  [{i}/{total_strategies}] Optimizing {strategy_name}...")
+        print("-" * 70)
+
+        start_time = time.time()
+
+        try:
+            def progress_callback(current, total, result):
+                bar_width = 40
+                filled = int(bar_width * current / total)
+                bar = "█" * filled + "░" * (bar_width - filled)
+                ret = result.get("total_return_pct", 0)
+                dd = result.get("max_drawdown_pct", 0)
+                print(f"\r  [{bar}] {current}/{total} | Return: {ret:+.1f}% | DD: {dd:.1f}%", end="", flush=True)
+
+            result = optimizer.optimize(
+                strategy_name=strategy_name,
+                tickers=tickers,
+                start_date=start_date,
+                end_date=end_date,
+                objective="sharpe",
+                max_iterations=50,
+                progress_callback=progress_callback
+            )
+
+            all_results[strategy_name] = result
+
+            elapsed = time.time() - start_time
+            print()  # New line after progress bar
+
+            # Show results
+            constraint_status = "✓" if result.constraint_satisfied else "✗"
+            print(f"\n  {constraint_status} {strategy_name}")
+            print(f"    Return: {result.best_return:+.2f}%")
+            print(f"    Sharpe: {result.best_sharpe:.2f}")
+            print(f"    Max DD: {result.best_drawdown:.2f}%")
+            print(f"    Time: {elapsed:.1f}s")
+
+            # Show key params
+            key_params = {k: v for k, v in result.best_params.items()
+                         if k not in ["enabled", "_optimized"]}
+            print(f"    Params: {key_params}")
+
+        except Exception as e:
+            logger.error(f"Failed to optimize {strategy_name}: {e}")
+            print(f"  ✗ {strategy_name} - FAILED: {e}")
+            continue
+
+    # Summary
+    print("\n" + "=" * 70)
+    print("  OPTIMIZATION SUMMARY")
+    print("=" * 70)
+
+    print("\n  Strategy                     Return    Sharpe    Max DD   Constraint")
+    print("  " + "-" * 66)
+
+    for name, result in all_results.items():
+        status = "✓ Met" if result.constraint_satisfied else "✗ Exceeded"
+        print(f"  {name:28} {result.best_return:+7.2f}%  {result.best_sharpe:6.2f}  {result.best_drawdown:7.2f}%  {status}")
+
+    # Save to config
+    print("\n" + "-" * 70)
+    print("  Saving optimized parameters to config/config.yaml...")
+
+    try:
+        optimizer.save_optimized_params(all_results)
+        print("  ✓ Parameters saved successfully!")
+        print("\n  To use new parameters:")
+        print("    1. Restart stockpulse run/dashboard")
+        print("    2. Commit and push: git add config/config.yaml && git commit -m 'Optimized params' && git push")
+    except Exception as e:
+        logger.error(f"Failed to save params: {e}")
+        print(f"  ✗ Failed to save: {e}")
+
+    print("\n" + "=" * 70 + "\n")
 
 
 if __name__ == "__main__":
