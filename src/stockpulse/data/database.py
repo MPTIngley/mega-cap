@@ -1,10 +1,16 @@
-"""Database management for StockPulse using DuckDB."""
+"""Database management for StockPulse using SQLite with WAL mode.
+
+SQLite with WAL (Write-Ahead Logging) mode supports:
+- One writer at a time
+- Multiple concurrent readers (even while writing)
+- No locking conflicts between dashboard and scheduler
+"""
 
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
+import sqlite3
 
-import duckdb
 import pandas as pd
 
 from stockpulse.utils.config import get_config
@@ -13,381 +19,326 @@ from stockpulse.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _db_instance: "Database | None" = None
-_db_readonly_instance: "Database | None" = None
-_force_read_only: bool = False  # Set True in dashboard to prevent write conflicts
-
-
-def set_read_only_mode(enabled: bool = True) -> None:
-    """Force all subsequent get_db() calls to return read-only connections.
-
-    Use this in the dashboard to avoid conflicts with the scheduler.
-    """
-    global _force_read_only
-    _force_read_only = enabled
-    logger.info(f"Database read-only mode: {enabled}")
 
 
 class Database:
-    """DuckDB database manager for StockPulse."""
+    """SQLite database manager for StockPulse with WAL mode for concurrency."""
 
     SCHEMA_VERSION = 1
 
-    def __init__(self, db_path: str | Path | None = None, read_only: bool = False):
-        """Initialize database connection.
-
-        Args:
-            db_path: Path to database file
-            read_only: If True, open in read-only mode (allows concurrent access)
-        """
-        import time
-
+    def __init__(self, db_path: str | Path | None = None):
+        """Initialize database connection with WAL mode."""
         if db_path is None:
             config = get_config()
             db_path = config["database"]["path"]
+            # Change extension from .duckdb to .sqlite if needed
+            if str(db_path).endswith(".duckdb"):
+                db_path = str(db_path).replace(".duckdb", ".sqlite")
 
         self.db_path = Path(db_path)
-        self.read_only = read_only
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if not read_only:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Connect with optimized settings for concurrent access
+        self.conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,  # Allow multi-threaded access
+            timeout=30.0  # Wait up to 30 seconds for locks
+        )
 
-        # Retry logic for database connections that may be locked
-        max_retries = 10 if read_only else 3
-        retry_delay = 0.5
+        # Enable WAL mode for concurrent read/write access
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")  # Good balance of safety/speed
+        self.conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
+        self.conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
 
-        for attempt in range(max_retries):
-            try:
-                self.conn = duckdb.connect(str(self.db_path), read_only=read_only)
-                break
-            except duckdb.IOException as e:
-                if "lock" in str(e).lower() and attempt < max_retries - 1:
-                    logger.warning(f"Database locked, retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 1.5, 5.0)  # Cap at 5 seconds
-                else:
-                    raise
+        # Enable foreign keys
+        self.conn.execute("PRAGMA foreign_keys=ON")
 
-        if not read_only:
-            self._init_schema()
-        logger.info(f"Database initialized at {self.db_path} (read_only={read_only})")
+        self._init_schema()
+        logger.info(f"Database initialized at {self.db_path} (SQLite WAL mode)")
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
+        cursor = self.conn.cursor()
+
         # Universe table - stocks we track
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS universe (
-                ticker VARCHAR PRIMARY KEY,
-                company_name VARCHAR,
-                sector VARCHAR,
-                industry VARCHAR,
-                market_cap DOUBLE,
-                is_active BOOLEAN DEFAULT true,
-                added_date DATE,
-                last_refreshed TIMESTAMP
+                ticker TEXT PRIMARY KEY,
+                company_name TEXT,
+                sector TEXT,
+                industry TEXT,
+                market_cap REAL,
+                is_active INTEGER DEFAULT 1,
+                added_date TEXT,
+                last_refreshed TEXT
             )
         """)
 
         # Daily price data
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS prices_daily (
-                ticker VARCHAR,
-                date DATE,
-                open DOUBLE,
-                high DOUBLE,
-                low DOUBLE,
-                close DOUBLE,
-                adj_close DOUBLE,
-                volume BIGINT,
+                ticker TEXT,
+                date TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                adj_close REAL,
+                volume INTEGER,
                 PRIMARY KEY (ticker, date)
             )
         """)
 
         # Intraday price data (15-min bars)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS prices_intraday (
-                ticker VARCHAR,
-                timestamp TIMESTAMP,
-                open DOUBLE,
-                high DOUBLE,
-                low DOUBLE,
-                close DOUBLE,
-                volume BIGINT,
+                ticker TEXT,
+                timestamp TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume INTEGER,
                 PRIMARY KEY (ticker, timestamp)
             )
         """)
 
         # Fundamental data
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS fundamentals (
-                ticker VARCHAR,
-                date DATE,
-                pe_ratio DOUBLE,
-                forward_pe DOUBLE,
-                pb_ratio DOUBLE,
-                peg_ratio DOUBLE,
-                dividend_yield DOUBLE,
-                eps DOUBLE,
-                revenue DOUBLE,
-                profit_margin DOUBLE,
-                roe DOUBLE,
-                debt_to_equity DOUBLE,
-                current_ratio DOUBLE,
-                fifty_two_week_high DOUBLE,
-                fifty_two_week_low DOUBLE,
-                avg_volume_10d BIGINT,
-                beta DOUBLE,
+                ticker TEXT,
+                date TEXT,
+                pe_ratio REAL,
+                forward_pe REAL,
+                pb_ratio REAL,
+                peg_ratio REAL,
+                dividend_yield REAL,
+                eps REAL,
+                revenue REAL,
+                profit_margin REAL,
+                roe REAL,
+                debt_to_equity REAL,
+                current_ratio REAL,
+                fifty_two_week_high REAL,
+                fifty_two_week_low REAL,
+                avg_volume_10d INTEGER,
+                beta REAL,
                 PRIMARY KEY (ticker, date)
             )
         """)
 
-        # Trading signals (using autoincrement via sequence default)
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS signals_id_seq START 1
-        """)
-        self.conn.execute("""
+        # Trading signals
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS signals (
-                id INTEGER DEFAULT nextval('signals_id_seq') PRIMARY KEY,
-                created_at TIMESTAMP DEFAULT current_timestamp,
-                ticker VARCHAR NOT NULL,
-                strategy VARCHAR NOT NULL,
-                direction VARCHAR NOT NULL,
-                confidence DOUBLE NOT NULL,
-                entry_price DOUBLE,
-                target_price DOUBLE,
-                stop_price DOUBLE,
-                status VARCHAR DEFAULT 'open',
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT (datetime('now')),
+                ticker TEXT NOT NULL,
+                strategy TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                entry_price REAL,
+                target_price REAL,
+                stop_price REAL,
+                status TEXT DEFAULT 'open',
                 notes TEXT
             )
         """)
 
         # Paper trading positions
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS positions_paper_id_seq START 1
-        """)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS positions_paper (
-                id INTEGER DEFAULT nextval('positions_paper_id_seq') PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 signal_id INTEGER,
-                ticker VARCHAR NOT NULL,
-                direction VARCHAR NOT NULL,
-                entry_price DOUBLE NOT NULL,
-                entry_date TIMESTAMP NOT NULL,
-                shares DOUBLE NOT NULL,
-                exit_price DOUBLE,
-                exit_date TIMESTAMP,
-                pnl DOUBLE,
-                pnl_pct DOUBLE,
-                status VARCHAR DEFAULT 'open',
-                exit_reason VARCHAR,
-                strategy VARCHAR
+                ticker TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                entry_date TEXT NOT NULL,
+                shares REAL NOT NULL,
+                exit_price REAL,
+                exit_date TEXT,
+                pnl REAL,
+                pnl_pct REAL,
+                status TEXT DEFAULT 'open',
+                exit_reason TEXT,
+                strategy TEXT
             )
         """)
 
         # Real trading positions (Phase 5)
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS positions_real_id_seq START 1
-        """)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS positions_real (
-                id INTEGER DEFAULT nextval('positions_real_id_seq') PRIMARY KEY,
-                ticker VARCHAR NOT NULL,
-                direction VARCHAR NOT NULL,
-                entry_price DOUBLE NOT NULL,
-                entry_date TIMESTAMP NOT NULL,
-                shares DOUBLE NOT NULL,
-                exit_price DOUBLE,
-                exit_date TIMESTAMP,
-                pnl DOUBLE,
-                pnl_pct DOUBLE,
-                status VARCHAR DEFAULT 'open',
-                exit_reason VARCHAR,
-                strategy VARCHAR,
-                commission DOUBLE DEFAULT 0,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                entry_date TEXT NOT NULL,
+                shares REAL NOT NULL,
+                exit_price REAL,
+                exit_date TEXT,
+                pnl REAL,
+                pnl_pct REAL,
+                status TEXT DEFAULT 'open',
+                exit_reason TEXT,
+                strategy TEXT,
+                commission REAL DEFAULT 0,
                 notes TEXT
             )
         """)
 
         # Strategy configuration (runtime state)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS strategy_state (
-                strategy_name VARCHAR PRIMARY KEY,
-                enabled BOOLEAN DEFAULT true,
-                params TEXT,  -- JSON
-                last_run TIMESTAMP,
+                strategy_name TEXT PRIMARY KEY,
+                enabled INTEGER DEFAULT 1,
+                params TEXT,
+                last_run TEXT,
                 total_signals INTEGER DEFAULT 0,
                 win_count INTEGER DEFAULT 0,
                 loss_count INTEGER DEFAULT 0,
-                total_pnl DOUBLE DEFAULT 0,
-                max_drawdown DOUBLE DEFAULT 0,
-                disabled_reason VARCHAR
+                total_pnl REAL DEFAULT 0,
+                max_drawdown REAL DEFAULT 0,
+                disabled_reason TEXT
             )
         """)
 
         # Alert log
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS alerts_log_id_seq START 1
-        """)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS alerts_log (
-                id INTEGER DEFAULT nextval('alerts_log_id_seq') PRIMARY KEY,
-                created_at TIMESTAMP DEFAULT current_timestamp,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT (datetime('now')),
                 signal_id INTEGER,
-                alert_type VARCHAR NOT NULL,
-                recipient VARCHAR,
-                subject VARCHAR,
+                alert_type TEXT NOT NULL,
+                recipient TEXT,
+                subject TEXT,
                 body TEXT,
-                sent_successfully BOOLEAN,
-                error_message VARCHAR
+                sent_successfully INTEGER,
+                error_message TEXT
             )
         """)
 
         # Long-term watchlist
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS long_term_watchlist_id_seq START 1
-        """)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS long_term_watchlist (
-                id INTEGER DEFAULT nextval('long_term_watchlist_id_seq') PRIMARY KEY,
-                ticker VARCHAR NOT NULL,
-                scan_date DATE NOT NULL,
-                composite_score DOUBLE,
-                valuation_score DOUBLE,
-                technical_score DOUBLE,
-                dividend_score DOUBLE,
-                quality_score DOUBLE,
-                pe_percentile DOUBLE,
-                price_vs_52w_low_pct DOUBLE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                scan_date TEXT NOT NULL,
+                composite_score REAL,
+                valuation_score REAL,
+                technical_score REAL,
+                dividend_score REAL,
+                quality_score REAL,
+                pe_percentile REAL,
+                price_vs_52w_low_pct REAL,
                 reasoning TEXT,
                 UNIQUE (ticker, scan_date)
             )
         """)
 
         # Backtest results
-        self.conn.execute("""
-            CREATE SEQUENCE IF NOT EXISTS backtest_results_id_seq START 1
-        """)
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS backtest_results (
-                id INTEGER DEFAULT nextval('backtest_results_id_seq') PRIMARY KEY,
-                strategy VARCHAR NOT NULL,
-                run_date TIMESTAMP DEFAULT current_timestamp,
-                start_date DATE,
-                end_date DATE,
-                initial_capital DOUBLE,
-                final_value DOUBLE,
-                total_return_pct DOUBLE,
-                annualized_return_pct DOUBLE,
-                sharpe_ratio DOUBLE,
-                sortino_ratio DOUBLE,
-                max_drawdown_pct DOUBLE,
-                win_rate DOUBLE,
-                profit_factor DOUBLE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy TEXT NOT NULL,
+                run_date TEXT DEFAULT (datetime('now')),
+                start_date TEXT,
+                end_date TEXT,
+                initial_capital REAL,
+                final_value REAL,
+                total_return_pct REAL,
+                annualized_return_pct REAL,
+                sharpe_ratio REAL,
+                sortino_ratio REAL,
+                max_drawdown_pct REAL,
+                win_rate REAL,
+                profit_factor REAL,
                 total_trades INTEGER,
-                avg_trade_pnl DOUBLE,
-                avg_win DOUBLE,
-                avg_loss DOUBLE,
-                avg_hold_days DOUBLE,
+                avg_trade_pnl REAL,
+                avg_win REAL,
+                avg_loss REAL,
+                avg_hold_days REAL,
                 params TEXT
             )
         """)
 
         # System state / metadata
-        self.conn.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_state (
-                key VARCHAR PRIMARY KEY,
-                value VARCHAR,
-                updated_at TIMESTAMP DEFAULT current_timestamp
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT DEFAULT (datetime('now'))
             )
         """)
 
         # Create indexes for common queries
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_prices_daily_date ON prices_daily(date)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_prices_intraday_timestamp ON prices_intraday(timestamp)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_positions_paper_status ON positions_paper(status)
-        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prices_daily_date ON prices_daily(date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prices_intraday_timestamp ON prices_intraday(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_paper_status ON positions_paper(status)")
 
+        self.conn.commit()
         logger.info("Database schema initialized")
 
-    def execute(self, query: str, params: tuple | None = None) -> duckdb.DuckDBPyRelation:
+    def execute(self, query: str, params: tuple | None = None) -> sqlite3.Cursor:
         """Execute a query."""
+        cursor = self.conn.cursor()
         if params:
-            return self.conn.execute(query, params)
-        return self.conn.execute(query)
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        self.conn.commit()
+        return cursor
 
     def fetchdf(self, query: str, params: tuple | None = None) -> pd.DataFrame:
         """Execute query and return DataFrame."""
-        result = self.execute(query, params)
-        return result.fetchdf()
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        return pd.read_sql_query(query, self.conn)
 
     def fetchone(self, query: str, params: tuple | None = None) -> tuple | None:
         """Execute query and return single row."""
-        result = self.execute(query, params)
-        return result.fetchone()
+        cursor = self.conn.cursor()
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        return cursor.fetchone()
 
     def fetchall(self, query: str, params: tuple | None = None) -> list[tuple]:
         """Execute query and return all rows."""
-        result = self.execute(query, params)
-        return result.fetchall()
+        cursor = self.conn.cursor()
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        return cursor.fetchall()
 
     def insert_df(self, table: str, df: pd.DataFrame, on_conflict: str = "ignore") -> int:
-        """Insert DataFrame into table using DuckDB syntax."""
+        """Insert DataFrame into table."""
         if df.empty:
             return 0
 
-        # Register DataFrame as a view
-        self.conn.register("_temp_insert_df", df)
+        # Convert DataFrame to records
+        cols = list(df.columns)
+        placeholders = ", ".join(["?" for _ in cols])
+        cols_str = ", ".join(cols)
 
-        cols = ", ".join(df.columns)
+        if on_conflict == "replace":
+            query = f"INSERT OR REPLACE INTO {table} ({cols_str}) VALUES ({placeholders})"
+        else:
+            query = f"INSERT OR IGNORE INTO {table} ({cols_str}) VALUES ({placeholders})"
 
-        try:
-            if on_conflict == "replace":
-                # For tables with primary key, delete existing then insert
-                # First, try to identify the primary key column
-                if "ticker" in df.columns and "date" in df.columns:
-                    # For price tables with composite key
-                    self.conn.execute(f"""
-                        DELETE FROM {table} WHERE (ticker, date) IN (
-                            SELECT ticker, date FROM _temp_insert_df
-                        )
-                    """)
-                elif "ticker" in df.columns and "timestamp" in df.columns:
-                    self.conn.execute(f"""
-                        DELETE FROM {table} WHERE (ticker, timestamp) IN (
-                            SELECT ticker, timestamp FROM _temp_insert_df
-                        )
-                    """)
-                self.conn.execute(f"""
-                    INSERT INTO {table} ({cols})
-                    SELECT {cols} FROM _temp_insert_df
-                """)
-            else:
-                # Insert and ignore conflicts using ON CONFLICT DO NOTHING
-                # DuckDB requires specifying the conflict target for composite keys
-                try:
-                    self.conn.execute(f"""
-                        INSERT INTO {table} ({cols})
-                        SELECT {cols} FROM _temp_insert_df
-                        ON CONFLICT DO NOTHING
-                    """)
-                except Exception:
-                    # Fallback: just insert (may fail on duplicates)
-                    self.conn.execute(f"""
-                        INSERT INTO {table} ({cols})
-                        SELECT {cols} FROM _temp_insert_df
-                    """)
-        finally:
-            self.conn.unregister("_temp_insert_df")
+        cursor = self.conn.cursor()
+
+        # Convert DataFrame rows to tuples, handling NaN values
+        records = []
+        for _, row in df.iterrows():
+            record = tuple(None if pd.isna(v) else v for v in row)
+            records.append(record)
+
+        cursor.executemany(query, records)
+        self.conn.commit()
 
         return len(df)
 
@@ -413,47 +364,20 @@ class Database:
         logger.info("Database connection closed")
 
 
-def get_db(read_only: bool = False, fresh: bool = False) -> Database:
-    """Get or create database instance.
-
-    Args:
-        read_only: If True, return a read-only connection that can run
-                   concurrently with a write connection. Use this for
-                   dashboard/read-only operations.
-        fresh: If True, always create a new connection instead of reusing.
-               Use this when you need to release locks between operations.
-
-    Note:
-        If set_read_only_mode(True) was called, this always returns a
-        read-only connection regardless of the read_only parameter.
-    """
-    global _db_instance, _db_readonly_instance, _force_read_only
-
-    # Force read-only mode if set (used by dashboard)
-    if _force_read_only:
-        read_only = True
-
-    # Fresh connection requested - don't use singleton
-    if fresh:
-        return Database(read_only=read_only)
-
-    if read_only:
-        if _db_readonly_instance is None:
-            _db_readonly_instance = Database(read_only=True)
-        return _db_readonly_instance
-    else:
-        if _db_instance is None:
-            _db_instance = Database()
-        return _db_instance
+def get_db() -> Database:
+    """Get or create database instance (singleton)."""
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database()
+    return _db_instance
 
 
 def release_db_locks() -> None:
-    """Close all database connections to release locks.
+    """Close database connection to release any locks.
 
-    Call this periodically in long-running processes to allow
-    other processes to access the database.
+    With SQLite WAL mode, this is rarely needed but kept for API compatibility.
     """
-    global _db_instance, _db_readonly_instance
+    global _db_instance
 
     if _db_instance is not None:
         try:
@@ -462,11 +386,107 @@ def release_db_locks() -> None:
             pass
         _db_instance = None
 
-    if _db_readonly_instance is not None:
-        try:
-            _db_readonly_instance.close()
-        except Exception:
-            pass
-        _db_readonly_instance = None
+    logger.debug("Released database connection")
 
-    logger.debug("Released database locks")
+
+# Keep for API compatibility but not needed with SQLite
+def set_read_only_mode(enabled: bool = True) -> None:
+    """No-op for SQLite. Kept for API compatibility."""
+    pass
+
+
+def reset_trading_data(keep_market_data: bool = True) -> dict[str, int]:
+    """Reset all personal trading data while optionally keeping market history.
+
+    Args:
+        keep_market_data: If True (default), keeps prices, fundamentals, universe.
+                         If False, clears everything.
+
+    Returns:
+        Dictionary with counts of deleted records per table.
+
+    Usage:
+        from stockpulse.data.database import reset_trading_data
+        reset_trading_data()  # Clear trades, keep market data
+        reset_trading_data(keep_market_data=False)  # Clear everything
+    """
+    db = get_db()
+    deleted = {}
+
+    # Tables with personal trading data (always cleared)
+    trading_tables = [
+        "signals",
+        "positions_paper",
+        "positions_real",
+        "alerts_log",
+        "backtest_results",
+        "long_term_watchlist",
+        "strategy_state",
+    ]
+
+    # Tables with market data (only cleared if keep_market_data=False)
+    market_tables = [
+        "prices_daily",
+        "prices_intraday",
+        "fundamentals",
+        "universe",
+        "system_state",
+    ]
+
+    tables_to_clear = trading_tables if keep_market_data else trading_tables + market_tables
+
+    for table in tables_to_clear:
+        try:
+            count_result = db.fetchone(f"SELECT COUNT(*) FROM {table}")
+            count = count_result[0] if count_result else 0
+            db.execute(f"DELETE FROM {table}")
+            deleted[table] = count
+            logger.info(f"Cleared {count} records from {table}")
+        except Exception as e:
+            logger.warning(f"Error clearing {table}: {e}")
+            deleted[table] = 0
+
+    logger.info(f"Trading data reset complete. Deleted: {deleted}")
+    return deleted
+
+
+def get_data_summary() -> dict[str, Any]:
+    """Get summary of data in the database.
+
+    Returns:
+        Dictionary with record counts and date ranges.
+    """
+    db = get_db()
+    summary = {}
+
+    # Table counts
+    tables = [
+        "universe", "prices_daily", "prices_intraday", "fundamentals",
+        "signals", "positions_paper", "positions_real", "alerts_log",
+        "backtest_results", "long_term_watchlist"
+    ]
+
+    for table in tables:
+        try:
+            result = db.fetchone(f"SELECT COUNT(*) FROM {table}")
+            summary[f"{table}_count"] = result[0] if result else 0
+        except Exception:
+            summary[f"{table}_count"] = 0
+
+    # Date ranges for market data
+    try:
+        result = db.fetchone("SELECT MIN(date), MAX(date) FROM prices_daily")
+        if result:
+            summary["prices_daily_start"] = result[0]
+            summary["prices_daily_end"] = result[1]
+    except Exception:
+        pass
+
+    # Active tickers
+    try:
+        result = db.fetchone("SELECT COUNT(*) FROM universe WHERE is_active = 1")
+        summary["active_tickers"] = result[0] if result else 0
+    except Exception:
+        summary["active_tickers"] = 0
+
+    return summary
