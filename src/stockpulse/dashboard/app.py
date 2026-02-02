@@ -1405,64 +1405,293 @@ def render_performance_page(services: dict):
 
 
 def render_backtests_page(services: dict):
-    """Render Backtests page."""
-    st.title("🔬 Backtests")
+    """Render Backtests page with interactive parameter tuning and optimization."""
+    st.title("🔬 Backtests & Optimization")
 
-    results_df = services["backtester"].get_backtest_results()
-
-    if not results_df.empty:
-        st.markdown("---")
-        st.subheader("Backtest Results")
-
-        display_cols = [
-            "strategy", "total_return_pct", "annualized_return_pct",
-            "sharpe_ratio", "max_drawdown_pct", "win_rate",
-            "profit_factor", "total_trades", "run_date"
-        ]
-        available_cols = [c for c in display_cols if c in results_df.columns]
-        display_df = results_df[available_cols].copy()
-
-        pct_cols = ["total_return_pct", "annualized_return_pct", "max_drawdown_pct", "win_rate"]
-        for col in pct_cols:
-            if col in display_df.columns:
-                display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}%")
-
-        ratio_cols = ["sharpe_ratio", "profit_factor"]
-        for col in ratio_cols:
-            if col in display_df.columns:
-                display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}")
-
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        st.subheader("Strategy Comparison")
-
-        fig = create_performance_chart(
-            results_df[["strategy", "total_return_pct"]].rename(columns={"total_return_pct": "total_pnl"}),
-            "total_pnl"
+    # Import optimizer
+    try:
+        from stockpulse.strategies.optimizer import (
+            StrategyOptimizer, get_param_ranges, get_strategy_params,
+            STRATEGY_CLASSES
         )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No backtest results available. Run backtests to see results here.")
+        optimizer_available = True
+    except ImportError:
+        optimizer_available = False
 
-    st.markdown("---")
-    st.subheader("Run New Backtest")
+    # Tabs for different views
+    tab1, tab2, tab3 = st.tabs(["📊 Results", "🎛️ Run Backtest", "🎯 Optimize"])
 
-    col1, col2 = st.columns(2)
+    # TAB 1: Results History
+    with tab1:
+        results_df = services["backtester"].get_backtest_results()
 
-    with col1:
+        if not results_df.empty:
+            st.subheader("Backtest Results History")
+
+            display_cols = [
+                "strategy", "total_return_pct", "annualized_return_pct",
+                "sharpe_ratio", "max_drawdown_pct", "win_rate",
+                "profit_factor", "total_trades", "run_date"
+            ]
+            available_cols = [c for c in display_cols if c in results_df.columns]
+            display_df = results_df[available_cols].copy()
+
+            pct_cols = ["total_return_pct", "annualized_return_pct", "max_drawdown_pct", "win_rate"]
+            for col in pct_cols:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}%")
+
+            ratio_cols = ["sharpe_ratio", "profit_factor"]
+            for col in ratio_cols:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}")
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.subheader("Strategy Comparison")
+
+            fig = create_performance_chart(
+                results_df[["strategy", "total_return_pct"]].rename(columns={"total_return_pct": "total_pnl"}),
+                "total_pnl"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No backtest results yet. Use the 'Run Backtest' tab to test strategies.")
+
+    # TAB 2: Run Backtest with Custom Params
+    with tab2:
+        st.subheader("Run Backtest with Custom Parameters")
+
+        # Strategy selection
         strategy_options = [
             "rsi_mean_reversion", "bollinger_squeeze", "macd_volume",
             "zscore_mean_reversion", "momentum_breakout"
         ]
-        selected_strategy = st.selectbox("Strategy", strategy_options)
+        selected_strategy = st.selectbox("Select Strategy", strategy_options, key="bt_strategy")
 
-    with col2:
-        start_date = st.date_input("Start Date", date(2023, 1, 1))
-        end_date = st.date_input("End Date", date.today())
+        # Date range
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", date(2024, 1, 1), key="bt_start")
+        with col2:
+            end_date = st.date_input("End Date", date.today(), key="bt_end")
 
-    if st.button("Run Backtest"):
-        st.info("Backtest functionality requires historical data. Run `stockpulse init` first.")
+        st.markdown("---")
+        st.subheader("Strategy Parameters")
+
+        # Get current params and param ranges
+        current_params = get_strategy_params(selected_strategy) if optimizer_available else {}
+        param_ranges = get_param_ranges(selected_strategy) if optimizer_available else {}
+
+        # Create parameter inputs based on strategy
+        custom_params = {"enabled": True}
+
+        if selected_strategy == "rsi_mean_reversion":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["rsi_period"] = st.slider("RSI Period", 5, 30, current_params.get("rsi_period", 14))
+                custom_params["rsi_oversold"] = st.slider("RSI Oversold", 15, 40, current_params.get("rsi_oversold", 25))
+            with col2:
+                custom_params["rsi_overbought"] = st.slider("RSI Overbought", 60, 85, current_params.get("rsi_overbought", 75))
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 65))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 3.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 3.0, 20.0, current_params.get("take_profit_pct", 8.0), 0.5)
+
+        elif selected_strategy == "bollinger_squeeze":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["bb_period"] = st.slider("BB Period", 10, 30, current_params.get("bb_period", 20))
+                custom_params["bb_std"] = st.slider("BB Std Dev", 1.0, 3.0, current_params.get("bb_std", 2.0), 0.1)
+            with col2:
+                custom_params["squeeze_threshold"] = st.slider("Squeeze Threshold", 0.01, 0.10, current_params.get("squeeze_threshold", 0.03), 0.01)
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 65))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 3.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 5.0, 25.0, current_params.get("take_profit_pct", 12.0), 0.5)
+
+        elif selected_strategy == "macd_volume":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["macd_fast"] = st.slider("MACD Fast", 5, 20, current_params.get("macd_fast", 12))
+                custom_params["macd_slow"] = st.slider("MACD Slow", 15, 35, current_params.get("macd_slow", 26))
+            with col2:
+                custom_params["macd_signal"] = st.slider("MACD Signal", 5, 15, current_params.get("macd_signal", 9))
+                custom_params["volume_threshold"] = st.slider("Volume Threshold", 1.0, 3.0, current_params.get("volume_threshold", 2.0), 0.1)
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 4.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 5.0, 25.0, current_params.get("take_profit_pct", 15.0), 0.5)
+
+        elif selected_strategy == "zscore_mean_reversion":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["lookback_period"] = st.slider("Lookback Period", 10, 40, current_params.get("lookback_period", 20))
+                custom_params["zscore_entry"] = st.slider("Z-Score Entry", -4.0, -1.0, current_params.get("zscore_entry", -2.5), 0.1)
+            with col2:
+                custom_params["zscore_exit"] = st.slider("Z-Score Exit", -0.5, 1.0, current_params.get("zscore_exit", 0.5), 0.1)
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 60))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 4.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 3.0, 20.0, current_params.get("take_profit_pct", 10.0), 0.5)
+
+        elif selected_strategy == "momentum_breakout":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["lookback_days"] = st.slider("Lookback Days", 5, 30, current_params.get("lookback_days", 10))
+                custom_params["breakout_threshold"] = st.slider("Breakout Threshold", 0.005, 0.05, current_params.get("breakout_threshold", 0.01), 0.005)
+            with col2:
+                custom_params["volume_confirmation"] = st.slider("Volume Confirmation", 1.0, 3.0, current_params.get("volume_confirmation", 1.8), 0.1)
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 60))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 3.5), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 5.0, 25.0, current_params.get("take_profit_pct", 12.0), 0.5)
+
+        st.markdown("---")
+
+        if st.button("🚀 Run Backtest", type="primary"):
+            with st.spinner(f"Running backtest for {selected_strategy}..."):
+                try:
+                    # Get strategy class
+                    strategy_class = STRATEGY_CLASSES[selected_strategy]
+                    strategy = strategy_class(custom_params)
+
+                    # Get tickers
+                    universe_df = services["db"].fetchdf("SELECT ticker FROM universe WHERE is_active = 1 LIMIT 50")
+                    tickers = universe_df["ticker"].tolist() if not universe_df.empty else ["AAPL", "MSFT", "GOOGL"]
+
+                    # Run backtest
+                    result = services["backtester"].run_backtest(
+                        strategy=strategy,
+                        tickers=tickers,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+
+                    # Display results
+                    st.success("Backtest complete!")
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total Return", f"{result.total_return_pct:.2f}%")
+                    col2.metric("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
+                    col3.metric("Max Drawdown", f"{result.max_drawdown_pct:.2f}%")
+                    col4.metric("Win Rate", f"{result.win_rate:.1f}%")
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total Trades", result.total_trades)
+                    col2.metric("Profit Factor", f"{result.profit_factor:.2f}")
+                    col3.metric("Avg Trade P&L", f"${result.avg_trade_pnl:.2f}")
+                    col4.metric("Avg Hold Days", f"{result.avg_hold_days:.1f}")
+
+                except Exception as e:
+                    st.error(f"Backtest failed: {e}")
+
+    # TAB 3: Optimization
+    with tab3:
+        st.subheader("🎯 Hyperparameter Optimization")
+        st.markdown("""
+        Find optimal parameters that **maximize returns** while keeping **max drawdown below your limit**.
+        """)
+
+        if not optimizer_available:
+            st.error("Optimizer not available. Check installation.")
+            return
+
+        # Settings
+        col1, col2 = st.columns(2)
+        with col1:
+            opt_strategy = st.selectbox("Strategy to Optimize", strategy_options, key="opt_strategy")
+            max_drawdown = st.slider("Max Allowed Drawdown %", 10.0, 50.0, 25.0, 1.0)
+
+        with col2:
+            objective = st.selectbox("Optimize For", ["sharpe", "return", "sortino"])
+            max_iterations = st.slider("Max Iterations", 20, 200, 50, 10)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            opt_start = st.date_input("Backtest Start", date(2023, 1, 1), key="opt_start")
+        with col2:
+            opt_end = st.date_input("Backtest End", date.today(), key="opt_end")
+
+        st.markdown("---")
+
+        if st.button("🔍 Run Optimization", type="primary"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            results_container = st.empty()
+
+            try:
+                optimizer = StrategyOptimizer(max_drawdown_pct=max_drawdown)
+
+                # Get tickers
+                universe_df = services["db"].fetchdf("SELECT ticker FROM universe WHERE is_active = 1 LIMIT 30")
+                tickers = universe_df["ticker"].tolist() if not universe_df.empty else ["AAPL", "MSFT", "GOOGL"]
+
+                def progress_callback(current, total, result):
+                    progress_bar.progress(current / total)
+                    status_text.text(f"Testing combination {current}/{total} - Return: {result['total_return_pct']:.2f}%, Drawdown: {result['max_drawdown_pct']:.2f}%")
+
+                result = optimizer.optimize(
+                    strategy_name=opt_strategy,
+                    tickers=tickers,
+                    start_date=opt_start,
+                    end_date=opt_end,
+                    objective=objective,
+                    max_iterations=max_iterations,
+                    progress_callback=progress_callback
+                )
+
+                progress_bar.progress(1.0)
+                status_text.text("Optimization complete!")
+
+                # Display results
+                st.success(f"✅ Found optimal parameters in {result.optimization_time_seconds:.1f} seconds")
+
+                if result.constraint_satisfied:
+                    st.info(f"Drawdown constraint satisfied: {abs(result.best_drawdown):.2f}% <= {max_drawdown}%")
+                else:
+                    st.warning(f"Could not satisfy {max_drawdown}% drawdown constraint. Best found: {abs(result.best_drawdown):.2f}%")
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Best Return", f"{result.best_return:.2f}%")
+                col2.metric("Best Sharpe", f"{result.best_sharpe:.2f}")
+                col3.metric("Max Drawdown", f"{result.best_drawdown:.2f}%")
+
+                st.markdown("### Optimal Parameters")
+                params_df = pd.DataFrame([result.best_params]).T
+                params_df.columns = ["Value"]
+                st.dataframe(params_df, use_container_width=True)
+
+                # Save button
+                st.markdown("---")
+                if st.button("💾 Save as Default Config"):
+                    try:
+                        optimizer.save_optimized_params({opt_strategy: result})
+                        st.success(f"Saved optimized params to config/config.yaml")
+                        st.info("Restart the app to use new parameters.")
+                    except Exception as e:
+                        st.error(f"Failed to save: {e}")
+
+                # Show top 10 results
+                st.markdown("### Top 10 Parameter Combinations")
+                valid_results = [r for r in result.all_results if r.get("meets_constraint", False)]
+                if valid_results:
+                    valid_results.sort(key=lambda x: x["score"], reverse=True)
+                    top_results = valid_results[:10]
+
+                    top_df = pd.DataFrame([{
+                        "Return %": r["total_return_pct"],
+                        "Sharpe": r["sharpe_ratio"],
+                        "Drawdown %": r["max_drawdown_pct"],
+                        "Win Rate %": r["win_rate"],
+                        "Trades": r["total_trades"],
+                    } for r in top_results])
+                    st.dataframe(top_df, use_container_width=True, hide_index=True)
+
+            except Exception as e:
+                st.error(f"Optimization failed: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 
 def render_watchlist_page(services: dict):

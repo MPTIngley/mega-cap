@@ -261,6 +261,21 @@ class Database:
             )
         """)
 
+        # Optimization runs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS optimization_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy TEXT NOT NULL,
+                run_date TEXT DEFAULT (datetime('now')),
+                best_params TEXT,
+                best_return_pct REAL,
+                best_sharpe REAL,
+                best_drawdown_pct REAL,
+                constraint_satisfied INTEGER,
+                optimization_time_seconds REAL
+            )
+        """)
+
         # System state / metadata
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_state (
