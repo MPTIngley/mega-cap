@@ -43,69 +43,70 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - WCAG 2.1 AA compliant color contrast (4.5:1 minimum)
+# Custom CSS - Dark Mode Theme with WCAG 2.1 AA compliant contrast
 st.markdown("""
 <style>
     /* ========================================
-       FORCE LIGHT THEME - Override Streamlit
+       DARK THEME - Slate color palette
        ======================================== */
 
     /* Main app background */
     .stApp, [data-testid="stAppViewContainer"], .main {
-        background-color: #ffffff !important;
+        background-color: #0f172a !important;
     }
 
     /* Main content area */
     .main .block-container {
-        background-color: #ffffff !important;
+        background-color: #0f172a !important;
         padding-top: 2rem !important;
+        max-width: 1200px !important;
     }
 
     /* ========================================
-       SIDEBAR - Light gray background
+       SIDEBAR - Darker slate
        ======================================== */
     [data-testid="stSidebar"] {
-        background-color: #f0f2f6 !important;
+        background-color: #1e293b !important;
     }
 
     [data-testid="stSidebar"] > div:first-child {
-        background-color: #f0f2f6 !important;
+        background-color: #1e293b !important;
     }
 
-    /* Sidebar text - dark on light */
+    /* Sidebar text */
     [data-testid="stSidebar"] * {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] .stMarkdown {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
     /* Sidebar radio buttons */
     [data-testid="stSidebar"] .stRadio label {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
         font-weight: 500 !important;
     }
 
     [data-testid="stSidebar"] .stRadio label span {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
     /* ========================================
-       MAIN CONTENT TEXT - Dark on white
+       MAIN CONTENT TEXT
        ======================================== */
 
     /* All text defaults */
     .main p, .main span, .main label, .main div {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
-    /* Headers - very dark */
+    /* Headers */
     h1, h2, h3, h4, h5, h6 {
-        color: #111827 !important;
+        color: #f1f5f9 !important;
     }
 
     h1 { font-size: 2rem !important; font-weight: 700 !important; }
@@ -119,16 +120,16 @@ st.markdown("""
     h3 { font-size: 1.25rem !important; font-weight: 600 !important; }
 
     /* ========================================
-       METRICS - High contrast
+       METRICS - High visibility
        ======================================== */
     [data-testid="stMetricValue"] {
-        color: #111827 !important;
+        color: #f1f5f9 !important;
         font-size: 1.75rem !important;
         font-weight: 700 !important;
     }
 
     [data-testid="stMetricLabel"] {
-        color: #374151 !important;
+        color: #94a3b8 !important;
         font-weight: 500 !important;
         font-size: 0.9rem !important;
     }
@@ -137,179 +138,351 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Positive delta - green */
-    [data-testid="stMetricDelta"][data-testid-delta="positive"] {
-        color: #059669 !important;
+    /* Positive delta - bright green */
+    [data-testid="stMetricDelta"] svg[data-testid="stMetricDeltaIcon-Up"] + div,
+    [data-testid="stMetricDelta"]:has(svg[data-testid="stMetricDeltaIcon-Up"]) {
+        color: #22c55e !important;
     }
 
-    /* Negative delta - red */
-    [data-testid="stMetricDelta"][data-testid-delta="negative"] {
-        color: #dc2626 !important;
+    /* Negative delta - bright red */
+    [data-testid="stMetricDelta"] svg[data-testid="stMetricDeltaIcon-Down"] + div,
+    [data-testid="stMetricDelta"]:has(svg[data-testid="stMetricDeltaIcon-Down"]) {
+        color: #ef4444 !important;
     }
 
     /* ========================================
-       DATA TABLES
+       DATA TABLES - Dark styling
        ======================================== */
     .stDataFrame {
+        border-radius: 8px !important;
+        overflow: hidden !important;
+    }
+
+    /* Table container */
+    [data-testid="stDataFrame"] > div {
+        background-color: #1e293b !important;
         border-radius: 8px !important;
     }
 
     /* Table headers */
     .stDataFrame thead th {
-        background-color: #f3f4f6 !important;
-        color: #111827 !important;
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
         font-weight: 600 !important;
+        border-bottom: 1px solid #475569 !important;
     }
 
     /* Table cells */
     .stDataFrame tbody td {
-        color: #1f2937 !important;
-        background-color: #ffffff !important;
+        color: #e2e8f0 !important;
+        background-color: #1e293b !important;
+        border-bottom: 1px solid #334155 !important;
     }
 
     /* Alternating rows */
     .stDataFrame tbody tr:nth-child(even) td {
-        background-color: #f9fafb !important;
+        background-color: #273548 !important;
+    }
+
+    /* Table hover */
+    .stDataFrame tbody tr:hover td {
+        background-color: #334155 !important;
     }
 
     /* ========================================
-       FORM ELEMENTS
+       FORM ELEMENTS - Dark inputs
        ======================================== */
 
     /* Select boxes */
     .stSelectbox label, .stMultiSelect label {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
         font-weight: 500 !important;
     }
 
-    .stSelectbox [data-baseweb="select"] {
-        background-color: #ffffff !important;
+    .stSelectbox [data-baseweb="select"],
+    .stMultiSelect [data-baseweb="select"] {
+        background-color: #1e293b !important;
+        border-color: #475569 !important;
     }
 
-    .stSelectbox [data-baseweb="select"] * {
-        color: #1f2937 !important;
+    .stSelectbox [data-baseweb="select"] *,
+    .stMultiSelect [data-baseweb="select"] * {
+        color: #e2e8f0 !important;
+    }
+
+    /* Dropdown menu */
+    [data-baseweb="popover"] {
+        background-color: #1e293b !important;
+    }
+
+    [data-baseweb="menu"] {
+        background-color: #1e293b !important;
+    }
+
+    [data-baseweb="menu"] li {
+        color: #e2e8f0 !important;
+    }
+
+    [data-baseweb="menu"] li:hover {
+        background-color: #334155 !important;
     }
 
     /* Text inputs */
     .stTextInput label, .stNumberInput label {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
     .stTextInput input, .stNumberInput input {
-        background-color: #ffffff !important;
-        color: #1f2937 !important;
-        border: 1px solid #d1d5db !important;
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+        border: 1px solid #475569 !important;
+    }
+
+    .stTextInput input:focus, .stNumberInput input:focus {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 1px #3b82f6 !important;
     }
 
     /* Sliders */
     .stSlider label {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
     }
 
     /* ========================================
-       BUTTONS
+       BUTTONS - Blue accent
        ======================================== */
     .stButton button {
         background-color: #3b82f6 !important;
         color: #ffffff !important;
         font-weight: 500 !important;
         border: none !important;
+        transition: background-color 0.2s ease !important;
     }
 
     .stButton button:hover {
         background-color: #2563eb !important;
     }
 
+    .stButton button:active {
+        background-color: #1d4ed8 !important;
+    }
+
+    /* Secondary/outline buttons */
+    .stButton button[kind="secondary"] {
+        background-color: transparent !important;
+        border: 1px solid #475569 !important;
+        color: #e2e8f0 !important;
+    }
+
+    .stButton button[kind="secondary"]:hover {
+        background-color: #334155 !important;
+    }
+
     /* ========================================
-       ALERTS / INFO BOXES
+       ALERTS / INFO BOXES - Dark variants
        ======================================== */
     .stAlert {
         border-radius: 8px !important;
     }
 
-    /* Info box */
-    [data-testid="stAlert"][data-baseweb="notification"] {
-        background-color: #eff6ff !important;
-        color: #1e40af !important;
+    /* Info box - blue */
+    [data-testid="stAlert"][data-baseweb="notification"],
+    .stInfo {
+        background-color: #1e3a5f !important;
+        color: #93c5fd !important;
+        border-left: 4px solid #3b82f6 !important;
     }
 
-    /* Success box */
+    /* Success box - green */
     .stSuccess, [data-baseweb="notification"][kind="positive"] {
-        background-color: #ecfdf5 !important;
-        color: #065f46 !important;
+        background-color: #14532d !important;
+        color: #86efac !important;
+        border-left: 4px solid #22c55e !important;
     }
 
-    /* Warning box */
+    /* Warning box - amber */
     .stWarning, [data-baseweb="notification"][kind="warning"] {
-        background-color: #fffbeb !important;
-        color: #92400e !important;
+        background-color: #713f12 !important;
+        color: #fcd34d !important;
+        border-left: 4px solid #f59e0b !important;
     }
 
-    /* Error box */
+    /* Error box - red */
     .stError, [data-baseweb="notification"][kind="negative"] {
-        background-color: #fef2f2 !important;
-        color: #991b1b !important;
+        background-color: #7f1d1d !important;
+        color: #fca5a5 !important;
+        border-left: 4px solid #ef4444 !important;
     }
 
     /* ========================================
-       TABS
+       TABS - Dark styling
        ======================================== */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #f3f4f6 !important;
+        background-color: #1e293b !important;
         border-radius: 8px !important;
+        gap: 4px !important;
     }
 
     .stTabs [data-baseweb="tab"] {
-        color: #4b5563 !important;
+        color: #94a3b8 !important;
         font-weight: 500 !important;
+        background-color: transparent !important;
     }
 
     .stTabs [aria-selected="true"] {
-        color: #1f2937 !important;
-        background-color: #ffffff !important;
+        color: #f1f5f9 !important;
+        background-color: #334155 !important;
+        border-radius: 6px !important;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #e2e8f0 !important;
+    }
+
+    /* Tab content area */
+    .stTabs [data-baseweb="tab-panel"] {
+        background-color: transparent !important;
     }
 
     /* ========================================
-       EXPANDERS
+       EXPANDERS - Dark styling
        ======================================== */
     .streamlit-expanderHeader {
-        color: #1f2937 !important;
+        color: #e2e8f0 !important;
         font-weight: 500 !important;
-        background-color: #f9fafb !important;
+        background-color: #1e293b !important;
+        border-radius: 8px !important;
     }
 
     .streamlit-expanderContent {
-        background-color: #ffffff !important;
-        color: #1f2937 !important;
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+        border-radius: 0 0 8px 8px !important;
+    }
+
+    [data-testid="stExpander"] {
+        background-color: #1e293b !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px !important;
     }
 
     /* ========================================
-       CODE BLOCKS
+       CODE BLOCKS - Dark styling
        ======================================== */
     code {
-        background-color: #f3f4f6 !important;
-        color: #1f2937 !important;
+        background-color: #334155 !important;
+        color: #e2e8f0 !important;
         padding: 2px 6px !important;
         border-radius: 4px !important;
     }
 
     pre {
-        background-color: #1f2937 !important;
-        color: #f9fafb !important;
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px !important;
     }
 
     /* ========================================
        CAPTIONS & SMALL TEXT
        ======================================== */
     .stCaption, small, .st-emotion-cache-1gulkj5 {
-        color: #6b7280 !important;
+        color: #94a3b8 !important;
     }
 
     /* ========================================
-       PLOTLY CHARTS - ensure readable
+       DIVIDERS
+       ======================================== */
+    hr {
+        border-color: #334155 !important;
+    }
+
+    /* ========================================
+       PLOTLY CHARTS - Dark theme
        ======================================== */
     .js-plotly-plot .plotly .modebar {
         background-color: transparent !important;
+    }
+
+    .js-plotly-plot .plotly .modebar-btn path {
+        fill: #94a3b8 !important;
+    }
+
+    .js-plotly-plot .plotly .modebar-btn:hover path {
+        fill: #e2e8f0 !important;
+    }
+
+    /* ========================================
+       CARDS / CONTAINERS
+       ======================================== */
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+        background-color: #1e293b;
+        border-radius: 8px;
+        padding: 1rem;
+        border: 1px solid #334155;
+    }
+
+    /* ========================================
+       SCROLLBAR - Dark styling
+       ======================================== */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #1e293b;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+    }
+
+    /* ========================================
+       POSITIVE/NEGATIVE VALUE COLORS
+       ======================================== */
+    .positive, .profit {
+        color: #22c55e !important;
+    }
+
+    .negative, .loss {
+        color: #ef4444 !important;
+    }
+
+    /* ========================================
+       STATUS BADGES
+       ======================================== */
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .badge-success {
+        background-color: #14532d;
+        color: #86efac;
+    }
+
+    .badge-warning {
+        background-color: #713f12;
+        color: #fcd34d;
+    }
+
+    .badge-danger {
+        background-color: #7f1d1d;
+        color: #fca5a5;
+    }
+
+    .badge-info {
+        background-color: #1e3a5f;
+        color: #93c5fd;
     }
 </style>
 """, unsafe_allow_html=True)

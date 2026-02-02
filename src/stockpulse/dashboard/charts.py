@@ -9,24 +9,32 @@ from plotly.subplots import make_subplots
 
 class ChartTheme:
     """
-    Clean, publication-quality chart theme.
+    Dark mode chart theme with clean, publication-quality styling.
 
-    White background, large fonts, clear axes.
-    NO default matplotlib garbage.
+    Slate dark background, large fonts, clear axes.
+    Matches Streamlit dark theme.
     """
 
-    # Colors
-    BACKGROUND = "#FFFFFF"
-    GRID_COLOR = "#E5E5E5"
-    TEXT_COLOR = "#2C3E50"
-    POSITIVE_COLOR = "#27AE60"
-    NEGATIVE_COLOR = "#E74C3C"
-    PRIMARY_COLOR = "#3498DB"
-    SECONDARY_COLOR = "#9B59B6"
-    NEUTRAL_COLOR = "#95A5A6"
+    # Colors - Slate dark palette
+    BACKGROUND = "#0f172a"  # Main app background
+    PAPER_BG = "#1e293b"    # Chart paper background (slightly lighter)
+    GRID_COLOR = "#334155"  # Subtle grid lines
+    TEXT_COLOR = "#e2e8f0"  # Light text for readability
+    AXIS_COLOR = "#64748b"  # Muted axis lines
+
+    # Semantic colors
+    POSITIVE_COLOR = "#22c55e"  # Bright green for gains
+    NEGATIVE_COLOR = "#ef4444"  # Bright red for losses
+    PRIMARY_COLOR = "#3b82f6"   # Blue accent
+    SECONDARY_COLOR = "#a855f7" # Purple secondary
+    NEUTRAL_COLOR = "#94a3b8"   # Muted gray
+
+    # Candlestick colors
+    CANDLE_UP = "#22c55e"
+    CANDLE_DOWN = "#ef4444"
 
     # Fonts
-    FONT_FAMILY = "Arial, sans-serif"
+    FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
     TITLE_SIZE = 18
     AXIS_TITLE_SIZE = 14
     TICK_SIZE = 12
@@ -34,7 +42,7 @@ class ChartTheme:
 
     @classmethod
     def get_layout(cls, title: str = "", height: int = 500) -> dict:
-        """Get standard layout configuration."""
+        """Get standard layout configuration for dark theme."""
         return {
             "title": {
                 "text": title,
@@ -42,30 +50,42 @@ class ChartTheme:
                 "x": 0.5,
                 "xanchor": "center"
             },
-            "paper_bgcolor": cls.BACKGROUND,
+            "paper_bgcolor": cls.PAPER_BG,
             "plot_bgcolor": cls.BACKGROUND,
             "font": {"family": cls.FONT_FAMILY, "color": cls.TEXT_COLOR},
             "height": height,
             "margin": {"l": 60, "r": 40, "t": 60, "b": 60},
             "xaxis": {
                 "gridcolor": cls.GRID_COLOR,
-                "linecolor": cls.TEXT_COLOR,
-                "tickfont": {"size": cls.TICK_SIZE},
-                "title_font": {"size": cls.AXIS_TITLE_SIZE}
+                "linecolor": cls.AXIS_COLOR,
+                "tickfont": {"size": cls.TICK_SIZE, "color": cls.TEXT_COLOR},
+                "title_font": {"size": cls.AXIS_TITLE_SIZE, "color": cls.TEXT_COLOR},
+                "zerolinecolor": cls.GRID_COLOR,
+                "showgrid": True,
+                "gridwidth": 1
             },
             "yaxis": {
                 "gridcolor": cls.GRID_COLOR,
-                "linecolor": cls.TEXT_COLOR,
-                "tickfont": {"size": cls.TICK_SIZE},
-                "title_font": {"size": cls.AXIS_TITLE_SIZE}
+                "linecolor": cls.AXIS_COLOR,
+                "tickfont": {"size": cls.TICK_SIZE, "color": cls.TEXT_COLOR},
+                "title_font": {"size": cls.AXIS_TITLE_SIZE, "color": cls.TEXT_COLOR},
+                "zerolinecolor": cls.GRID_COLOR,
+                "showgrid": True,
+                "gridwidth": 1
             },
             "legend": {
-                "font": {"size": cls.LEGEND_SIZE},
-                "bgcolor": "rgba(255,255,255,0.8)",
+                "font": {"size": cls.LEGEND_SIZE, "color": cls.TEXT_COLOR},
+                "bgcolor": "rgba(30, 41, 59, 0.9)",
                 "bordercolor": cls.GRID_COLOR,
                 "borderwidth": 1
             },
-            "hovermode": "x unified"
+            "hovermode": "x unified",
+            "hoverlabel": {
+                "bgcolor": cls.PAPER_BG,
+                "font_size": 12,
+                "font_family": cls.FONT_FAMILY,
+                "bordercolor": cls.GRID_COLOR
+            }
         }
 
 
@@ -181,7 +201,8 @@ def create_price_chart(
     if show_volume:
         layout["yaxis2"] = {
             "gridcolor": ChartTheme.GRID_COLOR,
-            "tickfont": {"size": ChartTheme.TICK_SIZE}
+            "tickfont": {"size": ChartTheme.TICK_SIZE, "color": ChartTheme.TEXT_COLOR},
+            "title_font": {"color": ChartTheme.TEXT_COLOR}
         }
 
     fig.update_layout(**layout)
@@ -225,7 +246,7 @@ def create_equity_curve(
             name="Portfolio Value",
             line=dict(color=ChartTheme.PRIMARY_COLOR, width=2),
             fill="tozeroy",
-            fillcolor="rgba(52, 152, 219, 0.1)"
+            fillcolor="rgba(59, 130, 246, 0.15)"  # Blue fill for dark theme
         ),
         row=1 if show_drawdown else None,
         col=1 if show_drawdown else None
@@ -241,7 +262,7 @@ def create_equity_curve(
                 name="Drawdown",
                 line=dict(color=ChartTheme.NEGATIVE_COLOR, width=1.5),
                 fill="tozeroy",
-                fillcolor="rgba(231, 76, 60, 0.2)"
+                fillcolor="rgba(239, 68, 68, 0.25)"  # Red fill for dark theme
             ),
             row=2,
             col=1
@@ -254,6 +275,10 @@ def create_equity_curve(
     layout["yaxis_title"] = "Portfolio Value ($)"
 
     fig.update_layout(**layout)
+
+    # Update subplot title colors for dark theme
+    if show_drawdown:
+        fig.update_annotations(font=dict(color=ChartTheme.TEXT_COLOR))
 
     return fig
 
@@ -385,12 +410,17 @@ def create_sector_allocation(positions_df: pd.DataFrame, universe_df: pd.DataFra
                     ChartTheme.PRIMARY_COLOR,
                     ChartTheme.SECONDARY_COLOR,
                     ChartTheme.POSITIVE_COLOR,
-                    ChartTheme.NEGATIVE_COLOR,
+                    "#f59e0b",  # Amber
+                    "#06b6d4",  # Cyan
+                    "#ec4899",  # Pink
+                    "#8b5cf6",  # Violet
                     ChartTheme.NEUTRAL_COLOR,
-                ] * 3  # Repeat colors
+                ] * 2  # Repeat colors
             ),
             textposition="outside",
-            textinfo="label+percent"
+            textinfo="label+percent",
+            textfont=dict(color=ChartTheme.TEXT_COLOR),
+            outsidetextfont=dict(color=ChartTheme.TEXT_COLOR)
         )
     )
 
