@@ -508,7 +508,7 @@ def main():
     # Navigation
     page = st.sidebar.radio(
         "Navigation",
-        ["Live Signals", "Paper Portfolio", "Performance", "Backtests", "Long-Term Watchlist", "Settings", "Debug"],
+        ["Live Signals", "Paper Portfolio", "Performance", "Backtests", "Long-Term Watchlist", "Universe", "Settings", "Debug"],
         label_visibility="collapsed"
     )
 
@@ -569,10 +569,136 @@ def main():
         render_backtests_page(services)
     elif page == "Long-Term Watchlist":
         render_watchlist_page(services)
+    elif page == "Universe":
+        render_universe_page(services)
     elif page == "Settings":
         render_settings_page(services)
     elif page == "Debug":
         render_debug_page(services)
+
+
+def render_universe_page(services: dict):
+    """Render Universe page showing all tracked stocks."""
+    st.title("🌍 Stock Universe")
+
+    st.markdown("The top US stocks by market cap that StockPulse tracks and analyzes.")
+
+    # Get universe data
+    try:
+        db = services.get("db") or get_db()
+        universe_df = db.fetchdf("""
+            SELECT
+                ticker,
+                company_name,
+                sector,
+                industry,
+                market_cap,
+                is_active
+            FROM universe
+            ORDER BY market_cap DESC
+        """)
+    except Exception as e:
+        st.error(f"Error loading universe: {e}")
+        return
+
+    if universe_df.empty:
+        st.warning("No stocks in universe. Run `stockpulse init` to populate.")
+        return
+
+    # Summary metrics
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+
+    active_count = len(universe_df[universe_df["is_active"] == 1]) if "is_active" in universe_df.columns else len(universe_df)
+    total_market_cap = universe_df["market_cap"].sum() if "market_cap" in universe_df.columns else 0
+
+    with col1:
+        st.metric("Total Stocks", len(universe_df))
+    with col2:
+        st.metric("Active Stocks", active_count)
+    with col3:
+        st.metric("Total Market Cap", f"${total_market_cap/1e12:.1f}T")
+    with col4:
+        sectors = universe_df["sector"].nunique() if "sector" in universe_df.columns else 0
+        st.metric("Sectors", sectors)
+
+    # Sector breakdown
+    st.markdown("---")
+    st.subheader("Sector Breakdown")
+
+    if "sector" in universe_df.columns and "market_cap" in universe_df.columns:
+        sector_df = universe_df.groupby("sector").agg({
+            "ticker": "count",
+            "market_cap": "sum"
+        }).reset_index()
+        sector_df.columns = ["Sector", "Count", "Market Cap"]
+        sector_df = sector_df.sort_values("Market Cap", ascending=False)
+        sector_df["Market Cap"] = sector_df["Market Cap"].apply(lambda x: f"${x/1e12:.2f}T")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.dataframe(sector_df, use_container_width=True, hide_index=True)
+
+        with col2:
+            # Pie chart of sector allocation
+            import plotly.express as px
+            sector_for_chart = universe_df.groupby("sector")["market_cap"].sum().reset_index()
+            fig = px.pie(
+                sector_for_chart,
+                values="market_cap",
+                names="sector",
+                title="Market Cap by Sector"
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(showlegend=False, height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Full stock list
+    st.markdown("---")
+    st.subheader("All Stocks")
+
+    # Format for display
+    display_df = universe_df.copy()
+    if "market_cap" in display_df.columns:
+        display_df["market_cap"] = display_df["market_cap"].apply(
+            lambda x: f"${x/1e9:.1f}B" if x and x >= 1e9 else (f"${x/1e6:.0f}M" if x else "N/A")
+        )
+    if "is_active" in display_df.columns:
+        display_df["is_active"] = display_df["is_active"].apply(lambda x: "✓" if x else "✗")
+
+    # Rename columns for display
+    display_df = display_df.rename(columns={
+        "ticker": "Ticker",
+        "company_name": "Company",
+        "sector": "Sector",
+        "industry": "Industry",
+        "market_cap": "Market Cap",
+        "is_active": "Active"
+    })
+
+    # Filter options
+    col1, col2 = st.columns(2)
+    with col1:
+        search = st.text_input("Search ticker or company", "")
+    with col2:
+        if "Sector" in display_df.columns:
+            sectors = ["All"] + sorted(display_df["Sector"].dropna().unique().tolist())
+            selected_sector = st.selectbox("Filter by sector", sectors)
+
+    # Apply filters
+    filtered_df = display_df
+    if search:
+        search_lower = search.lower()
+        filtered_df = filtered_df[
+            filtered_df["Ticker"].str.lower().str.contains(search_lower, na=False) |
+            filtered_df["Company"].str.lower().str.contains(search_lower, na=False)
+        ]
+    if "Sector" in display_df.columns and selected_sector != "All":
+        filtered_df = filtered_df[filtered_df["Sector"] == selected_sector]
+
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True, height=500)
+
+    st.caption(f"Showing {len(filtered_df)} of {len(display_df)} stocks")
 
 
 def render_debug_page(services: dict):
