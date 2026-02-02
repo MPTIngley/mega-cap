@@ -429,11 +429,11 @@ class LongTermScanner:
 
     def get_watchlist(self, days_back: int = 7) -> pd.DataFrame:
         """Get recent watchlist entries."""
-        return self.db.fetchdf(f"""
+        return self.db.fetchdf("""
             SELECT * FROM long_term_watchlist
-            WHERE scan_date >= CURRENT_DATE - INTERVAL '{days_back} days'
+            WHERE scan_date >= date('now', ?)
             ORDER BY composite_score DESC
-        """)
+        """, (f'-{days_back} days',))
 
     def send_digest(self, opportunities: list[dict]) -> bool:
         """Send long-term opportunities digest email."""

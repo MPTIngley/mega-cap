@@ -314,11 +314,11 @@ class AlertManager:
 
     def get_alert_history(self, days: int = 7) -> list[dict]:
         """Get recent alert history."""
-        df = self.db.fetchdf(f"""
+        df = self.db.fetchdf("""
             SELECT * FROM alerts_log
-            WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '{days} days'
+            WHERE created_at > datetime('now', ?)
             ORDER BY created_at DESC
-        """)
+        """, (f'-{days} days',))
         return df.to_dict("records") if not df.empty else []
 
     def get_alert_stats(self) -> dict[str, Any]:
@@ -330,7 +330,7 @@ class AlertManager:
                 SUM(CASE WHEN sent_successfully THEN 1 ELSE 0 END) as successful,
                 SUM(CASE WHEN NOT sent_successfully THEN 1 ELSE 0 END) as failed
             FROM alerts_log
-            WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '30 days'
+            WHERE created_at > datetime('now', '-30 days')
             GROUP BY alert_type
         """)
 

@@ -1448,7 +1448,7 @@ def render_watchlist_page(services: dict):
     try:
         watchlist_df = services["db"].fetchdf("""
             SELECT * FROM long_term_watchlist
-            WHERE scan_date >= CURRENT_DATE - INTERVAL '7 days'
+            WHERE scan_date >= date('now', '-7 days')
             ORDER BY composite_score DESC
         """)
     except Exception as e:

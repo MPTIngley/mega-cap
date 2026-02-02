@@ -131,15 +131,15 @@ class SignalGenerator:
         risk_config = self.config.get("risk_management", {})
         min_days = risk_config.get("min_days_between_same_ticker", 3)
 
-        # Check database for recent signals
-        result = self.db.fetchone(f"""
+        # Check database for recent signals (SQLite datetime syntax)
+        result = self.db.fetchone("""
             SELECT COUNT(*) FROM signals
             WHERE ticker = ?
             AND strategy = ?
             AND direction = ?
-            AND created_at > CURRENT_TIMESTAMP - INTERVAL '{min_days} days'
+            AND created_at > datetime('now', ?)
             AND status = 'open'
-        """, (signal.ticker, signal.strategy, signal.direction.value))
+        """, (signal.ticker, signal.strategy, signal.direction.value, f'-{min_days} days'))
 
         return result[0] > 0 if result else False
 
