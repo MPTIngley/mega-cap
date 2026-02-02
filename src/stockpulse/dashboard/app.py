@@ -43,20 +43,53 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for clean styling
+# Custom CSS for clean styling - FIXED for visibility
 st.markdown("""
 <style>
-    .main > div { padding-top: 2rem; }
-    .stMetric { background: #f8f9fa; padding: 15px; border-radius: 10px; }
-    .metric-positive { color: #27ae60 !important; }
-    .metric-negative { color: #e74c3c !important; }
-    h1 { color: #2c3e50; }
-    h2 { color: #34495e; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+    /* Main layout */
+    .main > div { padding-top: 1rem; }
+
+    /* Metrics - dark text on light background */
+    [data-testid="stMetricValue"] {
+        color: #1a1a2e !important;
+        font-size: 1.8rem !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #4a4a6a !important;
+        font-weight: 500 !important;
+    }
+    [data-testid="stMetricDelta"] svg { fill: currentColor; }
+
+    /* Headers */
+    h1 { color: #1a1a2e !important; }
+    h2 { color: #2d3436 !important; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+    h3 { color: #2d3436 !important; }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] { background-color: #f8f9fa; }
+    [data-testid="stSidebar"] .stMarkdown p { color: #2d3436 !important; }
+
+    /* Tables */
     .stDataFrame { border-radius: 10px; }
-    .debug-box { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
-    .status-ok { color: #27ae60; font-weight: bold; }
-    .status-warn { color: #f39c12; font-weight: bold; }
-    .status-error { color: #e74c3c; font-weight: bold; }
+
+    /* Info/Warning/Error boxes */
+    .stAlert { border-radius: 8px; }
+
+    /* Radio buttons in sidebar */
+    .stRadio > label { color: #2d3436 !important; }
+
+    /* Select boxes */
+    .stSelectbox label { color: #2d3436 !important; }
+
+    /* Sliders */
+    .stSlider label { color: #2d3436 !important; }
+
+    /* Captions */
+    .stCaption { color: #636e72 !important; }
+
+    /* Code blocks */
+    code { background-color: #f1f3f4 !important; color: #1a1a2e !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -257,26 +290,45 @@ def main():
 
     # Status indicators in sidebar
     st.sidebar.markdown("---")
-    st.sidebar.caption("System Status")
+    st.sidebar.markdown("**System Status**")
 
-    # Quick status checks
+    # Email status with helpful info
     try:
         from stockpulse.alerts.email_sender import EmailSender
         email = EmailSender()
         if email.is_configured:
-            st.sidebar.markdown("✅ Email: Configured")
+            st.sidebar.success("✅ Email: Ready")
         else:
-            st.sidebar.markdown("⚠️ Email: Not configured")
-    except:
-        st.sidebar.markdown("❌ Email: Error")
+            st.sidebar.warning("⚠️ Email: Not configured")
+            st.sidebar.caption("Run: source .env")
+    except Exception as e:
+        st.sidebar.error("❌ Email: Error")
 
-    tickers = services.get("universe", {})
-    if hasattr(tickers, 'get_active_tickers'):
-        count = len(tickers.get_active_tickers())
-        st.sidebar.markdown(f"📈 Universe: {count} stocks")
+    # Universe status
+    universe_mgr = services.get("universe")
+    if universe_mgr and hasattr(universe_mgr, 'get_active_tickers'):
+        tickers = universe_mgr.get_active_tickers()
+        count = len(tickers) if tickers else 0
+        if count > 0:
+            st.sidebar.success(f"📈 Universe: {count} stocks")
+        else:
+            st.sidebar.warning("📈 Universe: Empty")
+            st.sidebar.caption("Click Initialize Data")
+    else:
+        st.sidebar.warning("📈 Universe: Not loaded")
+
+    # Data status
+    try:
+        staleness = services["ingestion"].check_data_staleness()
+        if staleness.get("last_daily"):
+            st.sidebar.success("📊 Data: Loaded")
+        else:
+            st.sidebar.warning("📊 Data: No data yet")
+    except:
+        st.sidebar.warning("📊 Data: Unknown")
 
     st.sidebar.markdown("---")
-    st.sidebar.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
+    st.sidebar.caption(f"Refreshed: {datetime.now().strftime('%H:%M:%S')}")
 
     if st.sidebar.button("🔄 Refresh Data"):
         st.cache_data.clear()
@@ -306,6 +358,46 @@ def render_debug_page(services: dict):
     # Startup time
     startup_time = services.get("_startup_time", datetime.now())
     st.caption(f"Dashboard started: {startup_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Quick diagnosis
+    st.markdown("---")
+    st.subheader("🩺 Quick Diagnosis")
+
+    issues = []
+    fixes = []
+
+    # Check email
+    email_sender = os.environ.get("STOCKPULSE_EMAIL_SENDER", "")
+    email_pass = os.environ.get("STOCKPULSE_EMAIL_PASSWORD", "")
+    if not email_sender or not email_pass:
+        issues.append("❌ Email not configured in environment")
+        fixes.append("Your `.env` file has the values, but they're not exported. Run:\n```bash\nset -a && source .env && set +a\n```\nOr add `export` before each line in your `.env` file.")
+
+    # Check universe
+    universe_mgr = services.get("universe")
+    if universe_mgr:
+        tickers = universe_mgr.get_active_tickers()
+        if not tickers:
+            issues.append("❌ Stock universe is empty")
+            fixes.append("Go to **Live Signals** tab and click **Initialize Data**")
+
+    # Check data
+    try:
+        staleness = services["ingestion"].check_data_staleness()
+        if not staleness.get("last_daily"):
+            issues.append("❌ No price data loaded")
+            fixes.append("Click **Initialize Data** to fetch historical prices")
+    except:
+        pass
+
+    if issues:
+        for i, (issue, fix) in enumerate(zip(issues, fixes)):
+            st.error(issue)
+            st.markdown(fix)
+            if i < len(issues) - 1:
+                st.markdown("---")
+    else:
+        st.success("✅ All systems operational!")
 
     # Environment Variables
     st.markdown("---")
@@ -439,7 +531,20 @@ def render_signals_page(services: dict):
     st.title("📡 Live Signals")
 
     # Get open signals
-    signals_df = services["signals"].get_open_signals()
+    try:
+        signals_df = services["signals"].get_open_signals()
+    except Exception as e:
+        st.error(f"Error loading signals: {e}")
+        signals_df = pd.DataFrame()
+
+    # Available strategies (always show all 5)
+    all_strategies = [
+        "rsi_mean_reversion",
+        "bollinger_squeeze",
+        "macd_volume",
+        "mean_reversion_zscore",
+        "momentum_breakout"
+    ]
 
     # Filters
     col1, col2, col3 = st.columns(3)
@@ -448,7 +553,7 @@ def render_signals_page(services: dict):
         min_confidence = st.slider("Min Confidence", 0, 100, 60)
 
     with col2:
-        strategies = ["All"] + list(signals_df["strategy"].unique()) if not signals_df.empty else ["All"]
+        strategies = ["All"] + all_strategies
         selected_strategy = st.selectbox("Strategy", strategies)
 
     with col3:
@@ -488,19 +593,69 @@ def render_signals_page(services: dict):
     st.subheader("Active Signals")
 
     if not filtered.empty:
-        display_df = filtered[[
-            "ticker", "strategy", "direction", "confidence",
-            "entry_price", "target_price", "stop_price", "created_at", "notes"
-        ]].copy()
+        # Only select columns that exist
+        desired_cols = ["ticker", "strategy", "direction", "confidence",
+                       "entry_price", "target_price", "stop_price", "created_at", "notes"]
+        available_cols = [c for c in desired_cols if c in filtered.columns]
+        display_df = filtered[available_cols].copy()
 
-        display_df["confidence"] = display_df["confidence"].apply(lambda x: f"{x:.0f}%")
-        display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
-        display_df["target_price"] = display_df["target_price"].apply(lambda x: f"${x:.2f}")
-        display_df["stop_price"] = display_df["stop_price"].apply(lambda x: f"${x:.2f}")
+        if "confidence" in display_df.columns:
+            display_df["confidence"] = display_df["confidence"].apply(lambda x: f"{x:.0f}%")
+        if "entry_price" in display_df.columns:
+            display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
+        if "target_price" in display_df.columns:
+            display_df["target_price"] = display_df["target_price"].apply(lambda x: f"${x:.2f}")
+        if "stop_price" in display_df.columns:
+            display_df["stop_price"] = display_df["stop_price"].apply(lambda x: f"${x:.2f}")
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
-        st.info("No active signals matching your filters.")
+        st.warning("No active signals matching your filters.")
+
+        # Show helpful message if no data at all
+        if signals_df.empty:
+            st.markdown("""
+            **No signals yet?** This is expected on first launch. To generate signals:
+
+            1. **Load stock universe**: Click "Initialize Data" below
+            2. **Wait for data ingestion**: This fetches price history for 100 stocks
+            3. **Generate signals**: Strategies will analyze the data
+
+            Signals are generated automatically when the scheduler runs, or you can trigger manually.
+            """)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🚀 Initialize Data", type="primary"):
+                    with st.spinner("Loading stock universe and fetching data..."):
+                        try:
+                            # Initialize universe
+                            services["universe"].refresh_universe()
+                            st.success("Universe loaded!")
+
+                            # Fetch some initial data
+                            tickers = services["universe"].get_active_tickers()[:10]  # Start with 10
+                            if tickers:
+                                services["ingestion"].ingest_daily_data(tickers)
+                                st.success(f"Loaded data for {len(tickers)} stocks!")
+
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+            with col2:
+                if st.button("🔍 Run Signal Scan"):
+                    with st.spinner("Running signal scan..."):
+                        try:
+                            tickers = services["universe"].get_active_tickers()
+                            if not tickers:
+                                st.error("No tickers in universe. Initialize data first.")
+                            else:
+                                signals = services["signals"].scan_universe(tickers[:20])
+                                st.success(f"Scan complete! Found {len(signals)} signals.")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Scan error: {e}")
 
     # Signal details
     if not filtered.empty:
