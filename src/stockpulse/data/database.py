@@ -39,6 +39,8 @@ class Database:
             db_path: Path to database file
             read_only: If True, open in read-only mode (allows concurrent access)
         """
+        import time
+
         if db_path is None:
             config = get_config()
             db_path = config["database"]["path"]
@@ -49,7 +51,21 @@ class Database:
         if not read_only:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.conn = duckdb.connect(str(self.db_path), read_only=read_only)
+        # Retry logic for database connections that may be locked
+        max_retries = 10 if read_only else 3
+        retry_delay = 0.5
+
+        for attempt in range(max_retries):
+            try:
+                self.conn = duckdb.connect(str(self.db_path), read_only=read_only)
+                break
+            except duckdb.IOException as e:
+                if "lock" in str(e).lower() and attempt < max_retries - 1:
+                    logger.warning(f"Database locked, retrying in {retry_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 1.5, 5.0)  # Cap at 5 seconds
+                else:
+                    raise
 
         if not read_only:
             self._init_schema()
@@ -397,13 +413,15 @@ class Database:
         logger.info("Database connection closed")
 
 
-def get_db(read_only: bool = False) -> Database:
-    """Get or create database instance (singleton).
+def get_db(read_only: bool = False, fresh: bool = False) -> Database:
+    """Get or create database instance.
 
     Args:
         read_only: If True, return a read-only connection that can run
                    concurrently with a write connection. Use this for
                    dashboard/read-only operations.
+        fresh: If True, always create a new connection instead of reusing.
+               Use this when you need to release locks between operations.
 
     Note:
         If set_read_only_mode(True) was called, this always returns a
@@ -415,6 +433,10 @@ def get_db(read_only: bool = False) -> Database:
     if _force_read_only:
         read_only = True
 
+    # Fresh connection requested - don't use singleton
+    if fresh:
+        return Database(read_only=read_only)
+
     if read_only:
         if _db_readonly_instance is None:
             _db_readonly_instance = Database(read_only=True)
@@ -423,3 +445,28 @@ def get_db(read_only: bool = False) -> Database:
         if _db_instance is None:
             _db_instance = Database()
         return _db_instance
+
+
+def release_db_locks() -> None:
+    """Close all database connections to release locks.
+
+    Call this periodically in long-running processes to allow
+    other processes to access the database.
+    """
+    global _db_instance, _db_readonly_instance
+
+    if _db_instance is not None:
+        try:
+            _db_instance.close()
+        except Exception:
+            pass
+        _db_instance = None
+
+    if _db_readonly_instance is not None:
+        try:
+            _db_readonly_instance.close()
+        except Exception:
+            pass
+        _db_readonly_instance = None
+
+    logger.debug("Released database locks")

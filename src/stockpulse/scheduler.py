@@ -12,6 +12,7 @@ from stockpulse.utils.config import get_config
 from stockpulse.utils.logging import get_logger
 from stockpulse.data.universe import UniverseManager
 from stockpulse.data.ingestion import DataIngestion
+from stockpulse.data.database import release_db_locks
 
 logger = get_logger(__name__)
 
@@ -76,6 +77,9 @@ class StockPulseScheduler:
 
         except Exception as e:
             logger.error(f"Error in intraday job: {e}", exc_info=True)
+        finally:
+            # Release database locks to allow dashboard to connect
+            release_db_locks()
 
     def _run_daily_job(self) -> None:
         """Run daily data ingestion and scanning."""
@@ -99,6 +103,8 @@ class StockPulseScheduler:
 
         except Exception as e:
             logger.error(f"Error in daily job: {e}", exc_info=True)
+        finally:
+            release_db_locks()
 
     def _run_long_term_scan_job(self) -> None:
         """Run long-term investment scanner."""
@@ -116,6 +122,8 @@ class StockPulseScheduler:
 
         except Exception as e:
             logger.error(f"Error in long-term scan job: {e}", exc_info=True)
+        finally:
+            release_db_locks()
 
     def start(self) -> None:
         """Start the scheduler with all jobs."""
