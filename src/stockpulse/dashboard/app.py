@@ -744,6 +744,18 @@ def render_portfolio_page(services: dict):
     else:
         st.info("No closed positions in the last 30 days.")
 
+    # Show blocked tickers (cooldowns)
+    st.markdown("---")
+    st.subheader("🚫 Trading Cooldowns")
+
+    blocked = services["positions"].get_blocked_tickers()
+    if blocked:
+        blocked_df = pd.DataFrame(blocked)
+        st.dataframe(blocked_df, use_container_width=True, hide_index=True)
+        st.caption("These tickers are temporarily blocked from new positions due to cooldown rules.")
+    else:
+        st.success("No tickers in cooldown. All clear for trading!")
+
 
 def render_performance_page(services: dict):
     """Render Performance Analytics page."""
@@ -751,7 +763,48 @@ def render_performance_page(services: dict):
 
     performance = services["positions"].get_performance_summary()
 
+    # Equity Curve Section
     st.markdown("---")
+    st.subheader("Portfolio Equity Curve")
+
+    # Get current prices for mark-to-market
+    try:
+        db = services.get("db") or get_db()
+        prices_df = db.fetchdf("""
+            SELECT ticker, close FROM prices_daily
+            WHERE date = (SELECT MAX(date) FROM prices_daily)
+        """)
+        current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
+    except Exception:
+        current_prices = {}
+
+    # Get equity curve with open positions marked to market
+    equity_df = services["positions"].get_equity_curve_with_open_positions(current_prices, is_paper=True)
+
+    if len(equity_df) > 1:
+        fig = create_equity_curve(equity_df, title="Paper Portfolio Equity Curve", show_drawdown=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Show key equity metrics
+        if not equity_df.empty:
+            latest_equity = equity_df.iloc[-1]["equity"]
+            initial_equity = equity_df.iloc[0]["equity"]
+            total_return = ((latest_equity / initial_equity) - 1) * 100 if initial_equity > 0 else 0
+            max_dd = equity_df["drawdown"].min() * 100
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Current Equity", f"${latest_equity:,.2f}")
+            with col2:
+                st.metric("Total Return", f"{total_return:+.2f}%")
+            with col3:
+                st.metric("Max Drawdown", f"{max_dd:.2f}%")
+    else:
+        st.info("No equity data yet. Start trading to see your equity curve!")
+
+    st.markdown("---")
+    st.subheader("Performance Summary")
+
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:

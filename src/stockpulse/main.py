@@ -265,12 +265,13 @@ def run_scan():
 
 
 def run_init():
-    """Initialize the database and fetch initial data."""
+    """Initialize the database and fetch initial data with full historical preload."""
     from stockpulse.data.database import get_db
     from stockpulse.data.universe import UniverseManager
     from stockpulse.data.ingestion import DataIngestion
+    from datetime import timedelta
 
-    logger.info("Initializing StockPulse...")
+    logger.info("Initializing StockPulse with full data preload...")
 
     # Initialize database (creates tables)
     db = get_db()
@@ -281,14 +282,41 @@ def run_init():
     tickers = universe.refresh_universe(force=True)
     logger.info(f"Universe populated with {len(tickers)} tickers")
 
-    # Fetch historical data
+    # Fetch historical data - full 2 years for backtesting
     ingestion = DataIngestion()
-    logger.info("Fetching historical price data (this may take a while)...")
 
-    results = ingestion.run_daily_ingestion(tickers[:50])  # Start with top 50
+    logger.info("Fetching 2 years of historical daily price data...")
+    start_date = date.today() - timedelta(days=730)
+    daily_df = ingestion.fetch_daily_prices(tickers, start_date=start_date, progress=True)
+    daily_count = ingestion.store_daily_prices(daily_df)
+    logger.info(f"Stored {daily_count} daily price records")
 
-    logger.info(f"Initial data ingestion complete: {results}")
-    logger.info("StockPulse is ready! Run 'stockpulse run' to start the scheduler.")
+    logger.info("Fetching 5 days of intraday data...")
+    intraday_df = ingestion.fetch_intraday_prices(tickers, period="5d")
+    intraday_count = ingestion.store_intraday_prices(intraday_df)
+    logger.info(f"Stored {intraday_count} intraday price records")
+
+    logger.info("Fetching fundamentals...")
+    fundamentals_df = ingestion.fetch_fundamentals(tickers[:50])  # Top 50 for fundamentals
+    fundamentals_count = ingestion.store_fundamentals(fundamentals_df)
+    logger.info(f"Stored {fundamentals_count} fundamental records")
+
+    logger.info(f"""
+    ==========================================
+    StockPulse Initialization Complete!
+    ==========================================
+    Universe: {len(tickers)} stocks
+    Daily prices: {daily_count} records (2 years)
+    Intraday prices: {intraday_count} records (5 days)
+    Fundamentals: {fundamentals_count} records
+
+    Ready for trading! Run one of:
+      - stockpulse run        # Start scheduler
+      - stockpulse dashboard  # Launch dashboard
+      - stockpulse scan       # Run single scan
+      - stockpulse backtest   # Run backtests
+    ==========================================
+    """)
 
 
 if __name__ == "__main__":
