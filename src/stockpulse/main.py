@@ -598,6 +598,11 @@ def run_optimize():
     try:
         optimizer.save_optimized_params(all_results)
         print("  ✓ Parameters saved successfully!")
+
+        # Also save detailed results to JSON for future analysis
+        json_file = optimizer.save_detailed_results(all_results)
+        print(f"  ✓ Detailed results saved to: {json_file}")
+
         print("\n  To use new parameters:")
         print("    1. Restart stockpulse run/dashboard")
         print("    2. Commit and push: git add config/config.yaml && git commit -m 'Optimized params' && git push")

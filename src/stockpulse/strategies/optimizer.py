@@ -394,6 +394,68 @@ class StrategyOptimizer:
 
         logger.info(f"Saved optimized params to {config_path}")
 
+    def save_detailed_results(self, results: dict[str, OptimizationResult], output_dir: str | None = None):
+        """
+        Save detailed optimization results to JSON for later analysis.
+
+        Args:
+            results: Dict of optimization results
+            output_dir: Directory to save results (default: data/)
+        """
+        import json
+        from pathlib import Path
+        from datetime import datetime
+
+        if output_dir is None:
+            output_dir = Path(__file__).parent.parent.parent.parent / "data"
+        else:
+            output_dir = Path(output_dir)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = output_dir / f"optimization_results_{timestamp}.json"
+
+        # Build detailed results structure
+        detailed = {
+            "timestamp": datetime.now().isoformat(),
+            "max_drawdown_constraint": self.max_drawdown_pct,
+            "strategies": {}
+        }
+
+        for strategy_name, result in results.items():
+            detailed["strategies"][strategy_name] = {
+                "best_params": result.best_params,
+                "best_return_pct": result.best_return,
+                "best_sharpe": result.best_sharpe,
+                "best_drawdown_pct": result.best_drawdown,
+                "final_value": result.final_value,
+                "return_std_pct": result.return_std_pct,
+                "constraint_satisfied": result.constraint_satisfied,
+                "optimization_time_seconds": result.optimization_time_seconds,
+                "all_results": [
+                    {
+                        "params": r["params"],
+                        "total_return_pct": r["total_return_pct"],
+                        "sharpe_ratio": r["sharpe_ratio"],
+                        "max_drawdown_pct": r["max_drawdown_pct"],
+                        "final_value": r.get("final_value", 100000),
+                        "return_std_pct": r.get("return_std_pct", 0),
+                        "total_trades": r["total_trades"],
+                        "win_rate": r["win_rate"],
+                        "meets_constraint": r["meets_constraint"],
+                        "score": r["score"] if r["score"] != float("-inf") else None
+                    }
+                    for r in result.all_results
+                ]
+            }
+
+        with open(output_file, "w") as f:
+            json.dump(detailed, f, indent=2, default=str)
+
+        logger.info(f"Saved detailed results to {output_file}")
+        return output_file
+
     def get_optimization_history(self) -> pd.DataFrame:
         """Get history of optimization runs from database."""
         return self.db.fetchdf("""
