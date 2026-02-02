@@ -13,6 +13,18 @@ from stockpulse.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _db_instance: "Database | None" = None
+_db_readonly_instance: "Database | None" = None
+_force_read_only: bool = False  # Set True in dashboard to prevent write conflicts
+
+
+def set_read_only_mode(enabled: bool = True) -> None:
+    """Force all subsequent get_db() calls to return read-only connections.
+
+    Use this in the dashboard to avoid conflicts with the scheduler.
+    """
+    global _force_read_only
+    _force_read_only = enabled
+    logger.info(f"Database read-only mode: {enabled}")
 
 
 class Database:
@@ -20,18 +32,28 @@ class Database:
 
     SCHEMA_VERSION = 1
 
-    def __init__(self, db_path: str | Path | None = None):
-        """Initialize database connection."""
+    def __init__(self, db_path: str | Path | None = None, read_only: bool = False):
+        """Initialize database connection.
+
+        Args:
+            db_path: Path to database file
+            read_only: If True, open in read-only mode (allows concurrent access)
+        """
         if db_path is None:
             config = get_config()
             db_path = config["database"]["path"]
 
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
 
-        self.conn = duckdb.connect(str(self.db_path))
-        self._init_schema()
-        logger.info(f"Database initialized at {self.db_path}")
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.conn = duckdb.connect(str(self.db_path), read_only=read_only)
+
+        if not read_only:
+            self._init_schema()
+        logger.info(f"Database initialized at {self.db_path} (read_only={read_only})")
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
@@ -375,9 +397,29 @@ class Database:
         logger.info("Database connection closed")
 
 
-def get_db() -> Database:
-    """Get or create database instance (singleton)."""
-    global _db_instance
-    if _db_instance is None:
-        _db_instance = Database()
-    return _db_instance
+def get_db(read_only: bool = False) -> Database:
+    """Get or create database instance (singleton).
+
+    Args:
+        read_only: If True, return a read-only connection that can run
+                   concurrently with a write connection. Use this for
+                   dashboard/read-only operations.
+
+    Note:
+        If set_read_only_mode(True) was called, this always returns a
+        read-only connection regardless of the read_only parameter.
+    """
+    global _db_instance, _db_readonly_instance, _force_read_only
+
+    # Force read-only mode if set (used by dashboard)
+    if _force_read_only:
+        read_only = True
+
+    if read_only:
+        if _db_readonly_instance is None:
+            _db_readonly_instance = Database(read_only=True)
+        return _db_readonly_instance
+    else:
+        if _db_instance is None:
+            _db_instance = Database()
+        return _db_instance

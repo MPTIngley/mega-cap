@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from stockpulse.utils.config import load_config, get_config
 from stockpulse.utils.logging import get_logger
-from stockpulse.data.database import get_db
+from stockpulse.data.database import get_db, set_read_only_mode
 from stockpulse.data.universe import UniverseManager
 from stockpulse.data.ingestion import DataIngestion
 from stockpulse.strategies.signal_generator import SignalGenerator
@@ -334,6 +334,9 @@ def init_services():
     global _debug_log
     _debug_log = []  # Reset debug log
 
+    # Dashboard runs in read-only mode to allow concurrent access with scheduler
+    set_read_only_mode(True)
+
     debug_print("=" * 60)
     debug_print("STOCKPULSE DASHBOARD STARTUP")
     debug_print("=" * 60)
@@ -387,11 +390,11 @@ def init_services():
                 env_status[var] = "OK" if val else "MISSING"
         debug_print(f"  {var}: {display} [{env_status[var]}]")
 
-    # Database
+    # Database (read-only mode for dashboard to allow concurrent access with scheduler)
     debug_print("")
     debug_print("DATABASE:")
     try:
-        db = get_db()
+        db = get_db(read_only=True)
         debug_print(f"  Path: {db.db_path}")
         debug_print(f"  Exists: {db.db_path.exists()}")
         debug_print(f"  Size: {db.db_path.stat().st_size / 1024:.1f} KB" if db.db_path.exists() else "  Size: N/A")
@@ -990,7 +993,7 @@ def render_performance_page(services: dict):
 
     # Get current prices for mark-to-market
     try:
-        db = services.get("db") or get_db()
+        db = services.get("db") or get_db(read_only=True)
         prices_df = db.fetchdf("""
             SELECT ticker, close FROM prices_daily
             WHERE date = (SELECT MAX(date) FROM prices_daily)
