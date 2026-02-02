@@ -12,7 +12,7 @@ Before writing any code, do the following:
 
 ## Current Phase: **5 — Trade Tracker (COMPLETE)**
 ## Last Session: 2026-02-02
-## Blockers: Need Gmail App Password for email alerts
+## Next Steps: Set up Gmail App Password, test dashboard, run initial data ingestion
 
 ---
 

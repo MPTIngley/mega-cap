@@ -55,19 +55,94 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+logger = get_logger(__name__)
+
+
 @st.cache_resource
 def init_services():
     """Initialize services (cached)."""
+    import os
+
+    print("=" * 60)
+    print("STOCKPULSE DASHBOARD STARTUP")
+    print("=" * 60)
+
+    # Find and load config
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "config.yaml"
+    print(f"[CONFIG] Looking for config at: {config_path}")
+    print(f"[CONFIG] Config exists: {config_path.exists()}")
+
+    if not config_path.exists():
+        # Try alternative paths
+        alt_paths = [
+            Path.cwd() / "config" / "config.yaml",
+            Path(__file__).parent.parent.parent / "config" / "config.yaml",
+        ]
+        for alt in alt_paths:
+            print(f"[CONFIG] Trying alternative: {alt}")
+            if alt.exists():
+                config_path = alt
+                break
+
     load_config(config_path)
-    return {
-        "db": get_db(),
+    print(f"[CONFIG] Loaded successfully")
+
+    # Check environment variables
+    print("\n[ENV] Environment Variables:")
+    env_vars = [
+        "STOCKPULSE_EMAIL_SENDER",
+        "STOCKPULSE_EMAIL_RECIPIENT",
+        "STOCKPULSE_EMAIL_PASSWORD",
+        "STOCKPULSE_EMAIL_RECIPIENTS_CC",
+    ]
+    for var in env_vars:
+        val = os.environ.get(var, "")
+        if var == "STOCKPULSE_EMAIL_PASSWORD":
+            display = "****" if val else "(not set)"
+        else:
+            display = val if val else "(not set)"
+        print(f"  {var}: {display}")
+
+    # Initialize database
+    print("\n[DB] Initializing database...")
+    db = get_db()
+    print(f"[DB] Database path: {db.db_path}")
+    print(f"[DB] Database exists: {db.db_path.exists()}")
+
+    # Check table counts
+    try:
+        counts = {
+            "universe": db.fetchone("SELECT COUNT(*) FROM universe")[0],
+            "prices_daily": db.fetchone("SELECT COUNT(*) FROM prices_daily")[0],
+            "signals": db.fetchone("SELECT COUNT(*) FROM signals")[0],
+            "positions_paper": db.fetchone("SELECT COUNT(*) FROM positions_paper")[0],
+        }
+        print(f"[DB] Table counts: {counts}")
+    except Exception as e:
+        print(f"[DB] Error checking tables: {e}")
+
+    # Initialize services
+    print("\n[SERVICES] Initializing services...")
+    services = {
+        "db": db,
         "universe": UniverseManager(),
         "ingestion": DataIngestion(),
         "signals": SignalGenerator(),
         "positions": PositionManager(),
         "backtester": Backtester()
     }
+
+    # Check universe
+    tickers = services["universe"].get_active_tickers()
+    print(f"[UNIVERSE] Active tickers: {len(tickers)}")
+    if tickers:
+        print(f"[UNIVERSE] Sample: {tickers[:5]}")
+
+    print("\n" + "=" * 60)
+    print("STARTUP COMPLETE - Dashboard ready")
+    print("=" * 60 + "\n")
+
+    return services
 
 
 def main():
@@ -77,6 +152,8 @@ def main():
         services = init_services()
     except Exception as e:
         st.error(f"Failed to initialize services: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         st.info("Make sure the database and config are properly set up.")
         return
 

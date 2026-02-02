@@ -20,7 +20,7 @@ class EmailSender:
     Supports:
     - HTML formatted emails
     - Gmail SMTP (with app password)
-    - Configurable recipients
+    - Multiple recipients (TO + CC)
     """
 
     def __init__(self):
@@ -34,10 +34,24 @@ class EmailSender:
         self.recipient = self.email_config.get("recipient") or os.environ.get("STOCKPULSE_EMAIL_RECIPIENT", "")
         self.password = os.environ.get("STOCKPULSE_EMAIL_PASSWORD", "")
 
+        # Additional CC recipients (comma-separated)
+        cc_env = os.environ.get("STOCKPULSE_EMAIL_RECIPIENTS_CC", "")
+        self.cc_recipients = [r.strip() for r in cc_env.split(",") if r.strip()]
+
         self._configured = bool(self.sender and self.recipient and self.password)
 
-        if not self._configured:
-            logger.warning("Email not fully configured. Set STOCKPULSE_EMAIL_SENDER, STOCKPULSE_EMAIL_RECIPIENT, and STOCKPULSE_EMAIL_PASSWORD")
+        # Log configuration status
+        if self._configured:
+            logger.info(f"Email configured: sender={self.sender}, recipient={self.recipient}, cc={self.cc_recipients}")
+        else:
+            missing = []
+            if not self.sender:
+                missing.append("STOCKPULSE_EMAIL_SENDER")
+            if not self.recipient:
+                missing.append("STOCKPULSE_EMAIL_RECIPIENT")
+            if not self.password:
+                missing.append("STOCKPULSE_EMAIL_PASSWORD")
+            logger.warning(f"Email not configured. Missing: {', '.join(missing)}")
 
     @property
     def is_configured(self) -> bool:
@@ -75,6 +89,14 @@ class EmailSender:
             msg["From"] = self.sender
             msg["To"] = to_addr
 
+            # Add CC recipients if configured
+            all_recipients = [to_addr]
+            if self.cc_recipients:
+                msg["Cc"] = ", ".join(self.cc_recipients)
+                all_recipients.extend(self.cc_recipients)
+
+            logger.debug(f"Sending email to: {all_recipients}")
+
             # Plain text version
             if body_text is None:
                 # Simple HTML to text conversion
@@ -88,11 +110,11 @@ class EmailSender:
             msg.attach(part1)
             msg.attach(part2)
 
-            # Send
+            # Send to all recipients (TO + CC)
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.sender, self.password)
-                server.sendmail(self.sender, to_addr, msg.as_string())
+                server.sendmail(self.sender, all_recipients, msg.as_string())
 
             logger.info(f"Email sent: {subject}")
             return True

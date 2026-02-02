@@ -1,12 +1,16 @@
 # StockPulse Configuration
 # ========================
+# Edit this file to customize strategy parameters, alerts, and risk management.
+# Email credentials should be set via environment variables (see .env.example)
 
 email:
   smtp_server: smtp.gmail.com
   smtp_port: 587
-  sender: ""  # Set via STOCKPULSE_EMAIL_SENDER env var
-  recipient: ""  # Set via STOCKPULSE_EMAIL_RECIPIENT env var
-  # Password via STOCKPULSE_EMAIL_PASSWORD env var
+  # Email addresses are set via environment variables:
+  #   STOCKPULSE_EMAIL_SENDER - Your Gmail address
+  #   STOCKPULSE_EMAIL_RECIPIENT - Primary recipient (can be same as sender)
+  #   STOCKPULSE_EMAIL_RECIPIENTS_CC - Additional recipients, comma-separated
+  #   STOCKPULSE_EMAIL_PASSWORD - Gmail App Password (NOT your regular password!)
 
 database:
   path: "data/stockpulse.duckdb"
