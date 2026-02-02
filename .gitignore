@@ -27,8 +27,8 @@ out/
 *.pem
 *.key
 
-# Data directory (database with trading data)
-data/
+# Data directory (database with trading data) - only top-level
+/data/
 
 # Logs
 logs/

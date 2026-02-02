@@ -308,6 +308,11 @@ class DataIngestion:
         if df.empty:
             return 0
 
+        # Convert date to string for SQLite compatibility
+        if "date" in df.columns:
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+
         count = self.db.insert_df("prices_daily", df, on_conflict="replace")
         logger.info(f"Stored {count} daily price records")
         return count
@@ -316,6 +321,11 @@ class DataIngestion:
         """Store intraday prices in database."""
         if df.empty:
             return 0
+
+        # Convert timestamp to string for SQLite compatibility
+        if "timestamp" in df.columns:
+            df = df.copy()
+            df["timestamp"] = df["timestamp"].astype(str)
 
         count = self.db.insert_df("prices_intraday", df, on_conflict="replace")
         logger.info(f"Stored {count} intraday price records")
