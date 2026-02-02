@@ -7,12 +7,14 @@ A comprehensive trading dashboard with:
 - Performance Analytics
 - Backtests
 - Long-Term Watchlist
-- Settings
+- Settings & Debug
 """
 
 import sys
+import os
 from pathlib import Path
 from datetime import datetime, date, timedelta
+import traceback
 
 import streamlit as st
 import pandas as pd
@@ -51,96 +53,182 @@ st.markdown("""
     h1 { color: #2c3e50; }
     h2 { color: #34495e; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
     .stDataFrame { border-radius: 10px; }
+    .debug-box { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    .status-ok { color: #27ae60; font-weight: bold; }
+    .status-warn { color: #f39c12; font-weight: bold; }
+    .status-error { color: #e74c3c; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
 
 logger = get_logger(__name__)
 
+# Global debug log
+_debug_log = []
+
+def debug_print(message: str, level: str = "INFO"):
+    """Print to console and store in debug log."""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    formatted = f"[{timestamp}] [{level}] {message}"
+    print(formatted)
+    _debug_log.append({"time": timestamp, "level": level, "message": message})
+
 
 @st.cache_resource
 def init_services():
     """Initialize services (cached)."""
-    import os
+    global _debug_log
+    _debug_log = []  # Reset debug log
 
-    print("=" * 60)
-    print("STOCKPULSE DASHBOARD STARTUP")
-    print("=" * 60)
+    debug_print("=" * 60)
+    debug_print("STOCKPULSE DASHBOARD STARTUP")
+    debug_print("=" * 60)
+    debug_print(f"Python version: {sys.version}")
+    debug_print(f"Working directory: {Path.cwd()}")
 
     # Find and load config
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "config.yaml"
-    print(f"[CONFIG] Looking for config at: {config_path}")
-    print(f"[CONFIG] Config exists: {config_path.exists()}")
+    debug_print(f"Primary config path: {config_path}")
+    debug_print(f"Config exists: {config_path.exists()}")
 
     if not config_path.exists():
-        # Try alternative paths
         alt_paths = [
             Path.cwd() / "config" / "config.yaml",
             Path(__file__).parent.parent.parent / "config" / "config.yaml",
         ]
         for alt in alt_paths:
-            print(f"[CONFIG] Trying alternative: {alt}")
+            debug_print(f"Trying alternative: {alt}")
             if alt.exists():
                 config_path = alt
+                debug_print(f"Using alternative config: {alt}")
                 break
 
-    load_config(config_path)
-    print(f"[CONFIG] Loaded successfully")
+    try:
+        load_config(config_path)
+        debug_print("Config loaded successfully", "OK")
+    except Exception as e:
+        debug_print(f"Config load error: {e}", "ERROR")
+        raise
 
-    # Check environment variables
-    print("\n[ENV] Environment Variables:")
-    env_vars = [
-        "STOCKPULSE_EMAIL_SENDER",
-        "STOCKPULSE_EMAIL_RECIPIENT",
-        "STOCKPULSE_EMAIL_PASSWORD",
-        "STOCKPULSE_EMAIL_RECIPIENTS_CC",
-    ]
-    for var in env_vars:
+    # Environment variables
+    debug_print("")
+    debug_print("ENVIRONMENT VARIABLES:")
+    env_status = {}
+    env_vars = {
+        "STOCKPULSE_EMAIL_SENDER": "Email sender address",
+        "STOCKPULSE_EMAIL_RECIPIENT": "Primary recipient",
+        "STOCKPULSE_EMAIL_PASSWORD": "Gmail app password",
+        "STOCKPULSE_EMAIL_RECIPIENTS_CC": "CC recipients (optional)",
+    }
+    for var, desc in env_vars.items():
         val = os.environ.get(var, "")
         if var == "STOCKPULSE_EMAIL_PASSWORD":
-            display = "****" if val else "(not set)"
+            display = "****" if val else "(NOT SET)"
+            env_status[var] = "OK" if val else "MISSING"
         else:
-            display = val if val else "(not set)"
-        print(f"  {var}: {display}")
+            display = val if val else "(NOT SET)"
+            if var == "STOCKPULSE_EMAIL_RECIPIENTS_CC":
+                env_status[var] = "OK" if val else "OPTIONAL"
+            else:
+                env_status[var] = "OK" if val else "MISSING"
+        debug_print(f"  {var}: {display} [{env_status[var]}]")
 
-    # Initialize database
-    print("\n[DB] Initializing database...")
-    db = get_db()
-    print(f"[DB] Database path: {db.db_path}")
-    print(f"[DB] Database exists: {db.db_path.exists()}")
-
-    # Check table counts
+    # Database
+    debug_print("")
+    debug_print("DATABASE:")
     try:
-        counts = {
-            "universe": db.fetchone("SELECT COUNT(*) FROM universe")[0],
-            "prices_daily": db.fetchone("SELECT COUNT(*) FROM prices_daily")[0],
-            "signals": db.fetchone("SELECT COUNT(*) FROM signals")[0],
-            "positions_paper": db.fetchone("SELECT COUNT(*) FROM positions_paper")[0],
-        }
-        print(f"[DB] Table counts: {counts}")
+        db = get_db()
+        debug_print(f"  Path: {db.db_path}")
+        debug_print(f"  Exists: {db.db_path.exists()}")
+        debug_print(f"  Size: {db.db_path.stat().st_size / 1024:.1f} KB" if db.db_path.exists() else "  Size: N/A")
+
+        # Table counts
+        tables = ["universe", "prices_daily", "prices_intraday", "signals",
+                  "positions_paper", "positions_real", "alerts_log", "backtest_results"]
+        debug_print("  Table counts:")
+        for table in tables:
+            try:
+                count = db.fetchone(f"SELECT COUNT(*) FROM {table}")[0]
+                debug_print(f"    {table}: {count}")
+            except Exception as e:
+                debug_print(f"    {table}: ERROR - {e}", "WARN")
+
     except Exception as e:
-        print(f"[DB] Error checking tables: {e}")
+        debug_print(f"Database error: {e}", "ERROR")
+        raise
 
     # Initialize services
-    print("\n[SERVICES] Initializing services...")
-    services = {
-        "db": db,
-        "universe": UniverseManager(),
-        "ingestion": DataIngestion(),
-        "signals": SignalGenerator(),
-        "positions": PositionManager(),
-        "backtester": Backtester()
-    }
+    debug_print("")
+    debug_print("INITIALIZING SERVICES:")
+    services = {}
 
-    # Check universe
-    tickers = services["universe"].get_active_tickers()
-    print(f"[UNIVERSE] Active tickers: {len(tickers)}")
-    if tickers:
-        print(f"[UNIVERSE] Sample: {tickers[:5]}")
+    try:
+        services["db"] = db
+        debug_print("  Database: OK", "OK")
+    except Exception as e:
+        debug_print(f"  Database: FAILED - {e}", "ERROR")
 
-    print("\n" + "=" * 60)
-    print("STARTUP COMPLETE - Dashboard ready")
-    print("=" * 60 + "\n")
+    try:
+        services["universe"] = UniverseManager()
+        tickers = services["universe"].get_active_tickers()
+        debug_print(f"  Universe: OK ({len(tickers)} tickers)", "OK")
+        if tickers:
+            debug_print(f"    Sample: {tickers[:5]}")
+    except Exception as e:
+        debug_print(f"  Universe: FAILED - {e}", "ERROR")
+
+    try:
+        services["ingestion"] = DataIngestion()
+        staleness = services["ingestion"].check_data_staleness()
+        debug_print(f"  Ingestion: OK", "OK")
+        debug_print(f"    Last daily: {staleness.get('last_daily', 'Never')}")
+        debug_print(f"    Last intraday: {staleness.get('last_intraday', 'Never')}")
+        debug_print(f"    Data stale: {staleness.get('is_stale', 'Unknown')}")
+    except Exception as e:
+        debug_print(f"  Ingestion: FAILED - {e}", "ERROR")
+
+    try:
+        services["signals"] = SignalGenerator()
+        debug_print("  SignalGenerator: OK", "OK")
+    except Exception as e:
+        debug_print(f"  SignalGenerator: FAILED - {e}", "ERROR")
+
+    try:
+        services["positions"] = PositionManager()
+        debug_print("  PositionManager: OK", "OK")
+    except Exception as e:
+        debug_print(f"  PositionManager: FAILED - {e}", "ERROR")
+
+    try:
+        services["backtester"] = Backtester()
+        debug_print("  Backtester: OK", "OK")
+    except Exception as e:
+        debug_print(f"  Backtester: FAILED - {e}", "ERROR")
+
+    # Email status
+    debug_print("")
+    debug_print("EMAIL STATUS:")
+    try:
+        from stockpulse.alerts.email_sender import EmailSender
+        email = EmailSender()
+        if email.is_configured:
+            debug_print(f"  Configured: YES", "OK")
+            debug_print(f"  Sender: {email.sender}")
+            debug_print(f"  Recipient: {email.recipient}")
+            debug_print(f"  CC: {email.cc_recipients if email.cc_recipients else 'None'}")
+        else:
+            debug_print("  Configured: NO - Set environment variables!", "WARN")
+    except Exception as e:
+        debug_print(f"  Email error: {e}", "ERROR")
+
+    debug_print("")
+    debug_print("=" * 60)
+    debug_print("STARTUP COMPLETE")
+    debug_print("=" * 60)
+
+    # Store debug log in services for UI access
+    services["_debug_log"] = _debug_log.copy()
+    services["_startup_time"] = datetime.now()
 
     return services
 
@@ -152,9 +240,8 @@ def main():
         services = init_services()
     except Exception as e:
         st.error(f"Failed to initialize services: {e}")
-        import traceback
         st.code(traceback.format_exc())
-        st.info("Make sure the database and config are properly set up.")
+        st.info("Check the terminal for detailed debug output.")
         return
 
     # Sidebar
@@ -164,11 +251,30 @@ def main():
     # Navigation
     page = st.sidebar.radio(
         "Navigation",
-        ["Live Signals", "Paper Portfolio", "Performance", "Backtests", "Long-Term Watchlist", "Settings"],
+        ["Live Signals", "Paper Portfolio", "Performance", "Backtests", "Long-Term Watchlist", "Settings", "Debug"],
         label_visibility="collapsed"
     )
 
-    # Last update time
+    # Status indicators in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.caption("System Status")
+
+    # Quick status checks
+    try:
+        from stockpulse.alerts.email_sender import EmailSender
+        email = EmailSender()
+        if email.is_configured:
+            st.sidebar.markdown("✅ Email: Configured")
+        else:
+            st.sidebar.markdown("⚠️ Email: Not configured")
+    except:
+        st.sidebar.markdown("❌ Email: Error")
+
+    tickers = services.get("universe", {})
+    if hasattr(tickers, 'get_active_tickers'):
+        count = len(tickers.get_active_tickers())
+        st.sidebar.markdown(f"📈 Universe: {count} stocks")
+
     st.sidebar.markdown("---")
     st.sidebar.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
@@ -189,6 +295,143 @@ def main():
         render_watchlist_page(services)
     elif page == "Settings":
         render_settings_page(services)
+    elif page == "Debug":
+        render_debug_page(services)
+
+
+def render_debug_page(services: dict):
+    """Render Debug page with verbose system information."""
+    st.title("🔧 Debug Information")
+
+    # Startup time
+    startup_time = services.get("_startup_time", datetime.now())
+    st.caption(f"Dashboard started: {startup_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Environment Variables
+    st.markdown("---")
+    st.subheader("Environment Variables")
+
+    env_vars = {
+        "STOCKPULSE_EMAIL_SENDER": os.environ.get("STOCKPULSE_EMAIL_SENDER", ""),
+        "STOCKPULSE_EMAIL_RECIPIENT": os.environ.get("STOCKPULSE_EMAIL_RECIPIENT", ""),
+        "STOCKPULSE_EMAIL_PASSWORD": "****" if os.environ.get("STOCKPULSE_EMAIL_PASSWORD") else "(NOT SET)",
+        "STOCKPULSE_EMAIL_RECIPIENTS_CC": os.environ.get("STOCKPULSE_EMAIL_RECIPIENTS_CC", "(not set)"),
+    }
+
+    col1, col2 = st.columns(2)
+    for i, (key, val) in enumerate(env_vars.items()):
+        with col1 if i % 2 == 0 else col2:
+            status = "✅" if val and val != "(NOT SET)" and val != "(not set)" else "❌"
+            st.text(f"{status} {key}")
+            st.code(val or "(empty)")
+
+    # Database Status
+    st.markdown("---")
+    st.subheader("Database Status")
+
+    db = services.get("db")
+    if db:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Path", str(db.db_path.name))
+        with col2:
+            size = db.db_path.stat().st_size / 1024 if db.db_path.exists() else 0
+            st.metric("Size", f"{size:.1f} KB")
+        with col3:
+            st.metric("Exists", "Yes" if db.db_path.exists() else "No")
+
+        # Table details
+        st.markdown("**Table Row Counts:**")
+        tables = ["universe", "prices_daily", "prices_intraday", "signals",
+                  "positions_paper", "positions_real", "alerts_log",
+                  "long_term_watchlist", "backtest_results", "system_state"]
+
+        table_data = []
+        for table in tables:
+            try:
+                count = db.fetchone(f"SELECT COUNT(*) FROM {table}")[0]
+                table_data.append({"Table": table, "Rows": count, "Status": "✅"})
+            except Exception as e:
+                table_data.append({"Table": table, "Rows": "Error", "Status": "❌"})
+
+        st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+
+    # Services Status
+    st.markdown("---")
+    st.subheader("Services Status")
+
+    service_status = []
+    for name in ["db", "universe", "ingestion", "signals", "positions", "backtester"]:
+        svc = services.get(name)
+        service_status.append({
+            "Service": name,
+            "Status": "✅ Loaded" if svc else "❌ Not loaded",
+            "Type": type(svc).__name__ if svc else "N/A"
+        })
+
+    st.dataframe(pd.DataFrame(service_status), use_container_width=True, hide_index=True)
+
+    # Email Test
+    st.markdown("---")
+    st.subheader("Email Configuration")
+
+    try:
+        from stockpulse.alerts.email_sender import EmailSender
+        email = EmailSender()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Configured", "Yes" if email.is_configured else "No")
+            st.text(f"SMTP Server: {email.smtp_server}:{email.smtp_port}")
+            st.text(f"Sender: {email.sender or '(not set)'}")
+        with col2:
+            st.text(f"Recipient: {email.recipient or '(not set)'}")
+            st.text(f"CC: {', '.join(email.cc_recipients) if email.cc_recipients else '(none)'}")
+
+        if not email.is_configured:
+            st.warning("""
+            **Email not configured!** Set these environment variables:
+            ```
+            export STOCKPULSE_EMAIL_SENDER="your-email@gmail.com"
+            export STOCKPULSE_EMAIL_RECIPIENT="your-email@gmail.com"
+            export STOCKPULSE_EMAIL_PASSWORD="your-app-password"
+            ```
+            """)
+    except Exception as e:
+        st.error(f"Email module error: {e}")
+
+    # Startup Log
+    st.markdown("---")
+    st.subheader("Startup Log")
+
+    debug_log = services.get("_debug_log", [])
+    if debug_log:
+        log_text = "\n".join([f"[{l['time']}] [{l['level']}] {l['message']}" for l in debug_log])
+        st.code(log_text, language="")
+    else:
+        st.info("No debug log available. Restart dashboard to capture startup logs.")
+
+    # System Info
+    st.markdown("---")
+    st.subheader("System Information")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text(f"Python: {sys.version.split()[0]}")
+        st.text(f"Platform: {sys.platform}")
+        st.text(f"Working Dir: {Path.cwd()}")
+    with col2:
+        st.text(f"Streamlit: {st.__version__}")
+        try:
+            import duckdb
+            st.text(f"DuckDB: {duckdb.__version__}")
+        except:
+            st.text("DuckDB: (error)")
+        try:
+            import yfinance
+            st.text(f"yfinance: {yfinance.__version__}")
+        except:
+            st.text("yfinance: (error)")
 
 
 def render_signals_page(services: dict):
@@ -245,7 +488,6 @@ def render_signals_page(services: dict):
     st.subheader("Active Signals")
 
     if not filtered.empty:
-        # Format for display
         display_df = filtered[[
             "ticker", "strategy", "direction", "confidence",
             "entry_price", "target_price", "stop_price", "created_at", "notes"
@@ -256,17 +498,7 @@ def render_signals_page(services: dict):
         display_df["target_price"] = display_df["target_price"].apply(lambda x: f"${x:.2f}")
         display_df["stop_price"] = display_df["stop_price"].apply(lambda x: f"${x:.2f}")
 
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "direction": st.column_config.TextColumn(
-                    "Direction",
-                    help="BUY or SELL"
-                )
-            }
-        )
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.info("No active signals matching your filters.")
 
@@ -275,13 +507,9 @@ def render_signals_page(services: dict):
         st.markdown("---")
         st.subheader("Signal Details")
 
-        selected_ticker = st.selectbox(
-            "Select ticker to view chart",
-            filtered["ticker"].unique()
-        )
+        selected_ticker = st.selectbox("Select ticker to view chart", filtered["ticker"].unique())
 
         if selected_ticker:
-            # Get price data
             price_data = services["ingestion"].get_daily_prices(
                 [selected_ticker],
                 start_date=date.today() - timedelta(days=90)
@@ -297,10 +525,8 @@ def render_portfolio_page(services: dict):
     """Render Paper Portfolio page."""
     st.title("📈 Paper Portfolio")
 
-    # Get open positions
     positions_df = services["positions"].get_open_positions()
 
-    # Summary metrics
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
 
@@ -323,15 +549,11 @@ def render_portfolio_page(services: dict):
         win_rate = performance.get("win_rate", 0)
         st.metric("Win Rate", f"{win_rate:.1f}%")
 
-    # Open positions table
     st.markdown("---")
     st.subheader("Open Positions")
 
     if not positions_df.empty:
-        display_cols = [
-            "ticker", "direction", "entry_price", "shares",
-            "entry_date", "strategy", "status"
-        ]
+        display_cols = ["ticker", "direction", "entry_price", "shares", "entry_date", "strategy", "status"]
         available_cols = [c for c in display_cols if c in positions_df.columns]
         display_df = positions_df[available_cols].copy()
 
@@ -344,19 +566,13 @@ def render_portfolio_page(services: dict):
     else:
         st.info("No open positions.")
 
-    # Closed positions
     st.markdown("---")
     st.subheader("Recent Closed Positions")
 
-    closed_df = services["positions"].get_closed_positions(
-        start_date=date.today() - timedelta(days=30)
-    )
+    closed_df = services["positions"].get_closed_positions(start_date=date.today() - timedelta(days=30))
 
     if not closed_df.empty:
-        display_cols = [
-            "ticker", "direction", "entry_price", "exit_price",
-            "pnl", "pnl_pct", "exit_reason", "strategy"
-        ]
+        display_cols = ["ticker", "direction", "entry_price", "exit_price", "pnl", "pnl_pct", "exit_reason", "strategy"]
         available_cols = [c for c in display_cols if c in closed_df.columns]
         display_df = closed_df[available_cols].copy()
 
@@ -378,7 +594,6 @@ def render_performance_page(services: dict):
     """Render Performance Analytics page."""
     st.title("📊 Performance Analytics")
 
-    # Overall metrics
     performance = services["positions"].get_performance_summary()
 
     st.markdown("---")
@@ -403,7 +618,6 @@ def render_performance_page(services: dict):
     with col4:
         st.metric("Avg Loss", f"${performance.get('avg_loss', 0):,.2f}")
 
-    # Strategy performance
     st.markdown("---")
     st.subheader("Strategy Performance")
 
@@ -420,12 +634,10 @@ def render_performance_page(services: dict):
             fig = create_win_rate_chart(strategy_perf)
             st.plotly_chart(fig, use_container_width=True)
 
-        # Strategy table
         st.dataframe(strategy_perf, use_container_width=True, hide_index=True)
     else:
         st.info("No strategy performance data available yet.")
 
-    # P&L Distribution
     st.markdown("---")
     st.subheader("P&L Distribution")
 
@@ -442,14 +654,12 @@ def render_backtests_page(services: dict):
     """Render Backtests page."""
     st.title("🔬 Backtests")
 
-    # Get backtest results
     results_df = services["backtester"].get_backtest_results()
 
     if not results_df.empty:
         st.markdown("---")
         st.subheader("Backtest Results")
 
-        # Summary table
         display_cols = [
             "strategy", "total_return_pct", "annualized_return_pct",
             "sharpe_ratio", "max_drawdown_pct", "win_rate",
@@ -458,13 +668,11 @@ def render_backtests_page(services: dict):
         available_cols = [c for c in display_cols if c in results_df.columns]
         display_df = results_df[available_cols].copy()
 
-        # Format percentages
         pct_cols = ["total_return_pct", "annualized_return_pct", "max_drawdown_pct", "win_rate"]
         for col in pct_cols:
             if col in display_df.columns:
                 display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}%")
 
-        # Format ratios
         ratio_cols = ["sharpe_ratio", "profit_factor"]
         for col in ratio_cols:
             if col in display_df.columns:
@@ -472,7 +680,6 @@ def render_backtests_page(services: dict):
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # Comparison chart
         st.markdown("---")
         st.subheader("Strategy Comparison")
 
@@ -484,7 +691,6 @@ def render_backtests_page(services: dict):
     else:
         st.info("No backtest results available. Run backtests to see results here.")
 
-    # Run new backtest
     st.markdown("---")
     st.subheader("Run New Backtest")
 
@@ -492,11 +698,8 @@ def render_backtests_page(services: dict):
 
     with col1:
         strategy_options = [
-            "rsi_mean_reversion",
-            "bollinger_squeeze",
-            "macd_volume",
-            "zscore_mean_reversion",
-            "momentum_breakout"
+            "rsi_mean_reversion", "bollinger_squeeze", "macd_volume",
+            "zscore_mean_reversion", "momentum_breakout"
         ]
         selected_strategy = st.selectbox("Strategy", strategy_options)
 
@@ -505,19 +708,22 @@ def render_backtests_page(services: dict):
         end_date = st.date_input("End Date", date.today())
 
     if st.button("Run Backtest"):
-        st.info("Backtest functionality requires historical data. Make sure data is loaded first.")
+        st.info("Backtest functionality requires historical data. Run `stockpulse init` first.")
 
 
 def render_watchlist_page(services: dict):
     """Render Long-Term Watchlist page."""
     st.title("📋 Long-Term Watchlist")
 
-    # Get watchlist
-    watchlist_df = services["db"].fetchdf("""
-        SELECT * FROM long_term_watchlist
-        WHERE scan_date >= DATE('now', '-7 days')
-        ORDER BY composite_score DESC
-    """)
+    try:
+        watchlist_df = services["db"].fetchdf("""
+            SELECT * FROM long_term_watchlist
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '7 days'
+            ORDER BY composite_score DESC
+        """)
+    except Exception as e:
+        st.error(f"Error loading watchlist: {e}")
+        watchlist_df = pd.DataFrame()
 
     if not watchlist_df.empty:
         st.markdown("---")
@@ -533,12 +739,8 @@ def render_watchlist_page(services: dict):
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # Details for selected ticker
         st.markdown("---")
-        selected_ticker = st.selectbox(
-            "Select ticker for details",
-            watchlist_df["ticker"].unique()
-        )
+        selected_ticker = st.selectbox("Select ticker for details", watchlist_df["ticker"].unique())
 
         if selected_ticker:
             ticker_data = watchlist_df[watchlist_df["ticker"] == selected_ticker].iloc[0]
@@ -554,7 +756,6 @@ def render_watchlist_page(services: dict):
 
             st.markdown(f"**Reasoning:** {ticker_data.get('reasoning', 'N/A')}")
 
-            # Price chart
             price_data = services["ingestion"].get_daily_prices(
                 [selected_ticker],
                 start_date=date.today() - timedelta(days=365)
@@ -573,7 +774,6 @@ def render_settings_page(services: dict):
 
     config = get_config()
 
-    # Display current configuration
     st.markdown("---")
     st.subheader("Current Configuration")
 
@@ -595,7 +795,6 @@ def render_settings_page(services: dict):
             "database": config.get("database", {})
         })
 
-    # Universe
     st.markdown("---")
     st.subheader("Stock Universe")
 
@@ -607,7 +806,6 @@ def render_settings_page(services: dict):
         with st.expander("View Universe"):
             st.dataframe(universe_df, use_container_width=True, hide_index=True)
 
-    # System status
     st.markdown("---")
     st.subheader("System Status")
 
