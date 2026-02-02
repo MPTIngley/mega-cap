@@ -28,65 +28,72 @@ trading:
   spread_percent: 0.02  # 2 bps average spread for large caps
   # Total round-trip cost estimate: ~0.14% (7 bps each way)
 
+# =============================================================================
+# AGGRESSIVE STRATEGY CONFIGURATION - Tuned for Maximum Profit Pursuit
+# =============================================================================
+# Philosophy: Tighter entries, asymmetric risk/reward, cut losers fast
+# Risk/Reward minimum: 2:1 on all strategies
+# =============================================================================
+
 strategies:
   mean_reversion_rsi:
     enabled: true
     rsi_period: 14
-    rsi_oversold: 30
-    rsi_overbought: 70
-    min_confidence: 60
-    hold_days_min: 3
-    hold_days_max: 10
-    stop_loss_pct: 5.0
-    take_profit_pct: 8.0
+    rsi_oversold: 25           # MORE extreme oversold (was 30) - higher conviction entries
+    rsi_overbought: 75         # MORE extreme overbought (was 70)
+    min_confidence: 65         # Slightly higher bar
+    hold_days_min: 2           # Faster (was 3) - capture quick bounces
+    hold_days_max: 7           # Shorter (was 10) - don't overstay
+    stop_loss_pct: 3.0         # TIGHTER stop (was 5) - cut losers fast
+    take_profit_pct: 8.0       # Keep target - 2.7:1 risk/reward
 
   bollinger_squeeze:
     enabled: true
     bb_period: 20
     bb_std: 2.0
-    squeeze_threshold: 0.05  # Bandwidth percentile for squeeze
-    min_confidence: 60
-    hold_days_min: 2
-    hold_days_max: 15
-    stop_loss_pct: 4.0
-    take_profit_pct: 10.0
+    squeeze_threshold: 0.03    # TIGHTER squeeze (was 0.05) - bigger moves
+    min_confidence: 65
+    hold_days_min: 1           # Can be very fast (was 2)
+    hold_days_max: 10          # Shorter (was 15)
+    stop_loss_pct: 3.0         # TIGHTER (was 4) - squeeze fails = get out
+    take_profit_pct: 12.0      # BIGGER target (was 10) - 4:1 risk/reward
 
   macd_volume:
     enabled: true
     macd_fast: 12
     macd_slow: 26
     macd_signal: 9
-    volume_threshold: 1.5  # Volume must be 1.5x average
-    min_confidence: 60
-    hold_days_min: 5
-    hold_days_max: 20
-    stop_loss_pct: 5.0
-    take_profit_pct: 12.0
+    volume_threshold: 2.0      # HIGHER volume required (was 1.5) - only big moves
+    min_confidence: 65
+    hold_days_min: 3           # Shorter (was 5)
+    hold_days_max: 15          # Shorter (was 20)
+    stop_loss_pct: 4.0         # Tighter (was 5)
+    take_profit_pct: 15.0      # BIGGER target (was 12) - 3.75:1 risk/reward
 
   mean_reversion_zscore:
     enabled: true
     lookback_period: 20
-    zscore_entry: -2.0  # Enter when z-score < -2
-    zscore_exit: 0.0  # Exit when z-score returns to 0
-    min_confidence: 55
-    hold_days_min: 2
-    hold_days_max: 10
-    stop_loss_pct: 6.0
-    take_profit_pct: 8.0
+    zscore_entry: -2.5         # MORE extreme (was -2) - deeper oversold
+    zscore_exit: 0.5           # Exit ABOVE mean (was 0) - capture overshoot
+    min_confidence: 60
+    hold_days_min: 1           # Very fast (was 2)
+    hold_days_max: 7           # Shorter (was 10)
+    stop_loss_pct: 4.0         # Tighter (was 6)
+    take_profit_pct: 10.0      # Bigger (was 8) - 2.5:1 risk/reward
 
   momentum_breakout:
     enabled: true
-    lookback_days: 20
-    breakout_threshold: 0.02  # 2% above recent high
-    volume_confirmation: 1.3  # Volume 1.3x average
-    min_confidence: 55
-    hold_days_min: 5
-    hold_days_max: 15
-    stop_loss_pct: 5.0
-    take_profit_pct: 10.0
+    lookback_days: 10          # SHORTER lookback (was 20) - fresher breakouts
+    breakout_threshold: 0.01   # TIGHTER threshold (was 0.02) - catch earlier
+    volume_confirmation: 1.8   # HIGHER volume (was 1.3) - real conviction
+    min_confidence: 60
+    hold_days_min: 3           # Shorter (was 5)
+    hold_days_max: 10          # Shorter (was 15) - momentum fades
+    stop_loss_pct: 3.5         # Tight (was 5) - breakout fails = wrong
+    take_profit_pct: 12.0      # Bigger (was 10) - 3.4:1 risk/reward
 
 alerts:
-  min_confidence_for_email: 70
+  min_confidence_for_email: 65      # Lower threshold (was 70) - more signals
   daily_digest_time: "17:00"
   quiet_hours_start: "22:00"
   quiet_hours_end: "07:00"
@@ -94,6 +101,14 @@ alerts:
   send_on_position_exit: true
   send_daily_digest: true
   send_error_alerts: true
+
+# Confidence-based position sizing (aggressive)
+# Higher confidence = bigger position
+confidence_scaling:
+  enabled: true
+  base_size_pct: 5.0           # Default 5% position
+  confidence_75_plus: 7.0      # 7% for confidence >= 75
+  confidence_85_plus: 10.0     # 10% for confidence >= 85 (max conviction)
 
 universe:
   source: "auto"  # "auto" fetches top 100 by market cap, "manual" uses list below
