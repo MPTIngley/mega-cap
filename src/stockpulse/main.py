@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset"],
         help="Command to execute"
     )
 
@@ -68,6 +68,20 @@ def main():
         "--strategy",
         type=str,
         help="Strategy name for backtest"
+    )
+
+    parser.add_argument(
+        "--keep-market-data",
+        action="store_true",
+        default=True,
+        help="Keep historical price data when resetting (default: True)"
+    )
+
+    parser.add_argument(
+        "--clear-all",
+        action="store_true",
+        default=False,
+        help="Clear ALL data including historical prices (use with caution)"
     )
 
     args = parser.parse_args()
@@ -100,6 +114,8 @@ def main():
         run_init()
     elif args.command == "optimize":
         run_optimize()
+    elif args.command == "reset":
+        run_reset(keep_market_data=not args.clear_all)
 
 
 def run_scheduler():
@@ -527,7 +543,8 @@ def run_optimize():
             # Show results
             constraint_status = "✓" if result.constraint_satisfied else "✗"
             print(f"\n  {constraint_status} {strategy_name}")
-            print(f"    Return: {result.best_return:+.2f}%")
+            print(f"    Final Value: ${result.final_value:,.0f} (from $100k)")
+            print(f"    Return: {result.best_return:+.2f}% ± {result.return_std_pct:.1f}%")
             print(f"    Sharpe: {result.best_sharpe:.2f}")
             print(f"    Max DD: {result.best_drawdown:.2f}%")
             print(f"    Time: {elapsed:.1f}s")
@@ -547,12 +564,12 @@ def run_optimize():
     print("  OPTIMIZATION SUMMARY")
     print("=" * 70)
 
-    print("\n  Strategy                     Return    Sharpe    Max DD   Constraint")
-    print("  " + "-" * 66)
+    print("\n  Strategy                     Final Value     Return ± Std    Sharpe    Max DD   Constraint")
+    print("  " + "-" * 94)
 
     for name, result in all_results.items():
         status = "✓ Met" if result.constraint_satisfied else "✗ Exceeded"
-        print(f"  {name:28} {result.best_return:+7.2f}%  {result.best_sharpe:6.2f}  {result.best_drawdown:7.2f}%  {status}")
+        print(f"  {name:28} ${result.final_value:>10,.0f}  {result.best_return:+6.1f}% ± {result.return_std_pct:4.1f}%  {result.best_sharpe:6.2f}  {result.best_drawdown:6.1f}%  {status}")
 
     # Save to config
     print("\n" + "-" * 70)
@@ -569,6 +586,44 @@ def run_optimize():
         print(f"  ✗ Failed to save: {e}")
 
     print("\n" + "=" * 70 + "\n")
+
+
+def run_reset(keep_market_data: bool = True):
+    """Reset trading data while keeping historical prices."""
+    from stockpulse.data.database import reset_trading_data
+
+    print("\n" + "=" * 60)
+    print("  STOCKPULSE DATA RESET")
+    print("=" * 60)
+
+    if keep_market_data:
+        print("\n  Mode: Reset trading data ONLY")
+        print("  ✓ Will KEEP: prices_daily, prices_intraday, fundamentals, universe")
+        print("  ✗ Will DELETE: signals, positions, alerts, backtest_results")
+    else:
+        print("\n  Mode: FULL RESET (including historical data)")
+        print("  ✗ Will DELETE: ALL data including historical prices")
+        print("  ⚠ You will need to run 'stockpulse init' to fetch data again")
+
+    print("\n  Resetting...")
+
+    deleted = reset_trading_data(keep_market_data=keep_market_data)
+
+    print("\n  Deleted records:")
+    for table, count in deleted.items():
+        print(f"    {table}: {count}")
+
+    total = sum(deleted.values())
+    print(f"\n  Total: {total} records deleted")
+
+    if keep_market_data:
+        print("\n  ✓ Historical market data preserved!")
+        print("  Ready to run: stockpulse optimize")
+    else:
+        print("\n  ✓ All data cleared!")
+        print("  Run: stockpulse init")
+
+    print("\n" + "=" * 60 + "\n")
 
 
 if __name__ == "__main__":

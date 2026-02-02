@@ -46,7 +46,9 @@ Then use `stockpulse <command>` from anywhere.
 | `stockpulse run` | Start the scheduler (runs scans every 15 min during market hours) |
 | `stockpulse scan` | Run a single signal scan now |
 | `stockpulse backtest` | Run backtests on all strategies |
-| `stockpulse optimize` | **NEW** Run hyperparameter optimization for all 8 strategies |
+| `stockpulse optimize` | Run hyperparameter optimization for all 8 strategies |
+| `stockpulse reset` | Reset trading data (keeps historical prices) |
+| `stockpulse reset --clear-all` | Reset ALL data including historical prices |
 | `stockpulse init` | Initialize DB and fetch 2 years of historical data |
 | `stockpulse ingest` | Refresh universe and fetch latest price data |
 
@@ -85,14 +87,20 @@ stockpulse run
 stockpulse dashboard
 ```
 
-**Fresh start (reset all trading data):**
+**Fresh start (reset trading data, keep historical prices):**
 ```bash
-rm -f data/stockpulse.sqlite data/stockpulse.sqlite-wal data/stockpulse.sqlite-shm
-stockpulse init
-stockpulse optimize
+stockpulse reset              # Clears trades/signals, KEEPS 2 years of price data
+stockpulse optimize           # Re-optimize with fresh slate
 git add config/config.yaml
 git commit -m "Optimized strategy params"
-git push origin main
+git push origin claude/init-repo-setup-maaOL
+```
+
+**Full reset (delete everything including historical data):**
+```bash
+stockpulse reset --clear-all  # Deletes ALL data including prices
+stockpulse init               # Re-fetch 2 years of historical data
+stockpulse optimize
 ```
 
 **When will you see trades?**
@@ -169,27 +177,23 @@ The `.env` file is automatically loaded by the application.
 
 ## Database Management
 
-**Wipe everything and start fresh:**
-```bash
-rm -f data/stockpulse.sqlite data/stockpulse.sqlite-wal data/stockpulse.sqlite-shm
-stockpulse init
-```
-
 **Clear trades but keep market data (prices, universe):**
 ```bash
-stockpulse reset --keep-market-data
+stockpulse reset
+# Deletes: signals, positions, alerts, backtest_results
+# Keeps: prices_daily, prices_intraday, fundamentals, universe (2 years of data!)
 ```
 
-Or via Python:
+**Clear EVERYTHING including market data (requires re-init):**
 ```bash
-cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
-python3 -c "from stockpulse.data.database import reset_trading_data; print(reset_trading_data())"
+stockpulse reset --clear-all
+stockpulse init  # Re-fetches 2 years of historical data
 ```
 
-**Clear everything including market data:**
+**Alternative: Delete database files directly:**
 ```bash
-cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
-python3 -c "from stockpulse.data.database import reset_trading_data; print(reset_trading_data(keep_market_data=False))"
+rm -f data/stockpulse.sqlite data/stockpulse.sqlite-wal data/stockpulse.sqlite-shm
+stockpulse init  # Re-fetches everything
 ```
 
 **Get data summary:**

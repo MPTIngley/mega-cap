@@ -44,6 +44,8 @@ class OptimizationResult:
     all_results: list[dict]
     constraint_satisfied: bool
     optimization_time_seconds: float
+    final_value: float = 100000.0  # Final portfolio value
+    return_std_pct: float = 0.0    # Annualized return std dev
 
 
 # Define parameter search spaces for each strategy
@@ -251,6 +253,8 @@ class StrategyOptimizer:
                     "win_rate": result.win_rate,
                     "total_trades": result.total_trades,
                     "profit_factor": result.profit_factor,
+                    "final_value": result.final_value,
+                    "return_std_pct": result.return_std_pct,
                     "meets_constraint": meets_constraint,
                     "score": score if meets_constraint else float("-inf"),
                 }
@@ -290,7 +294,9 @@ class StrategyOptimizer:
             best_drawdown=best_result["max_drawdown_pct"],
             all_results=all_results,
             constraint_satisfied=best_result.get("meets_constraint", False),
-            optimization_time_seconds=elapsed
+            optimization_time_seconds=elapsed,
+            final_value=best_result.get("final_value", 100000.0),
+            return_std_pct=best_result.get("return_std_pct", 0.0)
         )
 
     def optimize_all_strategies(

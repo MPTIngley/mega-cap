@@ -55,6 +55,7 @@ class BacktestResult:
     avg_win: float
     avg_loss: float
     avg_hold_days: float
+    return_std_pct: float = 0.0  # Standard deviation of returns
     trades: list[BacktestTrade] = field(default_factory=list)
     equity_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
     params: dict = field(default_factory=dict)
@@ -79,6 +80,7 @@ class BacktestResult:
             "avg_win": self.avg_win,
             "avg_loss": self.avg_loss,
             "avg_hold_days": self.avg_hold_days,
+            "return_std_pct": self.return_std_pct,
             "params": self.params,
         }
 
@@ -415,9 +417,13 @@ class Backtester:
             # Annualized Sharpe (assuming 252 trading days)
             sharpe_ratio = (mean_return / std_return * np.sqrt(252)) if std_return > 0 else 0
             sortino_ratio = (mean_return / downside_std * np.sqrt(252)) if downside_std > 0 else 0
+
+            # Annualized standard deviation of returns
+            return_std_pct = std_return * np.sqrt(252) * 100
         else:
             sharpe_ratio = 0
             sortino_ratio = 0
+            return_std_pct = 0
 
         # Max drawdown
         equity_curve["cummax"] = equity_curve["equity"].cummax()
@@ -463,6 +469,7 @@ class Backtester:
             avg_win=avg_win,
             avg_loss=avg_loss,
             avg_hold_days=avg_hold_days,
+            return_std_pct=return_std_pct,
             trades=trades,
             equity_curve=equity_curve,
             params=params
