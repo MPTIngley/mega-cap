@@ -419,11 +419,12 @@ class DataIngestion:
 
         if start_date:
             query += " AND date >= ?"
-            params.append(start_date)
+            # Convert to string for SQLite comparison
+            params.append(start_date.isoformat() if hasattr(start_date, 'isoformat') else str(start_date))
 
         if end_date:
             query += " AND date <= ?"
-            params.append(end_date)
+            params.append(end_date.isoformat() if hasattr(end_date, 'isoformat') else str(end_date))
 
         query += " ORDER BY ticker, date"
 

@@ -189,13 +189,25 @@ class Backtester:
         capital = initial_capital
         equity_history = []
 
-        # Get all trading days
-        all_dates = sorted(price_data["date"].unique())
+        # Get all trading days - convert string dates to date objects for comparison
+        all_dates_raw = sorted(price_data["date"].unique())
+        # Handle both string dates (from SQLite) and date objects
+        all_dates = []
+        for d in all_dates_raw:
+            if isinstance(d, str):
+                all_dates.append(date.fromisoformat(d))
+            elif isinstance(d, date):
+                all_dates.append(d)
+            else:
+                # pandas Timestamp or datetime
+                all_dates.append(d.date() if hasattr(d, 'date') else d)
+
         trading_dates = [d for d in all_dates if start_date <= d <= end_date]
 
         for current_date in trading_dates:
-            # Get prices for this date
-            day_prices = price_data[price_data["date"] == current_date]
+            # Get prices for this date (compare as string since DB stores strings)
+            date_str = current_date.isoformat() if isinstance(current_date, date) else str(current_date)
+            day_prices = price_data[price_data["date"] == date_str]
             price_dict = {row["ticker"]: row for _, row in day_prices.iterrows()}
 
             # Update open positions (check for exit)
