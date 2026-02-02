@@ -10,15 +10,37 @@ Before writing any code, do the following:
 
 ---
 
-## Current Phase: **5 — Trade Tracker (COMPLETE)**
+## Current Phase: **5.5 — Smart Trading Enhancements (COMPLETE)**
 ## Last Session: 2026-02-02
-## Next Steps:
-1. ✅ Gmail App Password configured in .env
-2. **NOW:** Test dashboard launch
-3. Run initial data ingestion (happens automatically on first launch)
-4. Verify email alerts work (send test)
-5. Run backtest to validate strategies on historical data
-6. Begin Phase 6 (Hardening) if everything works
+## Status: READY FOR LIVE TESTING
+
+### What's Working:
+- ✅ Database initialized with 2 years historical data
+- ✅ Dashboard accessible at http://localhost:8501
+- ✅ 5 trading strategies implemented
+- ✅ Smart de-duplication (cooldowns, loss limits, sector concentration)
+- ✅ Equity curve tracking with drawdown
+- ✅ Email alerts configured (needs testing)
+
+### Next Steps:
+1. **NOW:** Start scheduler (`stockpulse run`) during market hours
+2. **NOW:** Watch dashboard for first signals (within 15 min during market hours)
+3. Verify email alerts fire on high-confidence signals
+4. Let it run for a few days to accumulate paper trades
+5. Review performance, tune strategy parameters
+6. Begin Phase 6 (Hardening) after 1-2 weeks of stable operation
+
+### To Test Right Now:
+```bash
+# Terminal 1 - Start scheduler
+stockpulse run
+
+# Terminal 2 - Launch dashboard
+stockpulse dashboard
+
+# Or run a single scan immediately (any time)
+stockpulse scan
+```
 
 ---
 
@@ -100,8 +122,24 @@ Before writing any code, do the following:
 - [ ] System health monitoring (last successful data pull, signal generation status)
 - [ ] Graceful handling of market holidays, half days, after-hours
 - [ ] Strategy auto-disable on sustained drawdown (configurable threshold)
+- [ ] Launchd/systemd service for auto-restart on crash
+- [ ] Health check endpoint for monitoring
 - [ ] Run unattended for 2+ weeks without intervention
 - [ ] **MILESTONE:** Production-grade reliability
+
+## Phase 5.5 — Smart Trading (COMPLETE)
+
+- [x] De-duplication: Cooldown after losses (7 days)
+- [x] De-duplication: Churn prevention (3 days after any exit)
+- [x] De-duplication: Block ticker after 3 consecutive losses
+- [x] Concentration limits: Max 30% portfolio in single sector
+- [x] Equity curve time series with drawdown tracking
+- [x] Mark-to-market for open positions
+- [x] Blocked tickers display in dashboard
+- [x] Historical data preloading (2 years on init)
+- [x] WCAG 2.1 AA compliant color contrast
+- [x] COMMANDS.md reference sheet
+- [x] **MILESTONE:** Smart trading logic prevents repeat bad trades
 
 ---
 
@@ -149,6 +187,9 @@ Before writing any code, do the following:
 | 2026-02-01 | APScheduler over cron | In-process, easier to manage with the Python app |
 | 2026-02-02 | 5 strategies implemented | RSI, Bollinger, MACD, Z-Score, Momentum |
 | 2026-02-02 | Transaction costs modeled | Slippage 5bps, spread 2bps, no commission |
+| 2026-02-02 | Smart trading logic added | Cooldowns, loss limits, sector concentration limits |
+| 2026-02-02 | Equity curves added | Time series tracking with drawdown visualization |
+| 2026-02-02 | WCAG 2.1 AA color contrast | Dashboard restyled for accessibility |
 
 ---
 

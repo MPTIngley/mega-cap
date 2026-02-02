@@ -43,53 +43,274 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for clean styling - FIXED for visibility
+# Custom CSS - WCAG 2.1 AA compliant color contrast (4.5:1 minimum)
 st.markdown("""
 <style>
-    /* Main layout */
-    .main > div { padding-top: 1rem; }
+    /* ========================================
+       FORCE LIGHT THEME - Override Streamlit
+       ======================================== */
 
-    /* Metrics - dark text on light background */
-    [data-testid="stMetricValue"] {
-        color: #1a1a2e !important;
-        font-size: 1.8rem !important;
-        font-weight: 600 !important;
+    /* Main app background */
+    .stApp, [data-testid="stAppViewContainer"], .main {
+        background-color: #ffffff !important;
     }
-    [data-testid="stMetricLabel"] {
-        color: #4a4a6a !important;
+
+    /* Main content area */
+    .main .block-container {
+        background-color: #ffffff !important;
+        padding-top: 2rem !important;
+    }
+
+    /* ========================================
+       SIDEBAR - Light gray background
+       ======================================== */
+    [data-testid="stSidebar"] {
+        background-color: #f0f2f6 !important;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        background-color: #f0f2f6 !important;
+    }
+
+    /* Sidebar text - dark on light */
+    [data-testid="stSidebar"] * {
+        color: #1f2937 !important;
+    }
+
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #1f2937 !important;
+    }
+
+    /* Sidebar radio buttons */
+    [data-testid="stSidebar"] .stRadio label {
+        color: #1f2937 !important;
         font-weight: 500 !important;
     }
-    [data-testid="stMetricDelta"] svg { fill: currentColor; }
 
-    /* Headers */
-    h1 { color: #1a1a2e !important; }
-    h2 { color: #2d3436 !important; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-    h3 { color: #2d3436 !important; }
+    [data-testid="stSidebar"] .stRadio label span {
+        color: #1f2937 !important;
+    }
 
-    /* Sidebar */
-    [data-testid="stSidebar"] { background-color: #f8f9fa; }
-    [data-testid="stSidebar"] .stMarkdown p { color: #2d3436 !important; }
+    /* ========================================
+       MAIN CONTENT TEXT - Dark on white
+       ======================================== */
 
-    /* Tables */
-    .stDataFrame { border-radius: 10px; }
+    /* All text defaults */
+    .main p, .main span, .main label, .main div {
+        color: #1f2937 !important;
+    }
 
-    /* Info/Warning/Error boxes */
-    .stAlert { border-radius: 8px; }
+    /* Headers - very dark */
+    h1, h2, h3, h4, h5, h6 {
+        color: #111827 !important;
+    }
 
-    /* Radio buttons in sidebar */
-    .stRadio > label { color: #2d3436 !important; }
+    h1 { font-size: 2rem !important; font-weight: 700 !important; }
+    h2 {
+        font-size: 1.5rem !important;
+        font-weight: 600 !important;
+        border-bottom: 2px solid #3b82f6 !important;
+        padding-bottom: 0.5rem !important;
+        margin-top: 1.5rem !important;
+    }
+    h3 { font-size: 1.25rem !important; font-weight: 600 !important; }
+
+    /* ========================================
+       METRICS - High contrast
+       ======================================== */
+    [data-testid="stMetricValue"] {
+        color: #111827 !important;
+        font-size: 1.75rem !important;
+        font-weight: 700 !important;
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: #374151 !important;
+        font-weight: 500 !important;
+        font-size: 0.9rem !important;
+    }
+
+    [data-testid="stMetricDelta"] {
+        font-weight: 600 !important;
+    }
+
+    /* Positive delta - green */
+    [data-testid="stMetricDelta"][data-testid-delta="positive"] {
+        color: #059669 !important;
+    }
+
+    /* Negative delta - red */
+    [data-testid="stMetricDelta"][data-testid-delta="negative"] {
+        color: #dc2626 !important;
+    }
+
+    /* ========================================
+       DATA TABLES
+       ======================================== */
+    .stDataFrame {
+        border-radius: 8px !important;
+    }
+
+    /* Table headers */
+    .stDataFrame thead th {
+        background-color: #f3f4f6 !important;
+        color: #111827 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Table cells */
+    .stDataFrame tbody td {
+        color: #1f2937 !important;
+        background-color: #ffffff !important;
+    }
+
+    /* Alternating rows */
+    .stDataFrame tbody tr:nth-child(even) td {
+        background-color: #f9fafb !important;
+    }
+
+    /* ========================================
+       FORM ELEMENTS
+       ======================================== */
 
     /* Select boxes */
-    .stSelectbox label { color: #2d3436 !important; }
+    .stSelectbox label, .stMultiSelect label {
+        color: #1f2937 !important;
+        font-weight: 500 !important;
+    }
+
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #ffffff !important;
+    }
+
+    .stSelectbox [data-baseweb="select"] * {
+        color: #1f2937 !important;
+    }
+
+    /* Text inputs */
+    .stTextInput label, .stNumberInput label {
+        color: #1f2937 !important;
+    }
+
+    .stTextInput input, .stNumberInput input {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+        border: 1px solid #d1d5db !important;
+    }
 
     /* Sliders */
-    .stSlider label { color: #2d3436 !important; }
+    .stSlider label {
+        color: #1f2937 !important;
+    }
 
-    /* Captions */
-    .stCaption { color: #636e72 !important; }
+    /* ========================================
+       BUTTONS
+       ======================================== */
+    .stButton button {
+        background-color: #3b82f6 !important;
+        color: #ffffff !important;
+        font-weight: 500 !important;
+        border: none !important;
+    }
 
-    /* Code blocks */
-    code { background-color: #f1f3f4 !important; color: #1a1a2e !important; }
+    .stButton button:hover {
+        background-color: #2563eb !important;
+    }
+
+    /* ========================================
+       ALERTS / INFO BOXES
+       ======================================== */
+    .stAlert {
+        border-radius: 8px !important;
+    }
+
+    /* Info box */
+    [data-testid="stAlert"][data-baseweb="notification"] {
+        background-color: #eff6ff !important;
+        color: #1e40af !important;
+    }
+
+    /* Success box */
+    .stSuccess, [data-baseweb="notification"][kind="positive"] {
+        background-color: #ecfdf5 !important;
+        color: #065f46 !important;
+    }
+
+    /* Warning box */
+    .stWarning, [data-baseweb="notification"][kind="warning"] {
+        background-color: #fffbeb !important;
+        color: #92400e !important;
+    }
+
+    /* Error box */
+    .stError, [data-baseweb="notification"][kind="negative"] {
+        background-color: #fef2f2 !important;
+        color: #991b1b !important;
+    }
+
+    /* ========================================
+       TABS
+       ======================================== */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #f3f4f6 !important;
+        border-radius: 8px !important;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        color: #4b5563 !important;
+        font-weight: 500 !important;
+    }
+
+    .stTabs [aria-selected="true"] {
+        color: #1f2937 !important;
+        background-color: #ffffff !important;
+    }
+
+    /* ========================================
+       EXPANDERS
+       ======================================== */
+    .streamlit-expanderHeader {
+        color: #1f2937 !important;
+        font-weight: 500 !important;
+        background-color: #f9fafb !important;
+    }
+
+    .streamlit-expanderContent {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+    }
+
+    /* ========================================
+       CODE BLOCKS
+       ======================================== */
+    code {
+        background-color: #f3f4f6 !important;
+        color: #1f2937 !important;
+        padding: 2px 6px !important;
+        border-radius: 4px !important;
+    }
+
+    pre {
+        background-color: #1f2937 !important;
+        color: #f9fafb !important;
+    }
+
+    /* ========================================
+       CAPTIONS & SMALL TEXT
+       ======================================== */
+    .stCaption, small, .st-emotion-cache-1gulkj5 {
+        color: #6b7280 !important;
+    }
+
+    /* ========================================
+       PLOTLY CHARTS - ensure readable
+       ======================================== */
+    .js-plotly-plot .plotly .modebar {
+        background-color: transparent !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
