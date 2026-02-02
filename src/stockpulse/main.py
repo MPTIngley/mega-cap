@@ -492,17 +492,35 @@ def run_optimize():
     tickers = universe.get_active_tickers()
 
     if not tickers:
+        print("\n  ⚠ No tickers in universe. Run 'stockpulse init' first.")
         logger.error("No tickers in universe. Run 'stockpulse init' first.")
         return
 
     # Use subset for faster optimization
     tickers = tickers[:30]
     print(f"\n  Using {len(tickers)} tickers for optimization")
+    print(f"  Tickers: {', '.join(tickers[:10])}{'...' if len(tickers) > 10 else ''}")
 
     # Date range - use 18 months of data
     end_date = date.today()
     start_date = end_date - timedelta(days=540)
     print(f"  Date range: {start_date} to {end_date}")
+
+    # Check if we have price data
+    from stockpulse.data.database import get_db
+    db = get_db()
+    try:
+        price_count = db.fetchone("SELECT COUNT(*) FROM prices_daily")
+        price_count = price_count[0] if price_count else 0
+        print(f"  Price records in database: {price_count:,}")
+        if price_count < 1000:
+            print("\n  ⚠ WARNING: Not enough price data for reliable optimization.")
+            print("  Run 'stockpulse init' to fetch 2 years of historical data.")
+            return
+    except Exception as e:
+        print(f"\n  ⚠ Database error: {e}")
+        print("  Run 'stockpulse init' to initialize the database.")
+        return
 
     # Initialize optimizer
     optimizer = StrategyOptimizer(max_drawdown_pct=25.0)
@@ -555,8 +573,10 @@ def run_optimize():
             print(f"    Params: {key_params}")
 
         except Exception as e:
+            import traceback
             logger.error(f"Failed to optimize {strategy_name}: {e}")
-            print(f"  ✗ {strategy_name} - FAILED: {e}")
+            print(f"\n  ✗ {strategy_name} - FAILED: {e}")
+            print(f"    Traceback: {traceback.format_exc()}")
             continue
 
     # Summary
