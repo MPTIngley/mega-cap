@@ -32,7 +32,16 @@ class PositionManager:
         self.config = get_config()
         self.trading_config = self.config.get("trading", {})
         self.risk_config = self.config.get("risk_management", {})
+        self.portfolio_config = self.config.get("portfolio", {})
         self.data_ingestion = DataIngestion()
+
+        # Portfolio capital (env var overrides config)
+        import os
+        env_capital = os.environ.get("STOCKPULSE_INITIAL_CAPITAL")
+        if env_capital:
+            self.initial_capital = float(env_capital)
+        else:
+            self.initial_capital = self.portfolio_config.get("initial_capital", 100000.0)
 
         # Transaction costs
         self.commission = self.trading_config.get("commission_per_trade", 0.0)
@@ -61,18 +70,20 @@ class PositionManager:
     def open_position_from_signal(
         self,
         signal: Signal,
-        capital: float = 10000.0
+        capital: float | None = None
     ) -> int | None:
         """
         Open a paper position from a signal.
 
         Args:
             signal: Signal to open position from
-            capital: Capital to allocate (default $10k)
+            capital: Capital to allocate (defaults to initial_capital from config)
 
         Returns:
             Position ID or None if failed
         """
+        if capital is None:
+            capital = self.initial_capital
         # Check risk limits
         if not self._check_risk_limits(signal):
             logger.info(f"Risk limits prevent opening position for {signal.ticker}")

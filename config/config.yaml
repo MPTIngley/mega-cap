@@ -101,9 +101,15 @@ universe:
   manual_tickers: []  # Override list when source is "manual"
   refresh_interval_days: 7
 
+# Paper Trading Portfolio
+# This is your simulated portfolio for tracking signals and performance
+portfolio:
+  initial_capital: 100000.0  # $100k starting paper money
+  # Can also be set via environment variable: STOCKPULSE_INITIAL_CAPITAL
+
 risk_management:
-  max_position_size_pct: 5.0  # Max 5% of portfolio per position
-  max_portfolio_exposure_pct: 80.0  # Max 80% invested at once
+  max_position_size_pct: 5.0  # Max 5% of portfolio per position ($5k at $100k)
+  max_portfolio_exposure_pct: 80.0  # Max 80% invested at once ($80k at $100k)
   max_concurrent_positions: 20
   max_drawdown_disable_pct: 15.0  # Disable strategy if drawdown exceeds 15%
   min_days_between_same_ticker: 3  # Don't re-enter same stock within 3 days
