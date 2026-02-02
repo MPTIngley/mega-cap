@@ -142,24 +142,41 @@ python3 -m stockpulse.main <command>
 
 **Wipe everything and start fresh:**
 ```bash
-rm data/stockpulse.duckdb
+rm -f data/stockpulse.sqlite data/stockpulse.sqlite-wal data/stockpulse.sqlite-shm
 stockpulse init
 ```
 
-**Clear just positions/signals (keep price history):**
+**Clear trades but keep market data (prices, universe):**
 ```bash
-cd ~/Documents/AIGames/mega-cap
-source venv/bin/activate
+cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
 python3 -c "
-from stockpulse.data.database import get_db
-db = get_db()
-db.execute('DELETE FROM positions_paper')
-db.execute('DELETE FROM signals')
-print('Positions and signals cleared')
+from stockpulse.data.database import reset_trading_data
+result = reset_trading_data()
+print('Cleared:', result)
 "
 ```
 
-**Check for locked database:**
+**Clear everything including market data:**
+```bash
+cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
+python3 -c "
+from stockpulse.data.database import reset_trading_data
+result = reset_trading_data(keep_market_data=False)
+print('Cleared:', result)
+"
+```
+
+**Get data summary (record counts, date ranges):**
+```bash
+cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
+python3 -c "
+from stockpulse.data.database import get_data_summary
+import json
+print(json.dumps(get_data_summary(), indent=2, default=str))
+"
+```
+
+**Check for stuck Python processes:**
 ```bash
 ps aux | grep python | grep -v grep
 # Kill any stuck process:
@@ -188,11 +205,11 @@ STOCKPULSE_MAX_POSITIONS=20
 | Problem | Solution |
 |---------|----------|
 | `No module named 'stockpulse'` | Activate venv: `source venv/bin/activate` |
-| `database is locked` | Kill stuck process: `ps aux \| grep python` then `kill <PID>` |
 | `Email not configured` | Load env vars: `set -a && source .env && set +a` |
 | Dashboard shows 0 stocks | Run `stockpulse init` to fetch data |
 | No signals appearing | Make sure `stockpulse run` is running during market hours |
 | Stale dashboard data | Refresh browser; ensure scheduler is running |
+| Want to reset trades | Use `reset_trading_data()` - see Database Management above |
 
 ---
 
