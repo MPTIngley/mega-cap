@@ -22,16 +22,24 @@ cd mega-cap
 pip install -e ".[dev]"
 ```
 
-### 2. Configure Environment Variables
+### 2. Configure Email (for alerts)
 
-Create a `.env` file or set these environment variables:
+Copy the example and edit:
 
 ```bash
-# Email Configuration (required for alerts)
-export STOCKPULSE_EMAIL_SENDER="your-email@gmail.com"
-export STOCKPULSE_EMAIL_RECIPIENT="your-email@gmail.com"
-export STOCKPULSE_EMAIL_PASSWORD="your-gmail-app-password"
+cp .env.example .env
+open -e .env   # or use any text editor
 ```
+
+Set these values in `.env`:
+
+```
+STOCKPULSE_EMAIL_SENDER=your-email@gmail.com
+STOCKPULSE_EMAIL_RECIPIENT=your-email@gmail.com
+STOCKPULSE_EMAIL_PASSWORD=your-gmail-app-password
+```
+
+**Note:** Commands auto-load `.env` - no manual sourcing required.
 
 ### 3. Initialize Database and Fetch Data
 
@@ -84,7 +92,7 @@ Edit `config/config.yaml` to customize:
 ### No API Key Required
 
 - **yfinance**: Stock data is fetched using yfinance (free, no API key)
-- **DuckDB**: Local database, no external service
+- **SQLite**: Local database with WAL mode (concurrent read/write support)
 
 ## Project Structure
 
@@ -93,7 +101,7 @@ mega-cap/
 ├── config/
 │   └── config.yaml          # Configuration file
 ├── data/
-│   └── stockpulse.duckdb    # Database (created on init)
+│   └── stockpulse.sqlite    # Database (created on init)
 ├── src/stockpulse/
 │   ├── alerts/              # Email alert system
 │   ├── dashboard/           # Streamlit dashboard

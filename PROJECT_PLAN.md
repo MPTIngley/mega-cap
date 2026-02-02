@@ -49,14 +49,14 @@ stockpulse scan
 - [x] Initialize project structure (src/, tests/, data/, config/, docs/)
 - [x] Set up pyproject.toml with dependencies
 - [x] Create config.yaml with sensible defaults
-- [x] Set up DuckDB and define schema (all core tables)
+- [x] Set up SQLite (WAL mode) and define schema (all core tables)
 - [x] Build universe manager: fetch top 100 US stocks by market cap, store in DB, support manual overrides
 - [x] Build intraday data ingestion: yfinance 15-min OHLCV for full universe
 - [x] Build daily data ingestion: EOD prices + basic fundamentals
 - [x] Add rate limiting, caching, and staleness detection for data pulls
 - [x] Set up APScheduler: 15-min intraday job + daily post-close job
 - [ ] Write basic integration test: scheduler runs, data lands in DB
-- [x] **MILESTONE:** 15-min price data flowing into DuckDB for 100 stocks
+- [x] **MILESTONE:** 15-min price data flowing into SQLite for 100 stocks
 
 ## Phase 1 — Strategies + Backtesting (COMPLETE)
 
@@ -154,7 +154,7 @@ stockpulse scan
 
 ### Data Sources (NO API KEY NEEDED)
 - **yfinance**: Free, no API key required
-- **DuckDB**: Local database, no external service
+- **SQLite**: Local database with WAL mode for concurrent access
 
 ### Future Options (NOT CURRENTLY USED)
 - Alpha Vantage: Free tier available if yfinance becomes unreliable
@@ -190,6 +190,11 @@ stockpulse scan
 | 2026-02-02 | Smart trading logic added | Cooldowns, loss limits, sector concentration limits |
 | 2026-02-02 | Equity curves added | Time series tracking with drawdown visualization |
 | 2026-02-02 | WCAG 2.1 AA color contrast | Dashboard restyled for accessibility |
+| 2026-02-02 | **Switched to SQLite** | DuckDB had macOS locking issues; SQLite WAL mode works |
+| 2026-02-02 | Dark mode dashboard | Slate color palette, better visual design |
+| 2026-02-02 | Auto .env loading | Commands auto-load .env, no manual sourcing needed |
+| 2026-02-02 | Scheduler countdown | Shows time until next scan in console |
+| 2026-02-02 | Market snapshot in scan | Shows stocks near signal thresholds |
 
 ---
 

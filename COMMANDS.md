@@ -27,13 +27,14 @@ Add this to your `~/.zshrc` for easy access from any terminal:
 echo 'stockpulse() {
   cd ~/Documents/AIGames/mega-cap &&
   source venv/bin/activate &&
-  set -a && source .env && set +a &&
   python3 -m stockpulse.main "$@"
 }' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 Then use `stockpulse <command>` from anywhere.
+
+**Note:** Commands auto-load `.env` - no manual env sourcing needed.
 
 ---
 
@@ -132,9 +133,10 @@ If you don't set up the alias, run these in each new terminal:
 ```bash
 cd ~/Documents/AIGames/mega-cap
 source venv/bin/activate
-set -a && source .env && set +a
 python3 -m stockpulse.main <command>
 ```
+
+The `.env` file is automatically loaded by the application.
 
 ---
 
@@ -148,32 +150,25 @@ stockpulse init
 
 **Clear trades but keep market data (prices, universe):**
 ```bash
+stockpulse reset --keep-market-data
+```
+
+Or via Python:
+```bash
 cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
-python3 -c "
-from stockpulse.data.database import reset_trading_data
-result = reset_trading_data()
-print('Cleared:', result)
-"
+python3 -c "from stockpulse.data.database import reset_trading_data; print(reset_trading_data())"
 ```
 
 **Clear everything including market data:**
 ```bash
 cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
-python3 -c "
-from stockpulse.data.database import reset_trading_data
-result = reset_trading_data(keep_market_data=False)
-print('Cleared:', result)
-"
+python3 -c "from stockpulse.data.database import reset_trading_data; print(reset_trading_data(keep_market_data=False))"
 ```
 
-**Get data summary (record counts, date ranges):**
+**Get data summary:**
 ```bash
 cd ~/Documents/AIGames/mega-cap && source venv/bin/activate
-python3 -c "
-from stockpulse.data.database import get_data_summary
-import json
-print(json.dumps(get_data_summary(), indent=2, default=str))
-"
+python3 -c "from stockpulse.data.database import get_data_summary; import json; print(json.dumps(get_data_summary(), indent=2, default=str))"
 ```
 
 **Check for stuck Python processes:**
@@ -205,11 +200,12 @@ STOCKPULSE_MAX_POSITIONS=20
 | Problem | Solution |
 |---------|----------|
 | `No module named 'stockpulse'` | Activate venv: `source venv/bin/activate` |
-| `Email not configured` | Load env vars: `set -a && source .env && set +a` |
+| `Email not configured` | Check `.env` file has correct values |
 | Dashboard shows 0 stocks | Run `stockpulse init` to fetch data |
 | No signals appearing | Make sure `stockpulse run` is running during market hours |
 | Stale dashboard data | Refresh browser; ensure scheduler is running |
 | Want to reset trades | Use `reset_trading_data()` - see Database Management above |
+| Database locked error | Use SQLite (already configured); only one writer allowed |
 
 ---
 
