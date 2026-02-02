@@ -17,18 +17,29 @@ Before writing any code, do the following:
 ### What's Working:
 - ✅ Database initialized with 2 years historical data
 - ✅ Dashboard accessible at http://localhost:8501
-- ✅ 5 trading strategies implemented
+- ✅ 8 trading strategies implemented (5 original + 3 new)
 - ✅ Smart de-duplication (cooldowns, loss limits, sector concentration)
 - ✅ Equity curve tracking with drawdown
-- ✅ Email alerts configured (needs testing)
+- ✅ Email alerts configured
+- ✅ Hyperparameter optimizer with drawdown constraint
+- ✅ Interactive backtest dashboard with param tuning
+
+### Strategies:
+1. RSI Mean Reversion
+2. Bollinger Squeeze Breakout
+3. MACD + Volume
+4. Z-Score Mean Reversion
+5. Momentum Breakout
+6. **Gap Fade** (NEW) - trades overnight gaps that fill
+7. **52-Week Low Bounce** (NEW) - quality stocks bouncing off lows
+8. **Sector Rotation** (NEW) - buy leaders in strongest sectors
 
 ### Next Steps:
-1. **NOW:** Start scheduler (`stockpulse run`) during market hours
-2. **NOW:** Watch dashboard for first signals (within 15 min during market hours)
-3. Verify email alerts fire on high-confidence signals
-4. Let it run for a few days to accumulate paper trades
-5. Review performance, tune strategy parameters
-6. Begin Phase 6 (Hardening) after 1-2 weeks of stable operation
+1. Run `stockpulse optimize` to find optimal params
+2. Push optimized config to git
+3. Reset trading data and start fresh
+4. Start scheduler during market hours
+5. Review performance after 1-2 weeks
 
 ### To Test Right Now:
 ```bash
@@ -164,8 +175,9 @@ stockpulse scan
 
 ## Backlog (Future / Unscheduled)
 
-- [ ] Add more strategies: Earnings Drift, Gap-and-Go, MA Crossover (10/50 EMA)
-- [ ] Sector rotation signals
+- [x] Add more strategies: Gap Fade, 52-Week Low Bounce, Sector Rotation
+- [x] Hyperparameter optimization with drawdown constraint
+- [ ] Earnings Drift strategy (post-earnings momentum)
 - [ ] Options-based strategies
 - [ ] Broker API integration for automated execution
 - [ ] Mobile-friendly dashboard or push notifications
@@ -195,6 +207,9 @@ stockpulse scan
 | 2026-02-02 | Auto .env loading | Commands auto-load .env, no manual sourcing needed |
 | 2026-02-02 | Scheduler countdown | Shows time until next scan in console |
 | 2026-02-02 | Market snapshot in scan | Shows stocks near signal thresholds |
+| 2026-02-02 | Hyperparameter optimizer | `stockpulse optimize` finds best params with 25% max DD |
+| 2026-02-02 | 3 new strategies added | Gap Fade, 52-Week Low Bounce, Sector Rotation |
+| 2026-02-02 | 8 total strategies | Full suite for different market conditions |
 
 ---
 

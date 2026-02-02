@@ -26,6 +26,9 @@ from .bollinger_squeeze import BollingerSqueezeStrategy
 from .macd_volume import MACDVolumeStrategy
 from .zscore_mean_reversion import ZScoreMeanReversionStrategy
 from .momentum_breakout import MomentumBreakoutStrategy
+from .gap_fade import GapFadeStrategy
+from .week52_low_bounce import Week52LowBounceStrategy
+from .sector_rotation import SectorRotationStrategy
 
 logger = get_logger(__name__)
 
@@ -86,6 +89,31 @@ PARAM_SEARCH_SPACES = {
         "take_profit_pct": [8.0, 10.0, 12.0, 15.0],
         "min_confidence": [55, 60, 65],
     },
+    "gap_fade": {
+        "gap_threshold_pct": [1.0, 1.5, 2.0, 2.5],
+        "max_gap_pct": [4.0, 5.0, 6.0],
+        "volume_surge_threshold": [1.2, 1.5, 1.8],
+        "stop_loss_pct": [2.0, 3.0, 4.0],
+        "take_profit_pct": [3.0, 4.0, 5.0, 6.0],
+        "min_confidence": [55, 60, 65],
+    },
+    "week52_low_bounce": {
+        "low_threshold_pct": [8.0, 10.0, 12.0, 15.0],
+        "bounce_threshold_pct": [1.5, 2.0, 3.0],
+        "volume_surge": [1.2, 1.3, 1.5],
+        "stop_loss_pct": [4.0, 5.0, 6.0, 8.0],
+        "take_profit_pct": [10.0, 15.0, 20.0],
+        "min_confidence": [55, 60, 65],
+    },
+    "sector_rotation": {
+        "lookback_days": [10, 15, 20, 30],
+        "top_sectors": [2, 3],
+        "min_sector_return": [1.5, 2.0, 3.0],
+        "relative_strength_threshold": [1.0, 1.1, 1.2],
+        "stop_loss_pct": [3.0, 4.0, 5.0],
+        "take_profit_pct": [8.0, 10.0, 12.0],
+        "min_confidence": [55, 60, 65],
+    },
 }
 
 STRATEGY_CLASSES = {
@@ -94,6 +122,9 @@ STRATEGY_CLASSES = {
     "macd_volume": MACDVolumeStrategy,
     "zscore_mean_reversion": ZScoreMeanReversionStrategy,
     "momentum_breakout": MomentumBreakoutStrategy,
+    "gap_fade": GapFadeStrategy,
+    "week52_low_bounce": Week52LowBounceStrategy,
+    "sector_rotation": SectorRotationStrategy,
 }
 
 

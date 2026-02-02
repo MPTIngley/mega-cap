@@ -16,6 +16,9 @@ from .bollinger_squeeze import BollingerSqueezeStrategy
 from .macd_volume import MACDVolumeStrategy
 from .zscore_mean_reversion import ZScoreMeanReversionStrategy
 from .momentum_breakout import MomentumBreakoutStrategy
+from .gap_fade import GapFadeStrategy
+from .week52_low_bounce import Week52LowBounceStrategy
+from .sector_rotation import SectorRotationStrategy
 
 logger = get_logger(__name__)
 
@@ -50,6 +53,9 @@ class SignalGenerator:
             "macd_volume": MACDVolumeStrategy,
             "mean_reversion_zscore": ZScoreMeanReversionStrategy,
             "momentum_breakout": MomentumBreakoutStrategy,
+            "gap_fade": GapFadeStrategy,
+            "week52_low_bounce": Week52LowBounceStrategy,
+            "sector_rotation": SectorRotationStrategy,
         }
 
         for name, cls in strategy_classes.items():

@@ -46,8 +46,24 @@ Then use `stockpulse <command>` from anywhere.
 | `stockpulse run` | Start the scheduler (runs scans every 15 min during market hours) |
 | `stockpulse scan` | Run a single signal scan now |
 | `stockpulse backtest` | Run backtests on all strategies |
+| `stockpulse optimize` | **NEW** Run hyperparameter optimization for all 8 strategies |
 | `stockpulse init` | Initialize DB and fetch 2 years of historical data |
 | `stockpulse ingest` | Refresh universe and fetch latest price data |
+
+---
+
+## Strategies (8 total)
+
+| Strategy | Type | Signal |
+|----------|------|--------|
+| `rsi_mean_reversion` | Mean Reversion | RSI oversold/overbought |
+| `bollinger_squeeze` | Breakout | Bollinger Band squeeze |
+| `macd_volume` | Momentum | MACD crossover + volume |
+| `zscore_mean_reversion` | Mean Reversion | Price Z-score extremes |
+| `momentum_breakout` | Momentum | Price/volume breakout |
+| `gap_fade` | Mean Reversion | Overnight gap fill |
+| `week52_low_bounce` | Value | Bounce from 52-week low |
+| `sector_rotation` | Momentum | Buy leaders in hot sectors |
 
 ---
 
@@ -55,23 +71,34 @@ Then use `stockpulse <command>` from anywhere.
 
 **First time setup:**
 ```bash
-stockpulse init          # Takes 5-10 minutes, fetches 2 years of data
+stockpulse init
+```
+
+**Optimize strategy parameters:**
+```bash
+stockpulse optimize
 ```
 
 **Daily operation (two terminals):**
 ```bash
-# Terminal 1 - Start scheduler (leave running)
 stockpulse run
-
-# Terminal 2 - Launch dashboard
 stockpulse dashboard
+```
+
+**Fresh start (reset all trading data):**
+```bash
+rm -f data/stockpulse.sqlite data/stockpulse.sqlite-wal data/stockpulse.sqlite-shm
+stockpulse init
+stockpulse optimize
+git add config/config.yaml
+git commit -m "Optimized strategy params"
+git push origin main
 ```
 
 **When will you see trades?**
 - Signals generate during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)
 - Scheduler scans every 15 minutes
 - Alerts sent via email when high-confidence signals found
-- First signals appear within 15 minutes of starting scheduler during market hours
 
 ---
 

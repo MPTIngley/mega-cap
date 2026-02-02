@@ -1466,7 +1466,8 @@ def render_backtests_page(services: dict):
         # Strategy selection
         strategy_options = [
             "rsi_mean_reversion", "bollinger_squeeze", "macd_volume",
-            "zscore_mean_reversion", "momentum_breakout"
+            "zscore_mean_reversion", "momentum_breakout",
+            "gap_fade", "week52_low_bounce", "sector_rotation"
         ]
         selected_strategy = st.selectbox("Select Strategy", strategy_options, key="bt_strategy")
 
@@ -1546,6 +1547,42 @@ def render_backtests_page(services: dict):
             with col3:
                 custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 10.0, current_params.get("stop_loss_pct", 3.5), 0.5)
                 custom_params["take_profit_pct"] = st.slider("Take Profit %", 5.0, 25.0, current_params.get("take_profit_pct", 12.0), 0.5)
+
+        elif selected_strategy == "gap_fade":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["gap_threshold_pct"] = st.slider("Gap Threshold %", 0.5, 3.0, current_params.get("gap_threshold_pct", 1.5), 0.1)
+                custom_params["max_gap_pct"] = st.slider("Max Gap %", 3.0, 8.0, current_params.get("max_gap_pct", 5.0), 0.5)
+            with col2:
+                custom_params["volume_surge_threshold"] = st.slider("Volume Surge", 1.0, 2.5, current_params.get("volume_surge_threshold", 1.5), 0.1)
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 60))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 1.0, 6.0, current_params.get("stop_loss_pct", 3.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 2.0, 8.0, current_params.get("take_profit_pct", 4.0), 0.5)
+
+        elif selected_strategy == "week52_low_bounce":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["low_threshold_pct"] = st.slider("Low Threshold %", 5.0, 20.0, current_params.get("low_threshold_pct", 10.0), 1.0)
+                custom_params["bounce_threshold_pct"] = st.slider("Bounce Threshold %", 1.0, 5.0, current_params.get("bounce_threshold_pct", 2.0), 0.5)
+            with col2:
+                custom_params["volume_surge"] = st.slider("Volume Surge", 1.0, 2.0, current_params.get("volume_surge", 1.3), 0.1)
+                custom_params["min_confidence"] = st.slider("Min Confidence", 50, 80, current_params.get("min_confidence", 60))
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 3.0, 12.0, current_params.get("stop_loss_pct", 6.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 8.0, 30.0, current_params.get("take_profit_pct", 15.0), 1.0)
+
+        elif selected_strategy == "sector_rotation":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                custom_params["lookback_days"] = st.slider("Lookback Days", 10, 40, current_params.get("lookback_days", 20))
+                custom_params["top_sectors"] = st.slider("Top Sectors", 1, 4, current_params.get("top_sectors", 2))
+            with col2:
+                custom_params["min_sector_return"] = st.slider("Min Sector Return %", 1.0, 5.0, current_params.get("min_sector_return", 2.0), 0.5)
+                custom_params["relative_strength_threshold"] = st.slider("RS Threshold", 0.9, 1.5, current_params.get("relative_strength_threshold", 1.1), 0.05)
+            with col3:
+                custom_params["stop_loss_pct"] = st.slider("Stop Loss %", 2.0, 8.0, current_params.get("stop_loss_pct", 4.0), 0.5)
+                custom_params["take_profit_pct"] = st.slider("Take Profit %", 5.0, 20.0, current_params.get("take_profit_pct", 10.0), 1.0)
 
         st.markdown("---")
 

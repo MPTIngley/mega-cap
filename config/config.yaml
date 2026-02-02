@@ -92,6 +92,40 @@ strategies:
     stop_loss_pct: 3.5         # Tight (was 5) - breakout fails = wrong
     take_profit_pct: 12.0      # Bigger (was 10) - 3.4:1 risk/reward
 
+  gap_fade:
+    enabled: true
+    gap_threshold_pct: 1.5     # Minimum gap size to trade
+    max_gap_pct: 5.0           # Don't fade huge gaps (might be news-driven)
+    volume_surge_threshold: 1.5
+    min_confidence: 60
+    hold_days_min: 1           # Gaps often fill same day
+    hold_days_max: 3           # If not filled quickly, exit
+    stop_loss_pct: 3.0         # Tight stop
+    take_profit_pct: 4.0       # Target is gap fill
+
+  week52_low_bounce:
+    enabled: true
+    low_threshold_pct: 10.0    # Within 10% of 52-week low
+    bounce_threshold_pct: 2.0  # Minimum bounce to confirm reversal
+    volume_surge: 1.3          # Volume confirmation
+    min_confidence: 60
+    hold_days_min: 5           # Value plays need time
+    hold_days_max: 30          # Longer hold for mean reversion
+    stop_loss_pct: 6.0         # Wider stop for volatile bottoms
+    take_profit_pct: 15.0      # Big upside target
+
+  sector_rotation:
+    enabled: true
+    lookback_days: 20          # Period for sector strength calculation
+    top_sectors: 2             # Buy stocks from top N sectors
+    min_sector_return: 2.0     # Minimum sector return over lookback
+    relative_strength_threshold: 1.1  # Stock must be 1.1x as strong as sector
+    min_confidence: 60
+    hold_days_min: 5
+    hold_days_max: 20
+    stop_loss_pct: 4.0
+    take_profit_pct: 10.0
+
 alerts:
   min_confidence_for_email: 65      # Lower threshold (was 70) - more signals
   daily_digest_time: "17:00"
