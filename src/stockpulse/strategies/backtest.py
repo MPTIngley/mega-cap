@@ -189,18 +189,23 @@ class Backtester:
         capital = initial_capital
         equity_history = []
 
-        # Get all trading days - convert string dates to date objects for comparison
+        # Get all trading days - convert to date objects for comparison
         all_dates_raw = sorted(price_data["date"].unique())
-        # Handle both string dates (from SQLite) and date objects
         all_dates = []
         for d in all_dates_raw:
-            if isinstance(d, str):
-                all_dates.append(date.fromisoformat(d))
-            elif isinstance(d, date):
-                all_dates.append(d)
-            else:
-                # pandas Timestamp or datetime
-                all_dates.append(d.date() if hasattr(d, 'date') else d)
+            try:
+                if isinstance(d, date) and not isinstance(d, datetime):
+                    all_dates.append(d)
+                elif isinstance(d, datetime):
+                    all_dates.append(d.date())
+                elif hasattr(d, 'date'):
+                    # pandas Timestamp
+                    all_dates.append(d.date())
+                else:
+                    # String or numpy string - convert via isoformat
+                    all_dates.append(date.fromisoformat(str(d)[:10]))
+            except Exception:
+                continue  # Skip invalid dates
 
         trading_dates = [d for d in all_dates if start_date <= d <= end_date]
 
@@ -285,9 +290,11 @@ class Backtester:
                 if ticker in open_positions:
                     continue  # Already have position
 
+                # Convert current_date to string for comparison with DB data
+                current_date_str = current_date.isoformat() if isinstance(current_date, date) else str(current_date)
                 ticker_data = price_data[
                     (price_data["ticker"] == ticker) &
-                    (price_data["date"] <= current_date)
+                    (price_data["date"] <= current_date_str)
                 ].copy()
 
                 if len(ticker_data) < 60:
