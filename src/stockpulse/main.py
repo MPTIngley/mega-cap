@@ -9,9 +9,35 @@ Usage:
 """
 
 import sys
+import os
 import argparse
 from pathlib import Path
 from datetime import date
+
+# Auto-load .env file before anything else
+def _load_env():
+    """Automatically load .env file from project root."""
+    # Find .env file - check current dir and parent dirs
+    env_paths = [
+        Path.cwd() / ".env",
+        Path(__file__).parent.parent.parent.parent / ".env",
+        Path.home() / "mega-cap" / ".env",
+    ]
+
+    for env_path in env_paths:
+        if env_path.exists():
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if key and value:
+                            os.environ[key] = value
+            break
+
+_load_env()
 
 from stockpulse.utils.config import load_config
 from stockpulse.utils.logging import get_logger
