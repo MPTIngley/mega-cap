@@ -305,7 +305,7 @@ class AlertManager:
 
     def send_scan_results_email(
         self,
-        opened_positions: list[tuple],  # (signal, size_pct, dollar_amount)
+        opened_positions: list[tuple],  # (signal, size_pct, dollar_amount, sizing_details) or (signal, size_pct, dollar_amount)
         blocked_signals: list[tuple],   # (signal, reason)
         sell_signals: list[Signal],
         portfolio_exposure_pct: float,
@@ -315,7 +315,8 @@ class AlertManager:
         Send email showing actual scan results - what was opened and what was blocked.
 
         Args:
-            opened_positions: List of (signal, size_pct, dollar_amount) for opened positions
+            opened_positions: List of (signal, size_pct, dollar_amount, sizing_details) for opened positions
+                             sizing_details is optional for backwards compat
             blocked_signals: List of (signal, reason) for blocked signals
             sell_signals: Actionable sell signals
             portfolio_exposure_pct: Current portfolio exposure percentage
@@ -338,9 +339,25 @@ class AlertManager:
         # Build opened positions table
         opened_rows = ""
         total_allocated = 0.0
-        for signal, size_pct, dollar_amount in opened_positions:
+        for pos_data in opened_positions:
+            # Handle both old format (3 elements) and new format (4 elements with sizing_details)
+            if len(pos_data) >= 4:
+                signal, size_pct, dollar_amount, sizing_details = pos_data[:4]
+            else:
+                signal, size_pct, dollar_amount = pos_data[:3]
+                sizing_details = None
+
             total_allocated += size_pct
             upside_pct = ((signal.target_price - signal.entry_price) / signal.entry_price * 100) if signal.entry_price > 0 else 0
+
+            # Build sizing formula string if we have details
+            if sizing_details:
+                d = sizing_details
+                cap_note = " CAPPED" if d.get("was_capped", False) else ""
+                sizing_str = f"{d['base_size_pct']}%×{d['strategy_weight']:.1f}strat×{d['confidence_mult']:.2f}conf={d['raw_size_pct']:.1f}%{cap_note}"
+            else:
+                sizing_str = ""
+
             opened_rows += f"""
             <tr>
                 <td><strong style="color: #22c55e;">{signal.ticker}</strong></td>
@@ -349,7 +366,7 @@ class AlertManager:
                 <td>${signal.entry_price:.2f}</td>
                 <td>${signal.target_price:.2f} (+{upside_pct:.1f}%)</td>
                 <td>${signal.stop_price:.2f}</td>
-                <td><strong>{size_pct:.1f}%</strong> (${dollar_amount:,.0f})</td>
+                <td><strong>{size_pct:.1f}%</strong> (${dollar_amount:,.0f})<br/><small style="color: #94a3b8;">{sizing_str}</small></td>
             </tr>
             """
 

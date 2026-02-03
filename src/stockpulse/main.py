@@ -295,8 +295,8 @@ def run_scheduler():
                 blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
                 continue
 
-            # Calculate position size
-            size_pct = position_manager.calculate_position_size_pct(signal)
+            # Calculate position size with details
+            size_pct, sizing_details = position_manager.calculate_position_size_pct(signal, return_details=True)
 
             # Check if this would exceed portfolio exposure limit
             if running_exposure_pct + size_pct > max_exposure_pct:
@@ -329,12 +329,13 @@ def run_scheduler():
                 pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
                 if pos_id:
                     dollar_amount = position_manager.initial_capital * (size_pct / 100)
-                    opened_positions.append((signal, size_pct, dollar_amount))
+                    opened_positions.append((signal, size_pct, dollar_amount, sizing_details))
                     running_exposure_pct += size_pct
                     current_positions += 1
                     portfolio_tickers.add(signal.ticker)
                     strategy_allocations[strategy] = already_allocated + size_pct
-                    logger.info(f"Opened position {pos_id} for {signal.ticker} at {size_pct:.1f}%")
+                    d = sizing_details
+                    logger.info(f"Opened {signal.ticker} at {size_pct:.1f}%: {d['base_size_pct']}% × {d['strategy_weight']:.1f}strat × {d['confidence_mult']:.2f}conf")
                 else:
                     # Position manager returned None - check why
                     blocked_signals.append((signal, "Blocked by risk check"))
@@ -739,7 +740,8 @@ def run_scan():
             blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
             continue
 
-        size_pct = position_manager.calculate_position_size_pct(signal)
+        # Calculate position size with details for display
+        size_pct, sizing_details = position_manager.calculate_position_size_pct(signal, return_details=True)
 
         if running_exposure_pct + size_pct > max_exposure_pct:
             remaining_pct = max_exposure_pct - running_exposure_pct
@@ -769,12 +771,16 @@ def run_scan():
             pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
             if pos_id:
                 dollar_amount = initial_capital * (size_pct / 100)
-                opened_positions.append((signal, size_pct, dollar_amount))
+                opened_positions.append((signal, size_pct, dollar_amount, sizing_details))
                 running_exposure_pct += size_pct
                 current_positions += 1
                 portfolio_tickers.add(signal.ticker)
                 strategy_allocations[strategy] = already_allocated + size_pct
+                # Show sizing calculation: base × strategy × conf_mult = raw → final
+                d = sizing_details
+                cap_note = " [CAPPED]" if d["was_capped"] else ""
                 print(f"  ✅ {signal.ticker}: {size_pct:.1f}% (${dollar_amount:,.0f}) - {signal.strategy}")
+                print(f"      Sizing: {d['base_size_pct']}% × {d['strategy_weight']:.1f}strat × {d['confidence_mult']:.2f}conf = {d['raw_size_pct']:.1f}% → {d['final_size_pct']:.1f}%{cap_note}")
             else:
                 blocked_signals.append((signal, "Blocked by risk check"))
                 print(f"  ❌ {signal.ticker}: blocked by risk limits")

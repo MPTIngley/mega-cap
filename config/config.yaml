@@ -123,19 +123,27 @@ alerts:
   send_daily_digest: true
   send_error_alerts: true
 
-# Position sizing formula:
-#   final_size = base_size * strategy_weight * confidence_multiplier
+# Position sizing formula (CONTINUOUS confidence scaling):
+#   confidence_mult = 1.0 + (confidence - min_confidence) / (100 - min_confidence) * (max_multiplier - 1.0)
+#   final_size = base_size * strategy_weight * confidence_mult
 #   final_size = min(final_size, max_position_size_pct)
 #
-# Example: High-confidence (90%) sector_rotation signal:
-#   5% * 2.0 (strategy weight) * 3.0 (confidence mult) = 30% → capped at 15%
-# Example: Low-confidence (65%) rsi signal:
+# Example: 90% confidence sector_rotation signal:
+#   conf_mult = 1.0 + (90-60)/(100-60) * (2.5-1.0) = 1.0 + 0.75 * 1.5 = 2.125
+#   5% * 2.0 (strategy) * 2.125 (conf) = 21.25% → capped at 12%
+# Example: 70% confidence rsi signal:
+#   conf_mult = 1.0 + (70-60)/(100-60) * (2.5-1.0) = 1.0 + 0.25 * 1.5 = 1.375
+#   5% * 1.0 * 1.375 = 6.9%
+# Example: 60% confidence (at threshold):
+#   conf_mult = 1.0 (minimum)
 #   5% * 1.0 * 1.0 = 5%
+#
+# NOTE: These parameters should be optimized via portfolio optimizer
 confidence_scaling:
   enabled: true
   base_size_pct: 5.0              # Starting position size
-  confidence_75_multiplier: 2.0   # 75-84% confidence → 2x base
-  confidence_85_multiplier: 3.0   # 85%+ confidence → 3x base (hits 15% with good strategy)
+  min_confidence: 60              # Below this confidence, use 1.0x multiplier
+  max_multiplier: 2.5             # At 100% confidence, use this multiplier
 
 universe:
   source: auto
@@ -151,14 +159,14 @@ portfolio:
 
 risk_management:
   # Position sizing limits (see confidence_scaling above for formula)
-  max_position_size_pct: 15.0           # Hard cap per position (only hit with high confidence + good strategy)
+  max_position_size_pct: 12.0           # Hard cap per position
   min_position_size_pct: 3.0            # Don't open if final size < 3%
 
   # Per-strategy concentration limit
-  max_per_strategy_pct: 65.0            # Never more than 65% in one strategy
+  max_per_strategy_pct: 70.0            # Never more than 70% in one strategy
 
   # Sector concentration limit (% of total capital)
-  max_sector_concentration_pct: 65.0    # Max 65% in any single sector
+  max_sector_concentration_pct: 70.0    # Max 70% in any single sector
 
   # Portfolio-level limits
   max_portfolio_exposure_pct: 80.0      # Max 80% invested at once

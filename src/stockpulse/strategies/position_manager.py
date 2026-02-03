@@ -242,43 +242,66 @@ class PositionManager:
             # Win resets the consecutive loss count
             self._loss_count_cache[ticker] = 0
 
-    def calculate_position_size_pct(self, signal: Signal) -> float:
+    def calculate_position_size_pct(self, signal: Signal, return_details: bool = False) -> float | tuple[float, dict]:
         """
         Calculate position size percentage based on confidence and strategy.
+
+        Uses CONTINUOUS confidence scaling:
+        - multiplier = 1.0 + (confidence - min_conf) / (100 - min_conf) * (max_mult - 1.0)
+        - This gives smooth scaling from 1.0x at min_confidence to max_mult at 100%
 
         Formula: base_size * strategy_weight * confidence_multiplier
         Capped at max_position_size_pct.
 
         Args:
             signal: The signal to size
+            return_details: If True, also return calculation details dict
 
         Returns:
-            Position size as percentage of capital
+            Position size as percentage of capital (or tuple with details if return_details=True)
         """
         # Get strategy allocation weight (default 1.0)
         strategy_weight = self.strategy_allocation.get(signal.strategy, 1.0)
 
-        # Get confidence multiplier
+        # Continuous confidence multiplier
+        # Scale from 1.0x at min_confidence to max_mult at 100%
         confidence = signal.confidence
-        if confidence >= 85:
-            confidence_mult = self.confidence_85_mult  # 3.0x for super confident
-        elif confidence >= 75:
-            confidence_mult = self.confidence_75_mult  # 2.0x for confident
-        else:
-            confidence_mult = 1.0  # Base size for lower confidence
+        min_conf = self.confidence_config.get("min_confidence", 60)  # Below this, use 1.0x
+        max_mult = self.confidence_config.get("max_multiplier", 2.5)  # At 100% confidence
 
-        # Calculate final size
-        final_size = self.base_size_pct * strategy_weight * confidence_mult
+        if confidence <= min_conf:
+            confidence_mult = 1.0
+        else:
+            # Linear interpolation: 1.0 at min_conf, max_mult at 100
+            confidence_mult = 1.0 + (confidence - min_conf) / (100 - min_conf) * (max_mult - 1.0)
+
+        # Calculate raw size before caps
+        raw_size = self.base_size_pct * strategy_weight * confidence_mult
 
         # Apply caps
-        final_size = min(final_size, self.max_position_size_pct)
+        final_size = min(raw_size, self.max_position_size_pct)
         final_size = max(final_size, self.min_position_size_pct)
+
+        was_capped = raw_size > self.max_position_size_pct
 
         logger.debug(
             f"Position sizing for {signal.ticker}: "
-            f"base={self.base_size_pct}% × strategy={strategy_weight} × conf_mult={confidence_mult} "
-            f"= {final_size:.1f}% (conf={confidence}%)"
+            f"base={self.base_size_pct}% × strategy={strategy_weight:.1f} × conf_mult={confidence_mult:.2f} "
+            f"= {raw_size:.1f}% → {final_size:.1f}% (conf={confidence}%{', CAPPED' if was_capped else ''})"
         )
+
+        if return_details:
+            details = {
+                "base_size_pct": self.base_size_pct,
+                "strategy_weight": strategy_weight,
+                "confidence": confidence,
+                "confidence_mult": round(confidence_mult, 2),
+                "raw_size_pct": round(raw_size, 1),
+                "final_size_pct": round(final_size, 1),
+                "was_capped": was_capped,
+                "max_position_pct": self.max_position_size_pct,
+            }
+            return final_size, details
 
         return final_size
 

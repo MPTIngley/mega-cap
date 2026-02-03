@@ -130,19 +130,20 @@ STRATEGY_CLASSES = {
 }
 
 # Portfolio-level parameter search space
+# NOTE: These parameters are critical for portfolio performance and should be optimized
 PORTFOLIO_PARAM_SEARCH_SPACE = {
     # Position sizing
     "base_size_pct": [3.0, 5.0, 7.5, 10.0],
-    "max_position_size_pct": [10.0, 15.0, 20.0],
+    "max_position_size_pct": [8.0, 10.0, 12.0, 15.0],
     "min_position_size_pct": [2.0, 3.0, 5.0],
 
-    # Confidence multipliers
-    "confidence_75_multiplier": [1.5, 2.0, 2.5],
-    "confidence_85_multiplier": [2.0, 2.5, 3.0],
+    # Continuous confidence scaling (IMPORTANT: optimize these for best risk/reward)
+    "min_confidence": [55, 60, 65, 70],          # Below this, use 1.0x multiplier
+    "max_multiplier": [1.5, 2.0, 2.5, 3.0],      # At 100% confidence, use this multiplier
 
     # Concentration limits
-    "max_per_strategy_pct": [40.0, 50.0, 65.0, 80.0],
-    "max_sector_concentration_pct": [40.0, 50.0, 65.0, 80.0],
+    "max_per_strategy_pct": [50.0, 60.0, 70.0, 80.0],
+    "max_sector_concentration_pct": [50.0, 60.0, 70.0, 80.0],
     "max_portfolio_exposure_pct": [60.0, 70.0, 80.0, 90.0],
 
     # Risk management
@@ -593,8 +594,8 @@ class PortfolioOptimizer:
                     "confidence_scaling": {
                         "enabled": True,
                         "base_size_pct": params["base_size_pct"],
-                        "confidence_75_multiplier": params["confidence_75_multiplier"],
-                        "confidence_85_multiplier": params["confidence_85_multiplier"],
+                        "min_confidence": params["min_confidence"],
+                        "max_multiplier": params["max_multiplier"],
                     },
                     "risk_management": {
                         "max_position_size_pct": params["max_position_size_pct"],
@@ -679,17 +680,17 @@ class PortfolioOptimizer:
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
-        # Update confidence_scaling
+        # Update confidence_scaling (continuous scaling)
         if "confidence_scaling" not in config:
             config["confidence_scaling"] = {}
         config["confidence_scaling"]["base_size_pct"] = best_params.get("base_size_pct", 5.0)
-        config["confidence_scaling"]["confidence_75_multiplier"] = best_params.get("confidence_75_multiplier", 2.0)
-        config["confidence_scaling"]["confidence_85_multiplier"] = best_params.get("confidence_85_multiplier", 3.0)
+        config["confidence_scaling"]["min_confidence"] = best_params.get("min_confidence", 60)
+        config["confidence_scaling"]["max_multiplier"] = best_params.get("max_multiplier", 2.5)
 
         # Update risk_management
         if "risk_management" not in config:
             config["risk_management"] = {}
-        config["risk_management"]["max_position_size_pct"] = best_params.get("max_position_size_pct", 15.0)
+        config["risk_management"]["max_position_size_pct"] = best_params.get("max_position_size_pct", 12.0)
         config["risk_management"]["min_position_size_pct"] = best_params.get("min_position_size_pct", 3.0)
         config["risk_management"]["max_per_strategy_pct"] = best_params.get("max_per_strategy_pct", 65.0)
         config["risk_management"]["max_sector_concentration_pct"] = best_params.get("max_sector_concentration_pct", 65.0)

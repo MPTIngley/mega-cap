@@ -6,12 +6,14 @@ A self-hosted system that scans the top 100 US stocks by market cap, runs tradin
 
 ## Features
 
-- **5 Trading Strategies**: RSI Mean Reversion, Bollinger Squeeze, MACD+Volume, Z-Score Mean Reversion, Momentum Breakout
+- **8 Trading Strategies**: RSI Mean Reversion, Bollinger Squeeze, MACD+Volume, Z-Score Mean Reversion, Momentum Breakout, Gap Fade, 52-Week Low Bounce, Sector Rotation
+- **Strategy Optimizer**: Hyperparameter optimization with drawdown constraints
+- **Portfolio Optimizer**: Optimize position sizing, concentration limits, and confidence scaling
 - **Backtesting Framework**: Test strategies with historical data including transaction costs
+- **Dynamic Position Sizing**: Continuous confidence scaling with strategy weights
 - **Email Alerts**: Get notified of new signals and position exits
-- **Streamlit Dashboard**: Monitor signals, positions, and performance
+- **Streamlit Dashboard**: Monitor signals, positions, P&L, and performance
 - **Long-Term Scanner**: Identifies value investment opportunities
-- **Real Trade Tracker**: Track and compare real vs paper performance
 
 ## Quick Start
 
@@ -63,12 +65,17 @@ python -m stockpulse.main run
 
 | Command | Description |
 |---------|-------------|
-| `stockpulse init` | Initialize database and fetch initial data |
+| `stockpulse init` | Initialize database and fetch 2 years of historical data |
 | `stockpulse run` | Run the scheduler for continuous scanning |
 | `stockpulse dashboard` | Launch Streamlit dashboard |
+| `stockpulse scan` | Run a single scan (generates signals, opens positions, sends email) |
 | `stockpulse backtest` | Run backtests for all strategies |
+| `stockpulse optimize` | Run hyperparameter optimization for all strategies |
+| `stockpulse reset` | Reset trading data (keeps price history) |
+| `stockpulse reset --clear-all` | Reset ALL data including price history |
 | `stockpulse ingest` | Manually run data ingestion |
-| `stockpulse scan` | Run a single scan |
+| `stockpulse test-email` | Test email configuration |
+| `stockpulse digest` | Send daily portfolio digest email now |
 
 ## Configuration
 
@@ -118,20 +125,48 @@ mega-cap/
 
 ## Strategies
 
-### 1. RSI Mean Reversion
-Buy oversold (RSI < 30), sell overbought (RSI > 70). Best in range-bound markets.
+| Strategy | Status | Backtest Return | Sharpe | Description |
+|----------|--------|-----------------|--------|-------------|
+| **Sector Rotation** | ✅ Enabled | +40.2% | 2.87 | Rotate into strongest sectors |
+| **Momentum Breakout** | ✅ Enabled | +19.3% | 2.23 | Breakouts with volume confirmation |
+| **Z-Score Mean Reversion** | ✅ Enabled | +14.9% | 1.80 | Statistical mean reversion |
+| **MACD + Volume** | ✅ Enabled | +13.2% | 2.21 | Trend-following with MACD |
+| **RSI Mean Reversion** | ✅ Enabled | +11.4% | 1.73 | Buy oversold, sell overbought |
+| **52-Week Low Bounce** | ✅ Enabled | +10.4% | 3.67 | Best risk-adjusted! |
+| **Bollinger Squeeze** | ❌ Disabled | +0.6% | - | Volatility breakouts |
+| **Gap Fade** | ❌ Disabled | -1.3% | - | Fade overnight gaps |
 
-### 2. Bollinger Squeeze Breakout
-Enter on volatility expansion after a squeeze period. Volume confirmation required.
+## Position Sizing
 
-### 3. MACD + Volume
-Classic trend-following with MACD crossovers, filtered by above-average volume.
+Uses **continuous confidence scaling** with strategy weights:
 
-### 4. Z-Score Mean Reversion
-Statistical mean reversion when price deviates significantly from recent mean.
+```
+confidence_mult = 1.0 + (confidence - min_confidence) / (100 - min_confidence) * (max_multiplier - 1.0)
+final_size = base_size × strategy_weight × confidence_mult
+final_size = min(final_size, max_position_size_pct)
+```
 
-### 5. Momentum Breakout
-Breakouts above recent highs with volume confirmation for momentum plays.
+### Example Calculations
+
+| Signal | Confidence | Strategy Weight | Conf Mult | Raw Size | Final Size |
+|--------|------------|-----------------|-----------|----------|------------|
+| sector_rotation | 90% | 2.0 | 2.125 | 21.3% | **12%** (capped) |
+| sector_rotation | 75% | 2.0 | 1.56 | 15.6% | **12%** (capped) |
+| sector_rotation | 65% | 2.0 | 1.19 | 11.9% | **11.9%** |
+| rsi_mean_reversion | 70% | 1.0 | 1.38 | 6.9% | **6.9%** |
+| momentum_breakout | 80% | 1.5 | 1.75 | 13.1% | **12%** (capped) |
+
+### Current Config (from config.yaml)
+
+- `base_size_pct`: 5%
+- `min_confidence`: 60 (below this, multiplier = 1.0)
+- `max_multiplier`: 2.5 (at 100% confidence)
+- `max_position_size_pct`: 12% (hard cap)
+- `max_per_strategy_pct`: 70% (strategy concentration limit)
+- `max_sector_concentration_pct`: 70%
+- `max_portfolio_exposure_pct`: 80%
+
+> **NOTE:** These parameters should be optimized using `stockpulse optimize` with portfolio-level optimization to find the best risk/reward balance for your strategy mix.
 
 ## Transaction Costs
 
@@ -143,11 +178,24 @@ The system accounts for realistic transaction costs:
 
 ## Risk Management
 
-Configurable limits:
-- Max 5% portfolio per position
-- Max 20 concurrent positions
-- Max 80% portfolio exposure
-- Auto-disable on 15% drawdown
+Configurable limits (see `config/config.yaml`):
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `max_position_size_pct` | 12% | Hard cap per position |
+| `min_position_size_pct` | 3% | Don't open if final size < 3% |
+| `max_per_strategy_pct` | 70% | Max exposure to any single strategy |
+| `max_sector_concentration_pct` | 70% | Max exposure to any single sector |
+| `max_portfolio_exposure_pct` | 80% | Max total invested at once |
+| `max_positions` | 40 | Max concurrent positions |
+| `max_drawdown_disable_pct` | 15% | Stop trading if drawdown exceeds this |
+
+### Smart Trading Features
+
+- **Churn Prevention**: 3-day cooldown after exiting any position
+- **Loss Cooldown**: 7-day cooldown after a losing trade on same ticker
+- **Max Losses**: Block ticker after 3 consecutive losses
+- **Dynamic Sizing**: Position sizes reduced to fit remaining capacity in strategy/portfolio limits
 
 ## Disclaimer
 
