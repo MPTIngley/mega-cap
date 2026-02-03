@@ -10,49 +10,48 @@ Before writing any code, do the following:
 
 ---
 
-## Current Phase: **6 — Live Trading (ACTIVE)**
-## Last Session: 2026-02-02
-## Status: OPTIMIZED AND READY
+## Current Phase: **6 — Live Paper Trading (ACTIVE)**
+## Last Session: 2026-02-03
+## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
-- ✅ Database initialized with 2 years historical data
-- ✅ Dashboard accessible at http://localhost:8501
-- ✅ 6 active trading strategies (2 disabled after optimization)
-- ✅ Smart de-duplication (cooldowns, loss limits, sector concentration)
-- ✅ Equity curve tracking with drawdown
-- ✅ Email alerts configured
-- ✅ Hyperparameter optimizer with drawdown constraint
-- ✅ Strategy allocation weights based on backtest performance
+- ✅ Scheduler running (`stockpulse run`)
+- ✅ 6 active trading strategies with optimized params
+- ✅ Confidence-based position sizing (5-15% based on signal quality)
+- ✅ Strategy allocation weights (sector_rotation 2.0x, etc.)
+- ✅ Per-strategy concentration limits (max 40%)
+- ✅ Consolidated scan emails (one per scan, only if changed)
+- ✅ Daily portfolio digest at 17:00 ET
+- ✅ Long-term scanner digest at 17:30 ET
+- ✅ Auto-open/close paper positions
+- ✅ P&L tracking with transaction costs
 
-### Active Strategies (as of 2026-02-02):
-| Strategy | Return | Sharpe | Allocation | Status |
-|----------|--------|--------|------------|--------|
-| Sector Rotation | +40.2% | 2.87 | 2.0x | ✅ TOP |
-| Momentum Breakout | +19.3% | 2.23 | 1.5x | ✅ |
-| 52-Week Low Bounce | +10.4% | 3.67 | 1.5x | ✅ Best risk-adj |
-| Z-Score Mean Reversion | +14.9% | 1.80 | 1.2x | ✅ |
-| MACD + Volume | +13.2% | 2.21 | 1.2x | ✅ |
-| RSI Mean Reversion | +11.4% | 1.73 | 1.0x | ✅ |
-| Bollinger Squeeze | +0.6% | 1.66 | 0 | ❌ DISABLED |
-| Gap Fade | -1.3% | -0.23 | 0 | ❌ DISABLED |
+### Email Schedule:
+| Time (ET) | Email | Content |
+|-----------|-------|---------|
+| 17:00 | Daily Portfolio Digest | Portfolio value, P&L, positions, activity |
+| 17:30 | Long-Term Opportunities | Value stocks near 52-week lows |
+| On signal change | Scan Alert | Consolidated BUY/SELL signals |
 
-### Next Steps:
-1. ~~Run `stockpulse optimize` to find optimal params~~ ✅ DONE
-2. ~~Push optimized config to git~~ ✅ DONE
-3. Reset trading data: `stockpulse reset`
-4. Start scheduler during market hours: `stockpulse run`
-5. Review performance after 1-2 weeks
+### Position Sizing Formula:
+```
+final_size = base (5%) × strategy_weight × confidence_multiplier
+final_size = min(final_size, 15%)  # Hard cap
 
-### To Test Right Now:
+Confidence multipliers:
+- <75%: 1.0x
+- 75-84%: 2.0x
+- 85%+: 3.0x
+```
+
+### Commands:
 ```bash
-# Terminal 1 - Start scheduler
-stockpulse run
-
-# Terminal 2 - Launch dashboard
-stockpulse dashboard
-
-# Or run a single scan immediately (any time)
-stockpulse scan
+stockpulse run          # Start scheduler (continuous)
+stockpulse scan         # One-off scan
+stockpulse digest       # Send portfolio digest now
+stockpulse test-email   # Test email config
+stockpulse dashboard    # Launch Streamlit
+stockpulse reset        # Clear trading data (keeps prices)
 ```
 
 ---
@@ -127,8 +126,12 @@ stockpulse scan
 - [x] CSV import of trade history
 - [x] **MILESTONE:** Can log real trades and see comparative P&L vs. paper
 
-## Phase 6 — Hardening (PENDING)
+## Phase 6 — Hardening (IN PROGRESS)
 
+- [x] Consolidated email alerts (one per scan)
+- [x] Daily portfolio digest with full status
+- [x] Confidence-based position sizing
+- [x] Per-strategy concentration limits
 - [ ] Comprehensive error handling and retry logic on all data pulls
 - [ ] Data source fallback (yfinance → Alpha Vantage → manual)
 - [ ] Walk-forward validation for all strategies (no in-sample-only backtests)
@@ -139,6 +142,13 @@ stockpulse scan
 - [ ] Health check endpoint for monitoring
 - [ ] Run unattended for 2+ weeks without intervention
 - [ ] **MILESTONE:** Production-grade reliability
+
+### Next Steps (Priority Order):
+1. **Monitor for 1-2 weeks** — Watch performance, check emails arrive, verify positions open/close correctly
+2. **Add health monitoring** — Dashboard indicator for last successful scan, data freshness
+3. **Handle market holidays** — Graceful skip on NYSE closed days
+4. **Auto-restart service** — launchd plist for macOS to keep scheduler running
+5. **Walk-forward validation** — Re-run optimizer with proper train/test split
 
 ## Phase 5.5 — Smart Trading (COMPLETE)
 
@@ -217,6 +227,12 @@ stockpulse scan
 | 2026-02-02 | Added allocation weights | sector_rotation 2.0x, momentum/week52 1.5x, others 1.0-1.2x |
 | 2026-02-02 | Best performer | Sector Rotation: +40.2% return, 2.87 Sharpe, 9.3% max DD |
 | 2026-02-02 | Best risk-adjusted | 52-Week Low Bounce: +10.4% return, 3.67 Sharpe, 0.8% max DD |
+| 2026-02-03 | Confidence-based sizing | 5% base × strategy_weight × confidence_mult, capped at 15% |
+| 2026-02-03 | Per-strategy limits | Max 40% of capital in any single strategy |
+| 2026-02-03 | Consolidated emails | One email per scan (not per signal), only if changed |
+| 2026-02-03 | Daily digest enhanced | Portfolio value, unrealized P&L, today's activity |
+| 2026-02-03 | Max positions to 40 | Increased from 25 to allow more diversification |
+| 2026-02-03 | **LIVE TRADING STARTED** | Scheduler running, paper portfolio active |
 
 ---
 
