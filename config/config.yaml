@@ -157,6 +157,9 @@ risk_management:
   # Per-strategy concentration limit
   max_per_strategy_pct: 40.0            # Never more than 40% in one strategy
 
+  # Sector concentration limit (% of total capital)
+  max_sector_concentration_pct: 40.0    # Max 40% in any single sector
+
   # Portfolio-level limits
   max_portfolio_exposure_pct: 80.0      # Max 80% invested at once
   max_drawdown_disable_pct: 15.0        # Stop trading if drawdown > 15%

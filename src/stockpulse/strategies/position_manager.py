@@ -207,24 +207,25 @@ class PositionManager:
                 WHERE pp.status = 'open'
             """)
 
-            if open_positions.empty:
-                return True, ""
+            # Calculate current sector exposure
+            sector_value = 0.0
+            if not open_positions.empty:
+                sector_positions = open_positions[open_positions["sector"] == sector]
+                if not sector_positions.empty:
+                    sector_value = (sector_positions["entry_price"] * sector_positions["shares"]).sum()
 
-            # Calculate total portfolio value and sector exposure
-            total_value = (open_positions["entry_price"] * open_positions["shares"]).sum()
-            sector_positions = open_positions[open_positions["sector"] == sector]
-            sector_value = (sector_positions["entry_price"] * sector_positions["shares"]).sum() if not sector_positions.empty else 0
+            # Calculate new position value (use base size for estimation)
+            new_position_value = self.initial_capital * (self.base_size_pct / 100)
 
-            # Calculate new position value
-            new_position_value = self.initial_capital * (self.position_size_pct / 100)
-
-            # Check if new position would exceed concentration limit
+            # Check concentration relative to TOTAL CAPITAL (not just invested amount)
             new_sector_value = sector_value + new_position_value
-            new_total_value = total_value + new_position_value
-            new_concentration = new_sector_value / new_total_value if new_total_value > 0 else 0
+            new_concentration_pct = (new_sector_value / self.initial_capital) * 100
 
-            if new_concentration > MAX_SECTOR_CONCENTRATION:
-                return False, f"Sector {sector} would be {new_concentration:.0%} of portfolio (max {MAX_SECTOR_CONCENTRATION:.0%})"
+            # Use configurable limit (default 40%)
+            max_sector_pct = self.risk_config.get("max_sector_concentration_pct", 40.0)
+
+            if new_concentration_pct > max_sector_pct:
+                return False, f"Sector {sector} would be {new_concentration_pct:.0f}% of capital (max {max_sector_pct:.0f}%)"
 
             return True, ""
 
