@@ -1226,6 +1226,48 @@ def render_portfolio_page(services: dict):
     """Render Paper Portfolio page."""
     st.title("📈 Paper Portfolio")
 
+    # Quick actions
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🔄 Refresh"):
+            st.cache_data.clear()
+            st.rerun()
+    with col2:
+        if st.button("🔍 Run Manual Scan"):
+            with st.spinner("Running scan and opening positions..."):
+                try:
+                    from stockpulse.strategies.signal_generator import SignalGenerator
+                    from stockpulse.strategies.base import SignalDirection
+
+                    signal_gen = SignalGenerator()
+                    position_mgr = services["positions"]
+                    tickers = services["universe"].get_active_tickers()[:50]
+
+                    signals = signal_gen.generate_signals(tickers)
+                    buy_signals = [s for s in signals if s.direction == SignalDirection.BUY]
+
+                    opened = 0
+                    for signal in sorted(buy_signals, key=lambda s: s.confidence, reverse=True)[:10]:
+                        pos_id = position_mgr.open_position_from_signal(signal)
+                        if pos_id:
+                            opened += 1
+
+                    st.success(f"Scan complete! {len(signals)} signals, {opened} positions opened.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Scan failed: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+    with col3:
+        # Show database counts
+        try:
+            db = services.get("db") or get_db()
+            sig_count = db.fetchone("SELECT COUNT(*) FROM signals")[0]
+            pos_count = db.fetchone("SELECT COUNT(*) FROM positions_paper")[0]
+            st.caption(f"DB: {sig_count} signals, {pos_count} positions")
+        except:
+            st.caption("DB: error reading")
+
     positions_df = services["positions"].get_open_positions()
 
     st.markdown("---")
@@ -1254,9 +1296,15 @@ def render_portfolio_page(services: dict):
     st.subheader("Open Positions")
 
     if not positions_df.empty:
-        display_cols = ["ticker", "direction", "entry_price", "shares", "entry_date", "strategy", "status"]
+        # Calculate unrealized P&L
+        display_cols = ["ticker", "direction", "entry_price", "shares", "entry_date", "strategy"]
         available_cols = [c for c in display_cols if c in positions_df.columns]
         display_df = positions_df[available_cols].copy()
+
+        # Add position value
+        if "entry_price" in positions_df.columns and "shares" in positions_df.columns:
+            display_df["value"] = positions_df["entry_price"] * positions_df["shares"]
+            display_df["value"] = display_df["value"].apply(lambda x: f"${x:,.2f}")
 
         if "entry_price" in display_df.columns:
             display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
@@ -1265,7 +1313,7 @@ def render_portfolio_page(services: dict):
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
-        st.info("No open positions.")
+        st.warning("No open positions. Click 'Run Manual Scan' to generate signals and open positions.")
 
     st.markdown("---")
     st.subheader("Recent Closed Positions")

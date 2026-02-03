@@ -680,49 +680,77 @@ def run_scan():
     print("=" * 80 + "\n")
 
     # === AUTO-OPEN POSITIONS FOR TOP BUY SIGNALS ===
-    positions_opened = 0
-    if buy_signals:
-        # Open positions for top signals (up to max concurrent)
-        max_positions = config.get("portfolio", {}).get("max_positions", 40)
-        current_positions = len(portfolio_tickers)
-        available_slots = max_positions - current_positions
+    # Calculate current portfolio exposure
+    current_exposure_pct = 0.0
+    if not open_positions_df.empty:
+        total_invested = (open_positions_df["entry_price"] * open_positions_df["shares"]).sum()
+        current_exposure_pct = (total_invested / initial_capital) * 100
 
-        logger.info(f"Position slots: {available_slots} available ({current_positions}/{max_positions} used)")
+    risk_config = config.get("risk_management", {})
+    max_positions = config.get("portfolio", {}).get("max_positions", 40)
+    max_exposure_pct = risk_config.get("max_portfolio_exposure_pct", 80.0)
 
-        if available_slots > 0:
-            for signal in buy_signals[:available_slots]:
-                try:
-                    logger.info(f"Attempting to open position for {signal.ticker} (conf={signal.confidence}%)")
-                    pos_id = position_manager.open_position_from_signal(signal)
-                    if pos_id:
-                        positions_opened += 1
-                        logger.info(f"✅ Opened position {pos_id} for {signal.ticker}")
-                    else:
-                        logger.info(f"❌ Position not opened for {signal.ticker} (risk limits)")
-                except Exception as e:
-                    logger.error(f"Failed to open position for {signal.ticker}: {e}")
+    # Rank by expected return
+    def expected_return(signal):
+        upside = (signal.target_price - signal.entry_price) / signal.entry_price if signal.entry_price > 0 else 0
+        return signal.confidence * upside * 100
 
-            if positions_opened > 0:
-                print(f"  ✅ Opened {positions_opened} new paper positions")
+    ranked_buys = sorted(buy_signals, key=expected_return, reverse=True)
+
+    opened_positions = []
+    blocked_signals = []
+    running_exposure_pct = current_exposure_pct
+    current_positions = len(portfolio_tickers)
+
+    print(f"\n  🎯 OPENING POSITIONS (max {max_positions}, max {max_exposure_pct}% exposure)")
+    print("-" * 80)
+
+    for signal in ranked_buys:
+        if signal.ticker in portfolio_tickers:
+            blocked_signals.append((signal, "Already in portfolio"))
+            continue
+
+        if current_positions >= max_positions:
+            blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
+            continue
+
+        size_pct = position_manager.calculate_position_size_pct(signal)
+
+        if running_exposure_pct + size_pct > max_exposure_pct:
+            remaining_pct = max_exposure_pct - running_exposure_pct
+            if remaining_pct >= risk_config.get("min_position_size_pct", 3.0):
+                size_pct = remaining_pct
             else:
-                print(f"  ⚠️  No positions opened (check risk limits)")
-        else:
-            print(f"  ⚠️  No slots available ({current_positions}/{max_positions} positions)")
+                blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
+                continue
 
-    # === SEND CONSOLIDATED EMAIL ===
-    if buy_signals or actionable_sells:
-        logger.info(f"Sending consolidated alert: {len(buy_signals)} buys, {len(actionable_sells)} sells")
-        sent = alert_manager.send_consolidated_scan_alert(
-            buy_signals=buy_signals,
+        try:
+            pos_id = position_manager.open_position_from_signal(signal)
+            if pos_id:
+                dollar_amount = initial_capital * (size_pct / 100)
+                opened_positions.append((signal, size_pct, dollar_amount))
+                running_exposure_pct += size_pct
+                current_positions += 1
+                portfolio_tickers.add(signal.ticker)
+                print(f"  ✅ {signal.ticker}: {size_pct:.1f}% (${dollar_amount:,.0f}) - {signal.strategy}")
+            else:
+                blocked_signals.append((signal, "Blocked by risk check"))
+                print(f"  ❌ {signal.ticker}: blocked by risk limits")
+        except Exception as e:
+            blocked_signals.append((signal, f"Error: {str(e)[:30]}"))
+            print(f"  ❌ {signal.ticker}: error - {e}")
+
+    print(f"\n  Summary: {len(opened_positions)} opened, {len(blocked_signals)} blocked, {running_exposure_pct:.1f}% exposure")
+
+    # === SEND RESULTS EMAIL ===
+    if opened_positions or blocked_signals or actionable_sells:
+        alert_manager.send_scan_results_email(
+            opened_positions=opened_positions,
+            blocked_signals=blocked_signals[:10],
             sell_signals=actionable_sells,
-            portfolio_tickers=portfolio_tickers,
-            allocation_weights=allocation_weights,
-            base_position_pct=base_position_pct,
+            portfolio_exposure_pct=running_exposure_pct,
             initial_capital=initial_capital
         )
-        if sent:
-            logger.info("Sent consolidated email alert")
-        logger.info(f"Sent {sent} alerts")
 
 
 def run_init():

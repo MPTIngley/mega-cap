@@ -48,10 +48,10 @@ class SignalGenerator:
         strategy_configs = self.config.get("strategies", {})
 
         strategy_classes = {
-            "mean_reversion_rsi": RSIMeanReversionStrategy,
+            "rsi_mean_reversion": RSIMeanReversionStrategy,
             "bollinger_squeeze": BollingerSqueezeStrategy,
             "macd_volume": MACDVolumeStrategy,
-            "mean_reversion_zscore": ZScoreMeanReversionStrategy,
+            "zscore_mean_reversion": ZScoreMeanReversionStrategy,
             "momentum_breakout": MomentumBreakoutStrategy,
             "gap_fade": GapFadeStrategy,
             "week52_low_bounce": Week52LowBounceStrategy,
@@ -188,6 +188,7 @@ class SignalGenerator:
 
     def _store_signals(self, signals: list[Signal]) -> None:
         """Store signals in database."""
+        stored_count = 0
         for signal in signals:
             try:
                 self.db.execute("""
@@ -203,8 +204,14 @@ class SignalGenerator:
                     signal.stop_price,
                     signal.notes
                 ))
+                stored_count += 1
             except Exception as e:
-                logger.error(f"Error storing signal: {e}")
+                logger.error(f"Error storing signal for {signal.ticker}: {e}")
+
+        if stored_count > 0:
+            logger.info(f"Stored {stored_count} signals to database")
+        elif signals:
+            logger.warning(f"Failed to store any of {len(signals)} signals")
 
     def get_open_signals(self) -> pd.DataFrame:
         """Get all open signals."""
