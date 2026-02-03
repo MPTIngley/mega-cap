@@ -120,6 +120,7 @@ class AlertManager:
     def process_signals(self, signals: list[Signal]) -> int:
         """
         Process multiple signals and send alerts.
+        DEPRECATED: Use send_consolidated_scan_alert instead.
 
         Args:
             signals: List of new signals
@@ -127,13 +128,180 @@ class AlertManager:
         Returns:
             Number of alerts sent
         """
-        sent_count = 0
+        # Now sends consolidated email instead of individual ones
+        if signals:
+            success = self.send_consolidated_scan_alert(
+                buy_signals=[s for s in signals if s.direction.value == "BUY"],
+                sell_signals=[s for s in signals if s.direction.value == "SELL"],
+                portfolio_tickers=set(),
+                allocation_weights={},
+                base_position_pct=5.0,
+                initial_capital=100000.0
+            )
+            return 1 if success else 0
+        return 0
 
-        for signal in signals:
-            if self.process_new_signal(signal):
-                sent_count += 1
+    def send_consolidated_scan_alert(
+        self,
+        buy_signals: list[Signal],
+        sell_signals: list[Signal],
+        portfolio_tickers: set,
+        allocation_weights: dict,
+        base_position_pct: float,
+        initial_capital: float
+    ) -> bool:
+        """
+        Send a single consolidated email with all signals from a scan.
 
-        return sent_count
+        Args:
+            buy_signals: List of BUY signals
+            sell_signals: List of actionable SELL signals (stocks in portfolio)
+            portfolio_tickers: Set of tickers currently in portfolio
+            allocation_weights: Strategy allocation weights from config
+            base_position_pct: Base position size percentage
+            initial_capital: Portfolio initial capital
+
+        Returns:
+            True if email sent successfully
+        """
+        if not self.send_on_signal:
+            return False
+
+        if self._is_quiet_hours():
+            logger.info("Quiet hours - skipping scan alert")
+            return False
+
+        # Check if we have signals worth alerting
+        high_conf_buys = [s for s in buy_signals if s.confidence >= self.min_confidence]
+        high_conf_sells = [s for s in sell_signals if s.confidence >= self.min_confidence]
+
+        if not high_conf_buys and not high_conf_sells:
+            logger.info("No high-confidence signals to alert on")
+            return False
+
+        # Check if signals changed from last scan
+        if not self._signals_changed(high_conf_buys, high_conf_sells):
+            logger.info("Signals unchanged from last scan - skipping email")
+            return False
+
+        # Build consolidated email
+        today = datetime.now().strftime('%Y-%m-%d %H:%M')
+        subject = f"📊 StockPulse Scan: {len(high_conf_buys)} Buys, {len(high_conf_sells)} Sells"
+
+        # Build BUY signals table
+        buy_rows = ""
+        for signal in sorted(high_conf_buys, key=lambda s: s.confidence, reverse=True)[:10]:
+            weight = allocation_weights.get(signal.strategy, 1.0)
+            position_pct = base_position_pct * weight
+            dollar_amount = initial_capital * (position_pct / 100)
+            shares = int(dollar_amount / signal.entry_price) if signal.entry_price > 0 else 0
+
+            buy_rows += f"""
+            <tr>
+                <td><strong style="color: #27ae60;">{signal.ticker}</strong></td>
+                <td>{signal.strategy}</td>
+                <td>{signal.confidence:.0f}%</td>
+                <td>${signal.entry_price:.2f}</td>
+                <td>${signal.target_price:.2f}</td>
+                <td>${signal.stop_price:.2f}</td>
+                <td>{position_pct:.1f}% (${dollar_amount:,.0f})</td>
+            </tr>
+            """
+
+        # Build SELL signals table
+        sell_rows = ""
+        for signal in sorted(high_conf_sells, key=lambda s: s.confidence, reverse=True)[:10]:
+            sell_rows += f"""
+            <tr>
+                <td><strong style="color: #e74c3c;">{signal.ticker}</strong></td>
+                <td>{signal.strategy}</td>
+                <td>{signal.confidence:.0f}%</td>
+                <td>${signal.entry_price:.2f}</td>
+                <td>${signal.target_price:.2f}</td>
+                <td>${signal.stop_price:.2f}</td>
+                <td>IN PORTFOLIO</td>
+            </tr>
+            """
+
+        body_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #1a1a2e; color: #eee; }}
+                .header {{ background: #16213e; color: white; padding: 20px; text-align: center; }}
+                .content {{ padding: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #16213e; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #333; color: #eee; }}
+                th {{ background: #0f3460; }}
+                .section-title {{ color: #fff; margin-top: 25px; padding: 10px; border-left: 4px solid #27ae60; }}
+                .sell-title {{ border-left-color: #e74c3c; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📊 StockPulse Scan Results</h1>
+                <p>{today}</p>
+            </div>
+            <div class="content">
+                <h2 class="section-title">📈 BUY Signals ({len(high_conf_buys)})</h2>
+                {"<table><tr><th>Ticker</th><th>Strategy</th><th>Confidence</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + buy_rows + "</table>" if buy_rows else "<p>No high-confidence buy signals</p>"}
+
+                <h2 class="section-title sell-title">📉 SELL Signals ({len(high_conf_sells)})</h2>
+                {"<table><tr><th>Ticker</th><th>Strategy</th><th>Confidence</th><th>Exit</th><th>Target</th><th>Stop</th><th>Status</th></tr>" + sell_rows + "</table>" if sell_rows else "<p>No actionable sell signals for current holdings</p>"}
+
+                <p style="color: #888; font-size: 12px; margin-top: 30px;">
+                    Portfolio: {len(portfolio_tickers)} positions | Initial Capital: ${initial_capital:,.0f}<br>
+                    <strong>Disclaimer:</strong> This is not financial advice. Paper trading only.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        success = self.email_sender.send_email(subject, body_html)
+
+        self._log_alert(
+            "consolidated_scan",
+            None,
+            subject,
+            f"Buys: {len(high_conf_buys)}, Sells: {len(high_conf_sells)}",
+            success
+        )
+
+        # Store current signals for change detection
+        self._store_last_signals(high_conf_buys, high_conf_sells)
+
+        return success
+
+    def _signals_changed(self, buy_signals: list[Signal], sell_signals: list[Signal]) -> bool:
+        """Check if signals changed from last scan."""
+        try:
+            # Get last scan's signals from DB
+            last_scan = self.db.fetchdf("""
+                SELECT body FROM alerts_log
+                WHERE alert_type = 'consolidated_scan'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+
+            if last_scan.empty:
+                return True  # First scan, always send
+
+            last_body = last_scan.iloc[0]["body"]
+            current_tickers = set([s.ticker for s in buy_signals] + [s.ticker for s in sell_signals])
+            current_str = ",".join(sorted(current_tickers))
+
+            # Simple check: if tickers changed, send email
+            return current_str not in last_body
+
+        except Exception as e:
+            logger.debug(f"Error checking signal changes: {e}")
+            return True  # On error, send anyway
+
+    def _store_last_signals(self, buy_signals: list[Signal], sell_signals: list[Signal]) -> None:
+        """Store signal tickers for change detection."""
+        # Already stored in _log_alert via the body field
+        pass
 
     def process_position_exit(self, position_data: dict[str, Any]) -> bool:
         """

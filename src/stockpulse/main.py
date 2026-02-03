@@ -316,7 +316,10 @@ def run_scan():
     from stockpulse.data.universe import UniverseManager
     from stockpulse.strategies.signal_generator import SignalGenerator
     from stockpulse.alerts.alert_manager import AlertManager
+    from stockpulse.strategies.position_manager import PositionManager
     from stockpulse.data.ingestion import DataIngestion
+    from stockpulse.strategies.base import SignalDirection
+    from stockpulse.utils.config import get_config
     import pandas as pd
     import numpy as np
 
@@ -325,40 +328,108 @@ def run_scan():
     universe = UniverseManager()
     signal_generator = SignalGenerator()
     alert_manager = AlertManager()
+    position_manager = PositionManager()
     ingestion = DataIngestion()
+    config = get_config()
 
     tickers = universe.get_active_tickers()
     if not tickers:
         logger.warning("No tickers in universe")
         return
 
+    # Get current portfolio positions
+    open_positions_df = position_manager.get_open_positions()
+    portfolio_tickers = set(open_positions_df["ticker"].tolist()) if not open_positions_df.empty else set()
+
+    # Get allocation weights from config
+    allocation_weights = config.get("strategy_allocation", {})
+    base_position_pct = config.get("risk_management", {}).get("max_position_size_pct", 5.0)
+    initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
+
     # Generate signals
-    signals = signal_generator.generate_signals(tickers)
+    all_signals = signal_generator.generate_signals(tickers)
 
-    print("\n" + "=" * 70)
+    # Separate BUY and SELL signals
+    buy_signals = [s for s in all_signals if s.direction == SignalDirection.BUY]
+    sell_signals = [s for s in all_signals if s.direction == SignalDirection.SELL]
+
+    # Filter SELL signals to only stocks we own
+    actionable_sells = [s for s in sell_signals if s.ticker in portfolio_tickers]
+    informational_sells = [s for s in sell_signals if s.ticker not in portfolio_tickers]
+
+    print("\n" + "=" * 80)
     print("  STOCKPULSE SCAN RESULTS")
-    print("=" * 70)
+    print("=" * 80)
 
-    if signals:
-        print(f"\n  SIGNALS GENERATED: {len(signals)}")
-        print("-" * 70)
-        for signal in signals:
-            print(f"  {signal.direction.value:4} | {signal.ticker:5} | {signal.strategy:25} | Conf: {signal.confidence:.0f}%")
-            print(f"       Entry: ${signal.entry_price:.2f} | Target: ${signal.target_price:.2f} | Stop: ${signal.stop_price:.2f}")
+    # === BUY SIGNALS ===
+    print(f"\n  📈 BUY SIGNALS: {len(buy_signals)}")
+    print("-" * 80)
+
+    if buy_signals:
+        # Sort by confidence
+        buy_signals.sort(key=lambda s: s.confidence, reverse=True)
+        for signal in buy_signals:
+            weight = allocation_weights.get(signal.strategy, 1.0)
+            position_size = base_position_pct * weight
+            dollar_amount = initial_capital * (position_size / 100)
+            shares = int(dollar_amount / signal.entry_price)
+
+            print(f"  {signal.ticker:5} | {signal.strategy:25} | Conf: {signal.confidence:.0f}%")
+            print(f"         Entry: ${signal.entry_price:.2f} → Target: ${signal.target_price:.2f} | Stop: ${signal.stop_price:.2f}")
+            print(f"         Allocation: {position_size:.1f}% (${dollar_amount:,.0f}) = ~{shares} shares")
+            if signal.notes:
+                print(f"         Why: {signal.notes}")
+            print()
     else:
-        print("\n  NO SIGNALS - Market conditions don't meet strategy thresholds")
+        print("  No buy signals\n")
 
-    # Show market snapshot - what's close to triggering
-    print("\n" + "-" * 70)
+    # === ACTIONABLE SELL SIGNALS (stocks we own) ===
+    print(f"\n  📉 SELL SIGNALS (Portfolio): {len(actionable_sells)}")
+    print("-" * 80)
+
+    if actionable_sells:
+        actionable_sells.sort(key=lambda s: s.confidence, reverse=True)
+        for signal in actionable_sells:
+            print(f"  {signal.ticker:5} | {signal.strategy:25} | Conf: {signal.confidence:.0f}%")
+            print(f"         Exit: ${signal.entry_price:.2f} → Target: ${signal.target_price:.2f} | Stop: ${signal.stop_price:.2f}")
+            if signal.notes:
+                print(f"         Why: {signal.notes}")
+            print()
+    else:
+        print("  No sell signals for current holdings\n")
+
+    # === INFORMATIONAL SELL SIGNALS (stocks we don't own) ===
+    if informational_sells:
+        print(f"\n  ℹ️  SELL SIGNALS (Not in Portfolio): {len(informational_sells)}")
+        print("-" * 80)
+        # Just show tickers, not full details
+        sell_tickers = [s.ticker for s in informational_sells[:10]]
+        print(f"  {', '.join(sell_tickers)}{'...' if len(informational_sells) > 10 else ''}")
+        print("  (These are overbought stocks - avoid buying)\n")
+
+    # === PORTFOLIO STATUS ===
+    print("\n  💼 PORTFOLIO STATUS")
+    print("-" * 80)
+    if not open_positions_df.empty:
+        print(f"  Open positions: {len(open_positions_df)}")
+        for _, pos in open_positions_df.head(5).iterrows():
+            print(f"    {pos['ticker']:5} | Entry: ${pos.get('entry_price', 0):.2f} | P&L: {pos.get('unrealized_pnl_pct', 0):.1f}%")
+        if len(open_positions_df) > 5:
+            print(f"    ... and {len(open_positions_df) - 5} more")
+    else:
+        print("  No open positions (paper portfolio empty)")
+    print()
+
+    # === MARKET SNAPSHOT ===
+    print("-" * 80)
     print("  MARKET SNAPSHOT - Stocks Near Threshold")
-    print("-" * 70)
+    print("-" * 80)
 
     try:
-        # Get recent price data
         from datetime import timedelta
         end_date = date.today()
         start_date = end_date - timedelta(days=60)
-        prices_df = ingestion.get_daily_prices(tickers[:30], start_date, end_date)  # Sample for speed
+        prices_df = ingestion.get_daily_prices(tickers[:30], start_date, end_date)
 
         if not prices_df.empty:
             near_triggers = []
@@ -372,7 +443,6 @@ def run_scan():
                 latest = ticker_data.iloc[-1]
                 close = latest["close"]
 
-                # Calculate RSI
                 delta = ticker_data["close"].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -380,12 +450,10 @@ def run_scan():
                 rsi = 100 - (100 / (1 + rs))
                 current_rsi = rsi.iloc[-1] if not rsi.empty else 50
 
-                # Calculate Z-score
                 mean_20 = ticker_data["close"].rolling(20).mean().iloc[-1]
                 std_20 = ticker_data["close"].rolling(20).std().iloc[-1]
                 zscore = (close - mean_20) / std_20 if std_20 > 0 else 0
 
-                # Check for near-threshold conditions
                 status = []
                 if current_rsi < 35:
                     status.append(f"RSI={current_rsi:.1f}")
@@ -402,19 +470,48 @@ def run_scan():
                     print(f"  {ticker:5} @ ${price:>8.2f} | {status}")
             else:
                 print("  No stocks near threshold triggers")
-                print("  (RSI between 35-65, Z-score between -1.5 and 1.5)")
 
     except Exception as e:
         logger.debug(f"Could not generate market snapshot: {e}")
         print("  Could not generate market snapshot")
 
-    print("\n" + "=" * 70)
-    print(f"  Scan complete. {len(signals)} signals generated.")
-    print("=" * 70 + "\n")
+    print("\n" + "=" * 80)
+    print(f"  Scan complete. {len(buy_signals)} buys, {len(actionable_sells)} actionable sells.")
+    print("=" * 80 + "\n")
 
-    # Send alerts
-    if signals:
-        sent = alert_manager.process_signals(signals)
+    # === AUTO-OPEN POSITIONS FOR TOP BUY SIGNALS ===
+    positions_opened = 0
+    if buy_signals:
+        # Open positions for top signals (up to max concurrent)
+        max_positions = config.get("risk_management", {}).get("max_concurrent_positions", 20)
+        current_positions = len(portfolio_tickers)
+        available_slots = max_positions - current_positions
+
+        if available_slots > 0:
+            for signal in buy_signals[:available_slots]:
+                try:
+                    pos_id = position_manager.open_position_from_signal(signal)
+                    if pos_id:
+                        positions_opened += 1
+                        logger.info(f"Opened position for {signal.ticker}")
+                except Exception as e:
+                    logger.error(f"Failed to open position for {signal.ticker}: {e}")
+
+            if positions_opened > 0:
+                print(f"  ✅ Opened {positions_opened} new paper positions")
+
+    # === SEND CONSOLIDATED EMAIL ===
+    if buy_signals or actionable_sells:
+        sent = alert_manager.send_consolidated_scan_alert(
+            buy_signals=buy_signals,
+            sell_signals=actionable_sells,
+            portfolio_tickers=portfolio_tickers,
+            allocation_weights=allocation_weights,
+            base_position_pct=base_position_pct,
+            initial_capital=initial_capital
+        )
+        if sent:
+            logger.info("Sent consolidated email alert")
         logger.info(f"Sent {sent} alerts")
 
 
