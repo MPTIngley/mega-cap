@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan"],
         help="Command to execute"
     )
 
@@ -120,6 +120,10 @@ def main():
         run_test_email()
     elif args.command == "digest":
         run_digest()
+    elif args.command == "longterm-backtest":
+        run_longterm_backtest()
+    elif args.command == "longterm-scan":
+        run_longterm_scan()
 
 
 def run_digest():
@@ -1032,6 +1036,100 @@ def run_reset(keep_market_data: bool = True):
         print("  Run: stockpulse init")
 
     print("\n" + "=" * 60 + "\n")
+
+
+def run_longterm_backtest():
+    """Run long-term scanner backtesting with 3-year hold strategy."""
+    from stockpulse.scanner.long_term_backtest import run_long_term_backtest
+    run_long_term_backtest()
+
+
+def run_longterm_scan():
+    """Run long-term scanner and display results."""
+    from stockpulse.scanner.long_term_scanner import LongTermScanner
+    from stockpulse.data.universe import UniverseManager
+
+    print("\n" + "=" * 70)
+    print("  LONG-TERM INVESTMENT SCANNER")
+    print("  Scoring: Valuation, Technical, Quality, Insider, FCF, Earnings, Peers")
+    print("=" * 70)
+
+    universe = UniverseManager()
+    tickers = universe.get_active_tickers()
+
+    if not tickers:
+        print("\n  No tickers in universe. Run 'stockpulse init' first.")
+        return
+
+    print(f"\n  Scanning {len(tickers)} stocks...")
+
+    scanner = LongTermScanner()
+    opportunities = scanner.run_scan(tickers)
+
+    if not opportunities:
+        print("\n  No opportunities found meeting minimum score threshold.")
+        print("=" * 70 + "\n")
+        return
+
+    print(f"\n  Found {len(opportunities)} opportunities (score >= 60)")
+    print("\n" + "-" * 70)
+    print("  TOP LONG-TERM OPPORTUNITIES")
+    print("-" * 70)
+
+    # Display top opportunities
+    for i, opp in enumerate(opportunities[:15], 1):
+        ticker = opp["ticker"]
+        score = opp["composite_score"]
+        reasoning = opp["reasoning"]
+
+        print(f"\n  {i:2}. {ticker:5} | Score: {score:.0f}")
+
+        # Show component scores
+        components = []
+        if opp.get("insider_score", 50) >= 65:
+            components.append(f"Insider: {opp['insider_score']:.0f}")
+        if opp.get("fcf_yield_score", 50) >= 65:
+            components.append(f"FCF: {opp['fcf_yield_score']:.0f}")
+        if opp.get("earnings_momentum_score", 50) >= 65:
+            components.append(f"Earnings: {opp['earnings_momentum_score']:.0f}")
+        if opp.get("valuation_score", 50) >= 65:
+            components.append(f"Value: {opp['valuation_score']:.0f}")
+        if opp.get("technical_score", 50) >= 65:
+            components.append(f"Tech: {opp['technical_score']:.0f}")
+
+        if components:
+            print(f"      Highlights: {', '.join(components)}")
+
+        print(f"      {reasoning}")
+
+    # Summary table
+    print("\n" + "-" * 70)
+    print("  SCORE BREAKDOWN (Top 10)")
+    print("-" * 70)
+    print("  Ticker  Total  Value  Tech  Insdr  FCF   Earns  Peers  Div   Qual")
+    print("  " + "-" * 68)
+
+    for opp in opportunities[:10]:
+        print(f"  {opp['ticker']:6} "
+              f" {opp['composite_score']:5.0f} "
+              f" {opp.get('valuation_score', 50):5.0f} "
+              f" {opp.get('technical_score', 50):4.0f} "
+              f" {opp.get('insider_score', 50):5.0f} "
+              f" {opp.get('fcf_yield_score', 50):4.0f} "
+              f" {opp.get('earnings_momentum_score', 50):5.0f} "
+              f" {opp.get('peer_valuation_score', 50):5.0f} "
+              f" {opp.get('dividend_score', 50):4.0f} "
+              f" {opp.get('quality_score', 50):4.0f}")
+
+    print("\n" + "=" * 70)
+    print(f"  Scan complete. {len(opportunities)} opportunities saved to database.")
+    print("=" * 70 + "\n")
+
+    # Send digest if configured
+    scanner_config = scanner.config.get("long_term_scanner", {})
+    if scanner_config.get("send_digest", True):
+        print("  Sending opportunity digest email...")
+        scanner.send_digest(opportunities[:10])
 
 
 if __name__ == "__main__":

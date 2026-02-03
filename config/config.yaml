@@ -181,6 +181,9 @@ backtest:
   initial_capital: 100000.0
   position_size_pct: 5.0
 
+# Long-term investment scanner (3-year hold strategy)
+# Scores stocks on 8 components for value investing opportunities
+# Run: stockpulse longterm-scan or stockpulse longterm-backtest
 long_term_scanner:
   enabled: true
   run_time: "17:30"
@@ -188,3 +191,16 @@ long_term_scanner:
   price_near_52w_low_pct: 15
   min_dividend_yield: 0.0
   min_score: 60
+  send_digest: true
+
+  # Scoring weights (should sum to 1.0)
+  # NOTE: Optimize via 'stockpulse longterm-backtest'
+  weights:
+    valuation: 0.15           # P/E, P/B, PEG ratios
+    technical: 0.15           # 52-week position, RSI, accumulation
+    dividend: 0.10            # Dividend yield
+    quality: 0.15             # Profit margin, ROE, debt ratios
+    insider: 0.15             # Insider buying (very predictive!)
+    fcf_yield: 0.12           # Free cash flow yield (better than P/E)
+    earnings_momentum: 0.10   # EPS beat streak
+    peer_valuation: 0.08      # Valuation vs sector peers

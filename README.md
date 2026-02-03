@@ -71,6 +71,8 @@ python -m stockpulse.main run
 | `stockpulse scan` | Run a single scan (generates signals, opens positions, sends email) |
 | `stockpulse backtest` | Run backtests for all strategies |
 | `stockpulse optimize` | Run hyperparameter optimization for all strategies |
+| `stockpulse longterm-scan` | Run long-term investment scanner (8 scoring components) |
+| `stockpulse longterm-backtest` | Backtest & optimize long-term scanner with 3-year hold strategy |
 | `stockpulse reset` | Reset trading data (keeps price history) |
 | `stockpulse reset --clear-all` | Reset ALL data including price history |
 | `stockpulse ingest` | Manually run data ingestion |
@@ -196,6 +198,33 @@ Configurable limits (see `config/config.yaml`):
 - **Loss Cooldown**: 7-day cooldown after a losing trade on same ticker
 - **Max Losses**: Block ticker after 3 consecutive losses
 - **Dynamic Sizing**: Position sizes reduced to fit remaining capacity in strategy/portfolio limits
+
+## Long-Term Investment Scanner
+
+Identifies value investment opportunities using 8 scoring components:
+
+| Component | Weight | Signal |
+|-----------|--------|--------|
+| **Insider Buying** | 15% | Recent insider purchases (very predictive!) |
+| **Valuation** | 15% | P/E, P/B, PEG ratios vs history |
+| **Technical** | 15% | Near 52-week low, RSI oversold, accumulation |
+| **Quality** | 15% | Profit margin, ROE, low debt |
+| **FCF Yield** | 12% | Free Cash Flow / Market Cap (better than P/E) |
+| **Dividend** | 10% | Yield vs sustainability |
+| **Earnings Momentum** | 10% | EPS beat streak |
+| **Peer Valuation** | 8% | Cheaper than sector peers |
+
+### Usage
+
+```bash
+# Run scanner now
+stockpulse longterm-scan
+
+# Backtest & optimize weights with 3-year hold strategy
+stockpulse longterm-backtest
+```
+
+Weights can be optimized via `longterm-backtest` to maximize alpha vs SPY.
 
 ## Disclaimer
 
