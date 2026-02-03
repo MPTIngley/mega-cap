@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "add-holding", "close-holding", "holdings"],
         help="Command to execute"
     )
 
@@ -82,6 +82,63 @@ def main():
         action="store_true",
         default=False,
         help="Clear ALL data including historical prices (use with caution)"
+    )
+
+    # Holdings tracking arguments
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        help="Stock ticker symbol for holdings commands"
+    )
+
+    parser.add_argument(
+        "--buy-date",
+        type=str,
+        help="Purchase date (YYYY-MM-DD)"
+    )
+
+    parser.add_argument(
+        "--buy-price",
+        type=float,
+        help="Purchase price per share"
+    )
+
+    parser.add_argument(
+        "--shares",
+        type=float,
+        help="Number of shares"
+    )
+
+    parser.add_argument(
+        "--strategy-type",
+        type=str,
+        choices=["active", "long_term"],
+        default="long_term",
+        help="Strategy type: 'active' or 'long_term'"
+    )
+
+    parser.add_argument(
+        "--holding-id",
+        type=int,
+        help="Holding ID for close-holding command"
+    )
+
+    parser.add_argument(
+        "--sell-date",
+        type=str,
+        help="Sell date (YYYY-MM-DD)"
+    )
+
+    parser.add_argument(
+        "--sell-price",
+        type=float,
+        help="Sell price per share"
+    )
+
+    parser.add_argument(
+        "--notes",
+        type=str,
+        help="Optional notes for the holding"
     )
 
     args = parser.parse_args()
@@ -124,6 +181,12 @@ def main():
         run_longterm_backtest()
     elif args.command == "longterm-scan":
         run_longterm_scan()
+    elif args.command == "add-holding":
+        run_add_holding(args)
+    elif args.command == "close-holding":
+        run_close_holding(args)
+    elif args.command == "holdings":
+        run_show_holdings(args)
 
 
 def run_digest():
@@ -1130,6 +1193,106 @@ def run_longterm_scan():
     if scanner_config.get("send_digest", True):
         print("  Sending opportunity digest email...")
         scanner.send_digest(opportunities[:10])
+
+
+def run_add_holding(args):
+    """Add a new holding to the tracker."""
+    from stockpulse.tracker.holdings_tracker import HoldingsTracker
+    from datetime import date as date_type
+
+    tracker = HoldingsTracker()
+
+    # Validate required arguments
+    if not args.ticker:
+        print("Error: --ticker is required")
+        print("Usage: stockpulse add-holding --ticker AAPL --buy-date 2024-01-15 --buy-price 185.50 --shares 10")
+        return
+
+    if not args.buy_price:
+        print("Error: --buy-price is required")
+        return
+
+    if not args.shares:
+        print("Error: --shares is required")
+        return
+
+    # Use today's date if not specified
+    buy_date = args.buy_date if args.buy_date else date_type.today().isoformat()
+
+    holding_id = tracker.add_holding(
+        ticker=args.ticker,
+        buy_date=buy_date,
+        buy_price=args.buy_price,
+        shares=args.shares,
+        strategy_type=args.strategy_type,
+        notes=args.notes
+    )
+
+    cost = args.buy_price * args.shares
+    print(f"\n  Added holding #{holding_id}")
+    print(f"  {args.ticker}: {args.shares} shares @ ${args.buy_price:.2f} = ${cost:,.2f}")
+    print(f"  Strategy: {args.strategy_type}")
+    print(f"  Date: {buy_date}")
+    if args.notes:
+        print(f"  Notes: {args.notes}")
+    print()
+
+
+def run_close_holding(args):
+    """Close an existing holding."""
+    from stockpulse.tracker.holdings_tracker import HoldingsTracker
+    from datetime import date as date_type
+
+    tracker = HoldingsTracker()
+
+    if not args.holding_id:
+        # Show open holdings to help user
+        print("\nOpen holdings:")
+        holdings_df = tracker.get_open_holdings()
+        if holdings_df.empty:
+            print("  No open holdings")
+        else:
+            for _, row in holdings_df.iterrows():
+                print(f"  #{row['id']}: {row['ticker']} - {row['shares']} shares @ ${row['buy_price']:.2f} ({row['strategy_type']})")
+        print("\nUsage: stockpulse close-holding --holding-id 1 --sell-date 2024-06-15 --sell-price 195.00")
+        return
+
+    if not args.sell_price:
+        print("Error: --sell-price is required")
+        return
+
+    # Use today's date if not specified
+    sell_date = args.sell_date if args.sell_date else date_type.today().isoformat()
+
+    try:
+        result = tracker.close_holding(
+            holding_id=args.holding_id,
+            sell_date=sell_date,
+            sell_price=args.sell_price
+        )
+
+        print(f"\n  Closed holding #{args.holding_id}")
+        print(f"  {result['ticker']}: {result['shares']:.2f} shares")
+        print(f"  Buy: ${result['buy_price']:.2f} -> Sell: ${result['sell_price']:.2f}")
+        print(f"  P&L: ${result['realized_pnl']:+,.2f} ({result['realized_pnl_pct']:+.1f}%)")
+        print()
+
+    except ValueError as e:
+        print(f"\nError: {e}")
+
+
+def run_show_holdings(args):
+    """Show current holdings."""
+    from stockpulse.tracker.holdings_tracker import print_holdings_summary
+
+    strategy = args.strategy_type if hasattr(args, 'strategy_type') and args.strategy_type != "long_term" else None
+
+    # Show both by default, or filtered by strategy
+    if strategy:
+        print_holdings_summary(strategy)
+    else:
+        print_holdings_summary("long_term")
+        print_holdings_summary("active")
 
 
 if __name__ == "__main__":

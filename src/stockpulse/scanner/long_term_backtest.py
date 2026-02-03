@@ -1,7 +1,12 @@
-"""Long-term Scanner Backtesting Framework.
+"""Long-term Scanner Backtesting Framework with Walk-Forward Optimization.
 
-Evaluates the long-term scanner's scoring system using historical data
-with a 3-year buy-and-hold strategy.
+Enhanced backtester with:
+- Transaction costs (0.1% round-trip)
+- Optimizable stop-loss (20-35%)
+- VIX regime detection (optimizable threshold)
+- Sector diversification constraint (40% max per sector)
+- Walk-forward optimization (train/test rolling windows)
+- Data through 2025
 
 Key constraints:
 - Initial portfolio: $100,000
@@ -10,7 +15,7 @@ Key constraints:
 - No duplicate holdings (can't buy same stock twice until sold)
 - Cooldown period: 6 months after selling before re-buying same stock
 - If position appreciates above 10%, don't sell (let winners run)
-- Hold period: 3 years (or until end of data)
+- Hold period: 3 years (or until stop-loss hit)
 
 Usage:
     python -m stockpulse.scanner.long_term_backtest
@@ -39,6 +44,7 @@ logger = get_logger(__name__)
 class Position:
     """Represents a single position in the portfolio."""
     ticker: str
+    sector: str
     buy_date: date
     buy_price: float
     shares: float
@@ -47,6 +53,7 @@ class Position:
     sell_date: date | None = None
     sell_price: float | None = None
     return_pct: float | None = None
+    exit_reason: str | None = None
 
     @property
     def is_open(self) -> bool:
@@ -86,6 +93,18 @@ class PortfolioState:
         pos_value = self.positions[ticker].current_value(prices.get(ticker, self.positions[ticker].buy_price))
         return (pos_value / total) * 100
 
+    def sector_concentration(self, sector: str, prices: dict[str, float]) -> float:
+        """Calculate sector concentration as % of total portfolio."""
+        total = self.total_value(prices)
+        if total <= 0:
+            return 0.0
+        sector_value = sum(
+            pos.current_value(prices.get(ticker, pos.buy_price))
+            for ticker, pos in self.positions.items()
+            if pos.sector == sector
+        )
+        return (sector_value / total) * 100
+
     def can_buy(self, ticker: str, as_of_date: date) -> tuple[bool, str]:
         """Check if we can buy this ticker."""
         # Already holding?
@@ -103,28 +122,29 @@ class PortfolioState:
 
 class LongTermBacktester:
     """
-    Backtests long-term scanner scoring system.
+    Backtests long-term scanner scoring system with walk-forward optimization.
 
     Strategy:
     - At each evaluation point (monthly), score all stocks
     - Buy stocks that meet threshold (score >= min_score)
     - Max 10% concentration per position at time of purchase
+    - Max 40% concentration per sector
     - Position size: 2% of initial capital per trade
-    - Hold for 3 years (or until end of data)
+    - Hold for 3 years (or until stop-loss hit)
     - 6-month cooldown after selling before can re-buy
-
-    Note: This requires 5+ years of historical data to properly evaluate
-    a 3-year holding period with sufficient lookback.
+    - Skip buying when VIX > threshold (market stress)
     """
 
     # Backtest parameters
     INITIAL_CAPITAL = 100_000
     POSITION_SIZE_PCT = 2.0  # Each buy is 2% of initial capital
     MAX_POSITION_CONCENTRATION_PCT = 10.0  # Max 10% in any one stock at purchase
+    MAX_SECTOR_CONCENTRATION_PCT = 40.0  # Max 40% in any sector (tech is the future!)
     HOLD_PERIOD_YEARS = 3
     COOLDOWN_MONTHS = 6
     EVALUATION_FREQUENCY_MONTHS = 1  # Monthly evaluation
     MIN_SCORE_DEFAULT = 60
+    TRANSACTION_COST_PCT = 0.05  # 0.05% each way = 0.1% round trip
 
     def __init__(self, db_path: str | None = None):
         """Initialize backtester."""
@@ -134,6 +154,8 @@ class LongTermBacktester:
         # Historical data cache
         self._price_cache = {}
         self._fundamentals_cache = {}
+        self._vix_cache = None
+        self._sector_map = {}
 
         # Ensure table exists for caching historical data
         self._create_backtest_tables()
@@ -154,10 +176,18 @@ class LongTermBacktester:
         """)
 
         self.db.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_vix (
+                date DATE PRIMARY KEY,
+                close REAL
+            )
+        """)
+
+        self.db.execute("""
             CREATE TABLE IF NOT EXISTS backtest_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 weights TEXT,
+                params TEXT,
                 start_year INTEGER,
                 end_year INTEGER,
                 total_trades INTEGER,
@@ -166,30 +196,111 @@ class LongTermBacktester:
                 total_return_pct REAL,
                 spy_return_pct REAL,
                 alpha_pct REAL,
+                max_drawdown_pct REAL,
+                sharpe_ratio REAL,
                 final_holdings TEXT,
                 transaction_log TEXT
             )
         """)
 
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_optimal_params (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                optimization_type TEXT,
+                best_weights TEXT,
+                best_params TEXT,
+                objective TEXT,
+                score REAL,
+                total_return_pct REAL,
+                alpha_pct REAL,
+                max_drawdown_pct REAL,
+                sharpe_ratio REAL,
+                walk_forward_results TEXT
+            )
+        """)
+
+    def _load_sector_map(self, tickers: list[str]):
+        """Load sector mapping for tickers from database."""
+        try:
+            placeholders = ",".join(["?" for _ in tickers])
+            df = self.db.fetchdf(f"""
+                SELECT ticker, sector FROM universe
+                WHERE ticker IN ({placeholders})
+            """, tuple(tickers))
+            self._sector_map = dict(zip(df["ticker"], df["sector"]))
+        except Exception as e:
+            logger.debug(f"Error loading sector map: {e}")
+            self._sector_map = {}
+
+    def fetch_vix_history(self, years: int = 7, use_cache: bool = True) -> pd.DataFrame:
+        """Fetch VIX historical data for regime detection."""
+        start_date = date.today() - timedelta(days=years * 365)
+
+        # Try cache first
+        if use_cache:
+            try:
+                cached = self.db.fetchdf("""
+                    SELECT date, close FROM backtest_vix
+                    WHERE date >= ?
+                    ORDER BY date
+                """, (start_date,))
+                if len(cached) > 100:
+                    self._vix_cache = cached
+                    logger.info(f"Loaded {len(cached)} VIX records from cache")
+                    return cached
+            except Exception:
+                pass
+
+        logger.info("Fetching VIX history from Yahoo Finance...")
+        try:
+            vix = yf.Ticker("^VIX")
+            hist = vix.history(start=start_date, end=date.today())
+
+            if hist.empty:
+                return pd.DataFrame()
+
+            hist = hist.reset_index()
+            hist["date"] = pd.to_datetime(hist["Date"]).dt.date
+            vix_df = hist[["date", "Close"]].rename(columns={"Close": "close"})
+
+            # Save to cache
+            for _, row in vix_df.iterrows():
+                self.db.execute("""
+                    INSERT OR REPLACE INTO backtest_vix (date, close)
+                    VALUES (?, ?)
+                """, (row["date"], row["close"]))
+
+            self._vix_cache = vix_df
+            logger.info(f"Cached {len(vix_df)} VIX records")
+            return vix_df
+
+        except Exception as e:
+            logger.warning(f"Error fetching VIX: {e}")
+            return pd.DataFrame()
+
+    def get_vix_on_date(self, target_date: date) -> float | None:
+        """Get VIX value on or near a specific date."""
+        if self._vix_cache is None or self._vix_cache.empty:
+            return None
+
+        df = self._vix_cache
+        df_before = df[df["date"] <= target_date]
+        if not df_before.empty:
+            return df_before["close"].iloc[-1]
+
+        return None
+
     def fetch_extended_history(
         self,
         tickers: list[str],
-        years: int = 6,
+        years: int = 7,
         progress: bool = True,
         use_cache: bool = True
     ) -> pd.DataFrame:
         """
         Fetch extended historical price data for backtesting.
         Saves to database for future use.
-
-        Args:
-            tickers: List of tickers to fetch
-            years: Number of years of history
-            progress: Show progress bar
-            use_cache: Try to load from database first
-
-        Returns:
-            DataFrame with columns: ticker, date, open, high, low, close, volume
         """
         start_date = date.today() - timedelta(days=years * 365)
 
@@ -197,9 +308,8 @@ class LongTermBacktester:
         if use_cache:
             cached_df = self._load_cached_prices(tickers, start_date)
             if not cached_df.empty:
-                # Check if we have enough data
                 tickers_with_data = cached_df["ticker"].unique()
-                if len(tickers_with_data) >= len(tickers) * 0.8:  # 80% coverage
+                if len(tickers_with_data) >= len(tickers) * 0.8:
                     logger.info(f"Loaded {len(cached_df):,} cached price records for {len(tickers_with_data)} tickers")
                     for ticker in tickers_with_data:
                         self._price_cache[ticker] = cached_df[cached_df["ticker"] == ticker].copy()
@@ -304,19 +414,7 @@ class LongTermBacktester:
         as_of_date: date,
         weights: dict
     ) -> float | None:
-        """
-        Calculate what the long-term score would have been on a historical date.
-
-        Uses available price data to estimate the score components.
-
-        Args:
-            ticker: Stock ticker
-            as_of_date: Historical date to calculate score for
-            weights: Scoring weights to use
-
-        Returns:
-            Composite score (0-100) or None if insufficient data
-        """
+        """Calculate what the long-term score would have been on a historical date."""
         if ticker not in self._price_cache:
             return None
 
@@ -334,7 +432,7 @@ class LongTermBacktester:
         valuation_score = self._historical_valuation_score(ticker, as_of_date)
         technical_score = self._historical_technical_score(price_data)
 
-        # For historical backtesting, we use neutral scores (50) for components
+        # For historical backtesting, use neutral scores (50) for components
         # that require live API data
         dividend_score = 50
         quality_score = 50
@@ -474,9 +572,10 @@ class LongTermBacktester:
         self,
         tickers: list[str],
         weights: dict,
+        params: dict | None = None,
         min_score: float | None = None,
         start_year: int = 2019,
-        end_year: int = 2023,
+        end_year: int = 2025,
     ) -> dict:
         """
         Run backtest with given weights and parameters.
@@ -484,6 +583,7 @@ class LongTermBacktester:
         Args:
             tickers: Universe of tickers to consider
             weights: Scoring weights dictionary
+            params: Backtest parameters (stop_loss_pct, vix_threshold)
             min_score: Minimum score to buy (default 60)
             start_year: Year to start evaluation
             end_year: Year to end evaluation
@@ -494,7 +594,17 @@ class LongTermBacktester:
         if min_score is None:
             min_score = self.MIN_SCORE_DEFAULT
 
-        logger.info(f"Running long-term backtest: {start_year}-{end_year}")
+        if params is None:
+            params = {}
+
+        # Extract parameters with defaults
+        stop_loss_pct = params.get("stop_loss_pct", 25.0)  # 25% default
+        vix_threshold = params.get("vix_threshold", 30.0)  # Don't buy when VIX > 30
+
+        logger.info(f"Running backtest: {start_year}-{end_year}, stop_loss={stop_loss_pct}%, vix_thresh={vix_threshold}")
+
+        # Load sector map
+        self._load_sector_map(tickers)
 
         # Initialize portfolio
         portfolio = PortfolioState(cash=self.INITIAL_CAPITAL)
@@ -513,23 +623,73 @@ class LongTermBacktester:
 
         # Track metrics
         portfolio_values = []
+        peak_value = self.INITIAL_CAPITAL
+        max_drawdown = 0.0
 
         # Run through each evaluation date
         for eval_date in eval_dates:
             # Get current prices
-            all_tickers = list(portfolio.positions.keys()) + tickers[:50]  # Limit for speed
+            all_tickers = list(portfolio.positions.keys()) + tickers[:50]
             prices = self._get_prices_on_date(list(set(all_tickers)), eval_date)
 
             if not prices:
                 continue
 
+            current_value = portfolio.total_value(prices)
+
+            # Track drawdown
+            if current_value > peak_value:
+                peak_value = current_value
+            drawdown = ((peak_value - current_value) / peak_value) * 100
+            max_drawdown = max(max_drawdown, drawdown)
+
             # Record portfolio value
             portfolio_values.append({
                 "date": eval_date,
-                "value": portfolio.total_value(prices),
+                "value": current_value,
                 "cash": portfolio.cash,
-                "num_positions": len(portfolio.positions)
+                "num_positions": len(portfolio.positions),
+                "drawdown": drawdown
             })
+
+            # === CHECK STOP-LOSSES ===
+            tickers_to_stop = []
+            for ticker, pos in portfolio.positions.items():
+                current_price = prices.get(ticker)
+                if current_price:
+                    unrealized = pos.unrealized_return_pct(current_price)
+                    if unrealized <= -stop_loss_pct:
+                        tickers_to_stop.append((ticker, current_price, unrealized))
+
+            for ticker, sell_price, unrealized in tickers_to_stop:
+                pos = portfolio.positions[ticker]
+                # Apply transaction cost
+                net_proceeds = pos.shares * sell_price * (1 - self.TRANSACTION_COST_PCT / 100)
+
+                pos.sell_date = eval_date
+                pos.sell_price = sell_price
+                pos.return_pct = ((sell_price - pos.buy_price) / pos.buy_price) * 100
+                pos.exit_reason = f"Stop-loss ({stop_loss_pct}%)"
+
+                portfolio.cash += net_proceeds
+
+                # Set cooldown
+                cooldown_date = eval_date + timedelta(days=self.COOLDOWN_MONTHS * 30)
+                portfolio.cooldown_until[ticker] = cooldown_date
+
+                portfolio.transaction_log.append({
+                    "date": str(eval_date),
+                    "action": "SELL",
+                    "ticker": ticker,
+                    "price": sell_price,
+                    "shares": pos.shares,
+                    "value": net_proceeds,
+                    "return_pct": pos.return_pct,
+                    "reason": pos.exit_reason
+                })
+
+                portfolio.closed_positions.append(pos)
+                del portfolio.positions[ticker]
 
             # === CLOSE POSITIONS held for 3+ years ===
             tickers_to_close = []
@@ -543,35 +703,42 @@ class LongTermBacktester:
                 sell_price = prices.get(ticker)
 
                 if sell_price:
-                    # Close position
+                    # Apply transaction cost
+                    net_proceeds = pos.shares * sell_price * (1 - self.TRANSACTION_COST_PCT / 100)
+
                     pos.sell_date = eval_date
                     pos.sell_price = sell_price
                     pos.return_pct = ((sell_price - pos.buy_price) / pos.buy_price) * 100
+                    pos.exit_reason = "Hold period complete"
 
-                    # Return cash
-                    portfolio.cash += pos.shares * sell_price
+                    portfolio.cash += net_proceeds
 
                     # Set cooldown
                     cooldown_date = eval_date + timedelta(days=self.COOLDOWN_MONTHS * 30)
                     portfolio.cooldown_until[ticker] = cooldown_date
 
-                    # Log transaction
                     portfolio.transaction_log.append({
                         "date": str(eval_date),
                         "action": "SELL",
                         "ticker": ticker,
                         "price": sell_price,
                         "shares": pos.shares,
-                        "value": pos.shares * sell_price,
+                        "value": net_proceeds,
                         "return_pct": pos.return_pct,
-                        "hold_days": (eval_date - pos.buy_date).days
+                        "hold_days": (eval_date - pos.buy_date).days,
+                        "reason": pos.exit_reason
                     })
 
                     portfolio.closed_positions.append(pos)
                     del portfolio.positions[ticker]
 
+            # === CHECK VIX REGIME ===
+            vix = self.get_vix_on_date(eval_date)
+            if vix and vix > vix_threshold:
+                # Skip buying in high-volatility regime
+                continue
+
             # === OPEN NEW POSITIONS ===
-            # Score all tickers and find opportunities
             opportunities = []
 
             for ticker in tickers:
@@ -580,13 +747,20 @@ class LongTermBacktester:
                 if not can_buy:
                     continue
 
-                # Check concentration limit BEFORE buying
-                # Calculate what concentration would be after purchase
+                # Check position concentration limit BEFORE buying
                 current_total = portfolio.total_value(prices)
                 if current_total > 0:
                     hypothetical_concentration = (position_size_dollars / current_total) * 100
                     if hypothetical_concentration > self.MAX_POSITION_CONCENTRATION_PCT:
                         continue
+
+                # Check sector concentration
+                sector = self._sector_map.get(ticker, "Unknown")
+                sector_conc = portfolio.sector_concentration(sector, prices)
+                hypothetical_sector_conc = sector_conc + (position_size_dollars / current_total * 100) if current_total > 0 else 0
+
+                if hypothetical_sector_conc > self.MAX_SECTOR_CONCENTRATION_PCT:
+                    continue
 
                 # Get price
                 price = prices.get(ticker)
@@ -596,26 +770,33 @@ class LongTermBacktester:
                 # Calculate score
                 score = self.calculate_historical_score(ticker, eval_date, weights)
                 if score and score >= min_score:
-                    opportunities.append((ticker, score, price))
+                    opportunities.append((ticker, score, price, sector))
 
             # Sort by score and buy top opportunities
             opportunities.sort(key=lambda x: x[1], reverse=True)
 
-            for ticker, score, price in opportunities:
+            for ticker, score, price, sector in opportunities:
                 # Check we have enough cash
                 if portfolio.cash < position_size_dollars:
                     break
 
-                # Double-check concentration (portfolio value may have changed)
+                # Re-check sector concentration
                 current_prices = prices.copy()
-                current_prices[ticker] = price  # Add this ticker
+                current_prices[ticker] = price
                 total_value = portfolio.total_value(current_prices)
 
-                # Existing position check (shouldn't happen but safety)
+                sector_conc = portfolio.sector_concentration(sector, current_prices)
+                if total_value > 0:
+                    new_sector_conc = sector_conc + (position_size_dollars / total_value * 100)
+                    if new_sector_conc > self.MAX_SECTOR_CONCENTRATION_PCT:
+                        continue
+
+                # Existing position check
                 if ticker in portfolio.positions:
                     continue
 
-                # Calculate shares to buy
+                # Apply transaction cost to purchase
+                cost_with_fee = position_size_dollars * (1 + self.TRANSACTION_COST_PCT / 100)
                 shares = position_size_dollars / price
 
                 # Verify final concentration won't exceed limit
@@ -626,45 +807,50 @@ class LongTermBacktester:
                         continue
 
                 # Execute purchase
-                portfolio.cash -= new_position_value
+                portfolio.cash -= cost_with_fee
                 portfolio.positions[ticker] = Position(
                     ticker=ticker,
+                    sector=sector,
                     buy_date=eval_date,
                     buy_price=price,
                     shares=shares,
-                    cost_basis=new_position_value,
+                    cost_basis=cost_with_fee,
                     score_at_purchase=score
                 )
 
-                # Log transaction
                 portfolio.transaction_log.append({
                     "date": str(eval_date),
                     "action": "BUY",
                     "ticker": ticker,
+                    "sector": sector,
                     "price": price,
                     "shares": shares,
-                    "value": new_position_value,
+                    "value": cost_with_fee,
                     "score": score,
                     "cash_remaining": portfolio.cash
                 })
 
         # === FINAL CLOSE: Close remaining positions at end ===
-        end_date = date(end_year, 12, 31)
+        end_date = min(date(end_year, 12, 31), date.today())
         final_prices = self._get_prices_on_date(list(portfolio.positions.keys()), end_date)
 
         for ticker, pos in list(portfolio.positions.items()):
             sell_price = final_prices.get(ticker, pos.buy_price)
+            net_proceeds = pos.shares * sell_price * (1 - self.TRANSACTION_COST_PCT / 100)
+
             pos.sell_date = end_date
             pos.sell_price = sell_price
             pos.return_pct = ((sell_price - pos.buy_price) / pos.buy_price) * 100
-            portfolio.cash += pos.shares * sell_price
+            pos.exit_reason = "End of backtest"
+
+            portfolio.cash += net_proceeds
             portfolio.closed_positions.append(pos)
 
         # === CALCULATE STATISTICS ===
         all_positions = portfolio.closed_positions
 
         if not all_positions:
-            return self._empty_result(weights)
+            return self._empty_result(weights, params)
 
         returns = [p.return_pct for p in all_positions if p.return_pct is not None]
         wins = [r for r in returns if r > 0]
@@ -674,9 +860,18 @@ class LongTermBacktester:
         spy_end = self._get_price_on_date("SPY", end_date)
         spy_return_pct = ((spy_end - spy_start) / spy_start * 100) if spy_start and spy_end else 0
 
-        # Portfolio return (actual)
+        # Portfolio return
         final_value = portfolio.cash
         total_return_pct = ((final_value - self.INITIAL_CAPITAL) / self.INITIAL_CAPITAL) * 100
+
+        # Sharpe ratio (annualized, assuming 12% risk-free rate over this period avg)
+        if len(returns) > 1:
+            avg_return = np.mean(returns)
+            std_return = np.std(returns)
+            # Annualize: assume ~4 trades per year average
+            sharpe_ratio = (avg_return - 3) / std_return if std_return > 0 else 0  # 3% per trade risk-free proxy
+        else:
+            sharpe_ratio = 0
 
         # Build detailed holdings report
         holdings_report = self._build_holdings_report(all_positions, portfolio_values)
@@ -693,15 +888,19 @@ class LongTermBacktester:
             "final_value": round(final_value, 2),
             "spy_return_pct": round(spy_return_pct, 2),
             "alpha_pct": round(total_return_pct - spy_return_pct, 2),
+            "max_drawdown_pct": round(max_drawdown, 2),
+            "sharpe_ratio": round(sharpe_ratio, 2),
             "avg_hold_days": round(np.mean([(p.sell_date - p.buy_date).days for p in all_positions]), 0),
             "max_positions_held": max([pv["num_positions"] for pv in portfolio_values]) if portfolio_values else 0,
+            "stop_losses_triggered": len([p for p in all_positions if p.exit_reason and "Stop-loss" in p.exit_reason]),
             "weights": weights,
+            "params": params,
             "holdings_report": holdings_report,
             "transaction_log": portfolio.transaction_log,
-            "portfolio_values": portfolio_values[-12:],  # Last 12 months
+            "portfolio_values": portfolio_values[-24:],  # Last 24 months
         }
 
-    def _empty_result(self, weights: dict) -> dict:
+    def _empty_result(self, weights: dict, params: dict) -> dict:
         """Return empty result structure."""
         return {
             "total_trades": 0,
@@ -711,7 +910,10 @@ class LongTermBacktester:
             "final_value": self.INITIAL_CAPITAL,
             "spy_return_pct": 0,
             "alpha_pct": 0,
+            "max_drawdown_pct": 0,
+            "sharpe_ratio": 0,
             "weights": weights,
+            "params": params,
             "holdings_report": {},
             "transaction_log": [],
         }
@@ -736,56 +938,215 @@ class LongTermBacktester:
                 "shares": round(pos.shares, 2),
                 "cost_basis": round(pos.cost_basis, 2),
                 "return_pct": round(pos.return_pct, 2) if pos.return_pct else None,
+                "exit_reason": pos.exit_reason,
+                "sector": pos.sector,
                 "score_at_purchase": round(pos.score_at_purchase, 1),
             })
 
         # Best and worst performers
         sorted_by_return = sorted(positions, key=lambda p: p.return_pct or 0, reverse=True)
         best_performers = [
-            {"ticker": p.ticker, "return_pct": round(p.return_pct, 1), "buy_date": str(p.buy_date)}
+            {"ticker": p.ticker, "return_pct": round(p.return_pct, 1), "buy_date": str(p.buy_date), "sector": p.sector}
             for p in sorted_by_return[:5]
         ]
         worst_performers = [
-            {"ticker": p.ticker, "return_pct": round(p.return_pct, 1), "buy_date": str(p.buy_date)}
+            {"ticker": p.ticker, "return_pct": round(p.return_pct, 1), "buy_date": str(p.buy_date), "sector": p.sector}
             for p in sorted_by_return[-5:]
         ]
 
+        # Sector breakdown
+        sector_returns = {}
+        for pos in positions:
+            if pos.sector not in sector_returns:
+                sector_returns[pos.sector] = []
+            if pos.return_pct is not None:
+                sector_returns[pos.sector].append(pos.return_pct)
+
+        sector_summary = {
+            sector: {
+                "count": len(returns),
+                "avg_return": round(np.mean(returns), 1) if returns else 0,
+                "win_rate": round(len([r for r in returns if r > 0]) / len(returns) * 100, 1) if returns else 0
+            }
+            for sector, returns in sector_returns.items()
+        }
+
         # Portfolio growth over time
+        growth_milestones = []
         if portfolio_values:
-            growth_milestones = []
             for pv in portfolio_values[::6]:  # Every 6 months
                 growth_milestones.append({
                     "date": str(pv["date"]),
                     "value": round(pv["value"], 0),
-                    "positions": pv["num_positions"]
+                    "positions": pv["num_positions"],
+                    "drawdown": round(pv["drawdown"], 1)
                 })
 
         return {
             "positions_by_ticker": by_ticker,
             "best_performers": best_performers,
             "worst_performers": worst_performers,
+            "sector_summary": sector_summary,
             "total_unique_stocks": len(by_ticker),
-            "growth_milestones": growth_milestones if portfolio_values else [],
+            "growth_milestones": growth_milestones,
         }
+
+    def walk_forward_optimize(
+        self,
+        tickers: list[str],
+        train_years: int = 2,
+        test_years: int = 1,
+        start_year: int = 2019,
+        end_year: int = 2025,
+        max_iterations: int = 50,
+        objective: str = "alpha"
+    ) -> dict:
+        """
+        Walk-forward optimization with rolling train/test windows.
+
+        Args:
+            tickers: Universe of tickers
+            train_years: Years in training window
+            test_years: Years in test window
+            start_year: Overall start year
+            end_year: Overall end year
+            max_iterations: Max iterations per training window
+            objective: Optimization objective
+
+        Returns:
+            Dictionary with walk-forward results
+        """
+        logger.info(f"Walk-forward optimization: {train_years}yr train, {test_years}yr test")
+
+        results = []
+        current_year = start_year
+
+        while current_year + train_years + test_years <= end_year + 1:
+            train_start = current_year
+            train_end = current_year + train_years - 1
+            test_start = train_end + 1
+            test_end = test_start + test_years - 1
+
+            logger.info(f"Window: Train {train_start}-{train_end}, Test {test_start}-{test_end}")
+
+            # Optimize on training period
+            opt_result = self.optimize_weights(
+                tickers=tickers,
+                max_iterations=max_iterations,
+                objective=objective,
+                start_year=train_start,
+                end_year=train_end
+            )
+
+            if not opt_result.get("best_result"):
+                current_year += 1
+                continue
+
+            best_weights = opt_result["best_weights"]
+            best_params = opt_result.get("best_params", {})
+
+            # Test on out-of-sample period
+            test_result = self.run_backtest(
+                tickers=tickers,
+                weights=best_weights,
+                params=best_params,
+                start_year=test_start,
+                end_year=test_end
+            )
+
+            results.append({
+                "train_period": f"{train_start}-{train_end}",
+                "test_period": f"{test_start}-{test_end}",
+                "train_return_pct": opt_result["best_result"]["total_return_pct"],
+                "train_alpha_pct": opt_result["best_result"]["alpha_pct"],
+                "test_return_pct": test_result["total_return_pct"],
+                "test_alpha_pct": test_result["alpha_pct"],
+                "test_sharpe": test_result["sharpe_ratio"],
+                "test_max_dd": test_result["max_drawdown_pct"],
+                "weights": best_weights,
+                "params": best_params,
+            })
+
+            current_year += 1
+
+        # Calculate aggregate metrics
+        if results:
+            avg_test_return = np.mean([r["test_return_pct"] for r in results])
+            avg_test_alpha = np.mean([r["test_alpha_pct"] for r in results])
+            avg_test_sharpe = np.mean([r["test_sharpe"] for r in results])
+            consistency = len([r for r in results if r["test_alpha_pct"] > 0]) / len(results) * 100
+        else:
+            avg_test_return = avg_test_alpha = avg_test_sharpe = consistency = 0
+
+        # Save to database
+        self._save_walk_forward_results(results, objective)
+
+        return {
+            "windows": results,
+            "avg_test_return_pct": round(avg_test_return, 2),
+            "avg_test_alpha_pct": round(avg_test_alpha, 2),
+            "avg_test_sharpe": round(avg_test_sharpe, 2),
+            "consistency_pct": round(consistency, 1),
+            "num_windows": len(results),
+        }
+
+    def _save_walk_forward_results(self, results: list, objective: str):
+        """Save walk-forward results to database."""
+        if not results:
+            return
+
+        # Use final window's weights as "best"
+        final = results[-1]
+
+        try:
+            self.db.execute("""
+                INSERT INTO backtest_optimal_params
+                (optimization_type, best_weights, best_params, objective, score,
+                 total_return_pct, alpha_pct, max_drawdown_pct, sharpe_ratio, walk_forward_results)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                "walk_forward",
+                json.dumps(final["weights"]),
+                json.dumps(final["params"]),
+                objective,
+                final["test_alpha_pct"],
+                final["test_return_pct"],
+                final["test_alpha_pct"],
+                final["test_max_dd"],
+                final["test_sharpe"],
+                json.dumps(results)
+            ))
+            logger.info("Saved walk-forward results to database")
+        except Exception as e:
+            logger.warning(f"Failed to save walk-forward results: {e}")
 
     def optimize_weights(
         self,
         tickers: list[str],
         max_iterations: int = 100,
-        objective: str = "alpha"
+        objective: str = "alpha",
+        start_year: int = 2019,
+        end_year: int = 2023
     ) -> dict:
         """
-        Optimize scoring weights to maximize backtest performance.
+        Optimize scoring weights and parameters to maximize backtest performance.
+
+        Optimizes:
+        - Scoring weights (valuation, technical, etc.)
+        - Stop-loss percentage (20-35%)
+        - VIX threshold (25-40)
 
         Args:
             tickers: Universe of tickers
             max_iterations: Maximum optimization iterations
             objective: "alpha", "return", "sharpe", or "win_rate"
+            start_year: Training period start
+            end_year: Training period end
 
         Returns:
-            Dictionary with best weights and results
+            Dictionary with best weights, params, and results
         """
-        logger.info(f"Optimizing long-term scanner weights (objective: {objective})...")
+        logger.info(f"Optimizing weights (objective: {objective})...")
 
         # Weight search space
         weight_options = {
@@ -799,42 +1160,62 @@ class LongTermBacktester:
             "peer_valuation": [0.05, 0.08, 0.10, 0.12],
         }
 
-        # Generate all combinations
+        # Parameter search space
+        param_options = {
+            "stop_loss_pct": [20.0, 25.0, 30.0, 35.0],  # 20-35% range
+            "vix_threshold": [25.0, 30.0, 35.0, 40.0],  # VIX threshold
+        }
+
+        # Generate weight combinations
         keys = list(weight_options.keys())
         all_values = [weight_options[k] for k in keys]
         all_combos = list(itertools.product(*all_values))
 
         # Filter to only those that sum to ~1.0
-        valid_combos = []
+        valid_weight_combos = []
         for combo in all_combos:
             total = sum(combo)
             if 0.95 <= total <= 1.05:
-                valid_combos.append(combo)
+                valid_weight_combos.append(combo)
+
+        # Generate param combinations
+        param_keys = list(param_options.keys())
+        param_values = [param_options[k] for k in param_keys]
+        param_combos = list(itertools.product(*param_values))
+
+        # Combine weights and params
+        all_search_combos = list(itertools.product(valid_weight_combos, param_combos))
 
         # Limit iterations
-        if len(valid_combos) > max_iterations:
+        if len(all_search_combos) > max_iterations:
             np.random.seed(42)
-            indices = np.random.choice(len(valid_combos), max_iterations, replace=False)
-            valid_combos = [valid_combos[i] for i in indices]
+            indices = np.random.choice(len(all_search_combos), max_iterations, replace=False)
+            all_search_combos = [all_search_combos[i] for i in indices]
 
-        logger.info(f"Testing {len(valid_combos)} weight combinations...")
+        logger.info(f"Testing {len(all_search_combos)} combinations...")
 
         best_result = None
         best_score = float("-inf")
+        best_weights = None
+        best_params = None
         all_results = []
 
-        for i, combo in enumerate(valid_combos):
-            weights = dict(zip(keys, combo))
+        for i, (weight_combo, param_combo) in enumerate(all_search_combos):
+            weights = dict(zip(keys, weight_combo))
+            params = dict(zip(param_keys, param_combo))
 
-            # Normalize to exactly 1.0
+            # Normalize weights to exactly 1.0
             total = sum(weights.values())
             weights = {k: v / total for k, v in weights.items()}
 
             if i % 10 == 0:
-                print(f"  Testing combination {i+1}/{len(valid_combos)}...", end="\r")
+                print(f"  Testing combination {i+1}/{len(all_search_combos)}...", end="\r")
 
             try:
-                result = self.run_backtest(tickers, weights)
+                result = self.run_backtest(
+                    tickers, weights, params,
+                    start_year=start_year, end_year=end_year
+                )
 
                 # Calculate objective score
                 if objective == "alpha":
@@ -842,8 +1223,7 @@ class LongTermBacktester:
                 elif objective == "return":
                     score = result["total_return_pct"]
                 elif objective == "sharpe":
-                    std = result.get("std_return_pct", 1)
-                    score = result["avg_return_pct"] / max(std, 1)
+                    score = result["sharpe_ratio"]
                 elif objective == "win_rate":
                     score = result["win_rate"]
                 else:
@@ -851,27 +1231,34 @@ class LongTermBacktester:
 
                 all_results.append({
                     "weights": weights,
+                    "params": params,
                     "score": score,
                     "total_return_pct": result["total_return_pct"],
                     "alpha_pct": result["alpha_pct"],
                     "win_rate": result["win_rate"],
+                    "sharpe_ratio": result["sharpe_ratio"],
+                    "max_drawdown_pct": result["max_drawdown_pct"],
                 })
 
                 if score > best_score:
                     best_score = score
                     best_result = result
+                    best_weights = weights
+                    best_params = params
 
             except Exception as e:
-                logger.debug(f"Error testing weights: {e}")
+                logger.debug(f"Error testing: {e}")
 
         print(f"  Optimization complete.                              ")
 
         # Save best result to database
         if best_result:
             self._save_backtest_result(best_result)
+            self._save_optimal_params(best_weights, best_params, objective, best_score, best_result)
 
         return {
-            "best_weights": best_result["weights"] if best_result else {},
+            "best_weights": best_weights or {},
+            "best_params": best_params or {},
             "best_score": best_score,
             "best_result": best_result,
             "all_results": sorted(all_results, key=lambda x: x["score"], reverse=True)[:10],
@@ -882,35 +1269,64 @@ class LongTermBacktester:
         try:
             self.db.execute("""
                 INSERT INTO backtest_results
-                (weights, start_year, end_year, total_trades, avg_return_pct,
+                (weights, params, start_year, end_year, total_trades, avg_return_pct,
                  win_rate, total_return_pct, spy_return_pct, alpha_pct,
-                 final_holdings, transaction_log)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 max_drawdown_pct, sharpe_ratio, final_holdings, transaction_log)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 json.dumps(result.get("weights", {})),
-                2019,  # TODO: make dynamic
-                2023,
+                json.dumps(result.get("params", {})),
+                2019,
+                2025,
                 result.get("total_trades", 0),
                 result.get("avg_return_pct", 0),
                 result.get("win_rate", 0),
                 result.get("total_return_pct", 0),
                 result.get("spy_return_pct", 0),
                 result.get("alpha_pct", 0),
+                result.get("max_drawdown_pct", 0),
+                result.get("sharpe_ratio", 0),
                 json.dumps(result.get("holdings_report", {})),
-                json.dumps(result.get("transaction_log", [])[:50]),  # Limit size
+                json.dumps(result.get("transaction_log", [])[:50]),
             ))
         except Exception as e:
             logger.warning(f"Failed to save backtest result: {e}")
 
+    def _save_optimal_params(self, weights: dict, params: dict, objective: str, score: float, result: dict):
+        """Save optimal parameters to database."""
+        try:
+            self.db.execute("""
+                INSERT INTO backtest_optimal_params
+                (optimization_type, best_weights, best_params, objective, score,
+                 total_return_pct, alpha_pct, max_drawdown_pct, sharpe_ratio, walk_forward_results)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                "single_period",
+                json.dumps(weights),
+                json.dumps(params),
+                objective,
+                score,
+                result.get("total_return_pct", 0),
+                result.get("alpha_pct", 0),
+                result.get("max_drawdown_pct", 0),
+                result.get("sharpe_ratio", 0),
+                None
+            ))
+            logger.info("Saved optimal params to database")
+        except Exception as e:
+            logger.warning(f"Failed to save optimal params: {e}")
+
 
 def run_long_term_backtest():
-    """Main entry point for long-term backtesting."""
+    """Main entry point for long-term backtesting with walk-forward optimization."""
     from stockpulse.data.universe import UniverseManager, TOP_US_STOCKS
     from stockpulse.scanner.long_term_scanner import LongTermScanner
 
     print("\n" + "=" * 80)
-    print("  LONG-TERM SCANNER BACKTESTER")
+    print("  LONG-TERM SCANNER BACKTESTER (Enhanced)")
+    print("  Features: Transaction costs, Stop-loss, VIX regime, Sector limits")
     print("  Strategy: 3-year buy-and-hold, 2% position size, 10% max concentration")
+    print("  Walk-Forward: 2-year train, 1-year test, rolling windows")
     print("=" * 80)
 
     # Get tickers
@@ -927,30 +1343,54 @@ def run_long_term_backtest():
     backtester = LongTermBacktester()
 
     # Fetch extended history (uses cache if available)
-    print("\n  Fetching 6 years of historical data...")
-    price_df = backtester.fetch_extended_history(tickers, years=6)
+    print("\n  Fetching 7 years of historical data...")
+    price_df = backtester.fetch_extended_history(tickers, years=7)
     print(f"  Loaded {len(price_df):,} price records")
 
+    # Fetch VIX history
+    print("\n  Fetching VIX history for regime detection...")
+    backtester.fetch_vix_history(years=7)
+
     # Run backtest with default weights
-    print("\n  Running backtest with default weights...")
+    print("\n  Running backtest with default weights (2019-2025)...")
     default_weights = LongTermScanner.DEFAULT_WEIGHTS
+    default_params = {"stop_loss_pct": 25.0, "vix_threshold": 30.0}
 
     result = backtester.run_backtest(
         tickers=tickers,
         weights=default_weights,
+        params=default_params,
         min_score=60,
-        start_year=2020,
-        end_year=2023
+        start_year=2019,
+        end_year=2025
     )
 
     _print_backtest_results("DEFAULT WEIGHTS", result)
 
-    # Optimize weights
-    print("\n  Optimizing weights (this may take a few minutes)...")
+    # Run walk-forward optimization
+    print("\n  Running walk-forward optimization (2yr train / 1yr test)...")
+    print("  This tests if optimized params work on unseen data...")
+
+    wf_result = backtester.walk_forward_optimize(
+        tickers=tickers,
+        train_years=2,
+        test_years=1,
+        start_year=2019,
+        end_year=2025,
+        max_iterations=30,
+        objective="alpha"
+    )
+
+    _print_walk_forward_results(wf_result)
+
+    # Optimize on full period for final params
+    print("\n  Optimizing weights on full period (2019-2024)...")
     opt_result = backtester.optimize_weights(
         tickers=tickers,
         max_iterations=50,
-        objective="alpha"
+        objective="alpha",
+        start_year=2019,
+        end_year=2024
     )
 
     if opt_result["best_result"]:
@@ -960,12 +1400,16 @@ def run_long_term_backtest():
         for k, v in opt_result["best_weights"].items():
             print(f"    {k}: {v:.3f}")
 
+        print("\n  Optimized Parameters:")
+        for k, v in opt_result["best_params"].items():
+            print(f"    {k}: {v}")
+
         # Print holdings detail
         _print_holdings_detail(opt_result["best_result"])
 
         # Save to config
-        print("\n  Saving optimized weights to config...")
-        _save_optimized_weights(opt_result["best_weights"])
+        print("\n  Saving optimized weights and params to config...")
+        _save_optimized_config(opt_result["best_weights"], opt_result["best_params"])
 
     # Suggestions for improvement
     _print_suggestions()
@@ -983,14 +1427,47 @@ def _print_backtest_results(title: str, result: dict):
     print(f"  Total Return:        {result['total_return_pct']:+.1f}%")
     print(f"  SPY Return:          {result['spy_return_pct']:+.1f}%")
     print(f"  Alpha vs SPY:        {result['alpha_pct']:+.1f}%")
+    print(f"  Max Drawdown:        {result.get('max_drawdown_pct', 0):.1f}%")
+    print(f"  Sharpe Ratio:        {result.get('sharpe_ratio', 0):.2f}")
     print(f"  ")
     print(f"  Total Trades:        {result['total_trades']}")
     print(f"  Win Rate:            {result['win_rate']:.1f}%")
     print(f"  Avg Return/Trade:    {result['avg_return_pct']:+.1f}%")
     print(f"  Best Trade:          {result.get('best_trade_pct', 0):+.1f}%")
     print(f"  Worst Trade:         {result.get('worst_trade_pct', 0):+.1f}%")
+    print(f"  Stop-Losses Hit:     {result.get('stop_losses_triggered', 0)}")
     print(f"  Avg Hold Days:       {result.get('avg_hold_days', 0):.0f}")
     print(f"  Max Positions Held:  {result.get('max_positions_held', 0)}")
+
+    # Show params if present
+    params = result.get("params", {})
+    if params:
+        print(f"  ")
+        print(f"  Stop-Loss:           {params.get('stop_loss_pct', 25)}%")
+        print(f"  VIX Threshold:       {params.get('vix_threshold', 30)}")
+
+
+def _print_walk_forward_results(wf_result: dict):
+    """Print walk-forward optimization results."""
+    print("\n" + "-" * 80)
+    print("  WALK-FORWARD RESULTS")
+    print("-" * 80)
+
+    print(f"\n  Number of Windows:       {wf_result['num_windows']}")
+    print(f"  Avg Test Return:         {wf_result['avg_test_return_pct']:+.1f}%")
+    print(f"  Avg Test Alpha:          {wf_result['avg_test_alpha_pct']:+.1f}%")
+    print(f"  Avg Test Sharpe:         {wf_result['avg_test_sharpe']:.2f}")
+    print(f"  Consistency (% winning): {wf_result['consistency_pct']:.0f}%")
+
+    print("\n  Window Results:")
+    print("  " + "-" * 76)
+    print("  Train Period    Test Period     Train Ret   Test Ret   Test Alpha   Sharpe")
+    print("  " + "-" * 76)
+
+    for w in wf_result["windows"]:
+        print(f"  {w['train_period']:14}  {w['test_period']:14}  "
+              f"{w['train_return_pct']:+7.1f}%   {w['test_return_pct']:+7.1f}%   "
+              f"{w['test_alpha_pct']:+8.1f}%   {w['test_sharpe']:6.2f}")
 
 
 def _print_holdings_detail(result: dict):
@@ -1004,17 +1481,24 @@ def _print_holdings_detail(result: dict):
     # Best performers
     print("\n  TOP 5 PERFORMERS:")
     for p in report.get("best_performers", [])[:5]:
-        print(f"    {p['ticker']:6} {p['return_pct']:+6.1f}%  (bought {p['buy_date']})")
+        print(f"    {p['ticker']:6} {p['return_pct']:+6.1f}%  ({p.get('sector', 'N/A')}, bought {p['buy_date']})")
 
     # Worst performers
     print("\n  BOTTOM 5 PERFORMERS:")
     for p in report.get("worst_performers", [])[:5]:
-        print(f"    {p['ticker']:6} {p['return_pct']:+6.1f}%  (bought {p['buy_date']})")
+        print(f"    {p['ticker']:6} {p['return_pct']:+6.1f}%  ({p.get('sector', 'N/A')}, bought {p['buy_date']})")
+
+    # Sector summary
+    sector_summary = report.get("sector_summary", {})
+    if sector_summary:
+        print("\n  SECTOR BREAKDOWN:")
+        for sector, data in sorted(sector_summary.items(), key=lambda x: x[1]["avg_return"], reverse=True):
+            print(f"    {sector:25} {data['count']:3} trades, {data['avg_return']:+5.1f}% avg, {data['win_rate']:.0f}% win")
 
     # Growth milestones
     print("\n  PORTFOLIO GROWTH:")
     for m in report.get("growth_milestones", [])[:10]:
-        print(f"    {m['date']}: ${m['value']:>10,.0f}  ({m['positions']} positions)")
+        print(f"    {m['date']}: ${m['value']:>10,.0f}  ({m['positions']} positions, {m['drawdown']:.1f}% DD)")
 
     # Transaction sample
     txn_log = result.get("transaction_log", [])
@@ -1022,51 +1506,39 @@ def _print_holdings_detail(result: dict):
         print("\n  RECENT TRANSACTIONS (last 10):")
         for txn in txn_log[-10:]:
             if txn["action"] == "BUY":
-                print(f"    {txn['date']} BUY  {txn['ticker']:6} @ ${txn['price']:.2f} (score: {txn.get('score', 0):.0f})")
+                print(f"    {txn['date']} BUY  {txn['ticker']:6} @ ${txn['price']:.2f} "
+                      f"({txn.get('sector', 'N/A')}, score: {txn.get('score', 0):.0f})")
             else:
-                print(f"    {txn['date']} SELL {txn['ticker']:6} @ ${txn['price']:.2f} ({txn.get('return_pct', 0):+.1f}%)")
+                reason = txn.get('reason', 'N/A')[:20]
+                print(f"    {txn['date']} SELL {txn['ticker']:6} @ ${txn['price']:.2f} "
+                      f"({txn.get('return_pct', 0):+.1f}%, {reason})")
 
 
 def _print_suggestions():
     """Print suggestions for improving the backtester."""
     print("\n" + "-" * 80)
-    print("  SUGGESTIONS FOR IMPROVEMENT")
+    print("  IMPLEMENTED ENHANCEMENTS")
     print("-" * 80)
     print("""
-  1. BETTER DATA SOURCES:
-     - Add historical fundamentals (P/E, P/B over time) for more accurate scoring
-     - Integrate SEC 13F filings for historical institutional ownership
-     - Add historical insider transactions from SEC Form 4
+  ✓ Transaction costs (0.1% round-trip)
+  ✓ Optimizable stop-loss (20-35% range)
+  ✓ VIX regime detection (skip buying in high vol)
+  ✓ Sector diversification (40% max per sector)
+  ✓ Walk-forward optimization (2yr train / 1yr test)
+  ✓ Data extended through 2025
+  ✓ All optimal results saved to database
 
-  2. ENHANCED SCORING:
-     - Add sector momentum: rotate into sectors with relative strength
-     - Add macro regime detection: risk-off in high VIX environments
-     - Add earnings calendar: avoid buying before earnings
-
-  3. PORTFOLIO OPTIMIZATION:
-     - Implement rebalancing: trim winners that exceed concentration limits
-     - Add stop-losses for positions down > 30%
-     - Consider sector diversification constraints
-
-  4. RISK MANAGEMENT:
-     - Track drawdown and pause buying during severe drawdowns
-     - Add correlation analysis to avoid concentrated sector bets
-     - Consider volatility-adjusted position sizing
-
-  5. VALIDATION:
-     - Walk-forward optimization (train/test split)
-     - Out-of-sample testing on different time periods
-     - Monte Carlo simulation for robustness
-
-  6. EXECUTION REALISM:
-     - Add transaction costs (0.1% round-trip)
-     - Model slippage on entry/exit
-     - Consider market impact for large positions
+  FUTURE ENHANCEMENTS TO CONSIDER:
+  1. Add earnings calendar: avoid buying before earnings
+  2. Add momentum factor: weight recent winners
+  3. Dynamic position sizing based on conviction
+  4. Trailing stop-loss vs fixed stop
+  5. Tax-loss harvesting simulation
     """)
 
 
-def _save_optimized_weights(weights: dict):
-    """Save optimized weights to config file."""
+def _save_optimized_config(weights: dict, params: dict):
+    """Save optimized weights and params to config file."""
     import yaml
     from pathlib import Path
 
@@ -1081,6 +1553,9 @@ def _save_optimized_weights(weights: dict):
 
         config["long_term_scanner"]["weights"] = {
             k: round(v, 3) for k, v in weights.items()
+        }
+        config["long_term_scanner"]["params"] = {
+            k: round(v, 1) if isinstance(v, float) else v for k, v in params.items()
         }
 
         with open(config_path, "w") as f:

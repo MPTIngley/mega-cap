@@ -704,7 +704,7 @@ def main():
     # Navigation
     page = st.sidebar.radio(
         "Navigation",
-        ["Live Signals", "Paper Portfolio", "Performance", "Backtests", "Long-Term Watchlist", "Universe", "Settings", "Debug"],
+        ["Live Signals", "Paper Portfolio", "Long-Term Holdings", "Performance", "Backtests", "Long-Term Watchlist", "Universe", "Settings", "Debug"],
         label_visibility="collapsed"
     )
 
@@ -759,6 +759,8 @@ def main():
         render_signals_page(services)
     elif page == "Paper Portfolio":
         render_portfolio_page(services)
+    elif page == "Long-Term Holdings":
+        render_longterm_holdings_page(services)
     elif page == "Performance":
         render_performance_page(services)
     elif page == "Backtests":
@@ -1921,6 +1923,194 @@ def render_watchlist_page(services: dict):
                 st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No long-term opportunities identified yet. The scanner runs daily after market close.")
+
+
+def render_longterm_holdings_page(services: dict):
+    """Render Long-Term Holdings page for tracking actual purchases."""
+    st.title("📊 Long-Term Holdings Tracker")
+    st.markdown("Track your actual long-term investments and compare to signals.")
+
+    # Initialize tracker
+    try:
+        from stockpulse.tracker.holdings_tracker import HoldingsTracker
+        tracker = HoldingsTracker()
+    except Exception as e:
+        st.error(f"Error loading holdings tracker: {e}")
+        return
+
+    # Tabs for different views
+    tab1, tab2, tab3 = st.tabs(["📈 Current Holdings", "➕ Add Position", "📜 Closed Positions"])
+
+    # TAB 1: Current Holdings
+    with tab1:
+        st.subheader("Portfolio Summary")
+
+        holdings_df = tracker.get_holdings_with_current_value("long_term")
+
+        if not holdings_df.empty:
+            # Calculate totals
+            total_cost = holdings_df["cost_basis"].sum()
+            total_value = holdings_df["current_value"].sum()
+            total_pnl = holdings_df["unrealized_pnl"].sum()
+            total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Positions", len(holdings_df))
+            with col2:
+                st.metric("Total Cost", f"${total_cost:,.2f}")
+            with col3:
+                st.metric("Current Value", f"${total_value:,.2f}")
+            with col4:
+                delta_color = "normal" if total_pnl >= 0 else "inverse"
+                st.metric("Unrealized P&L", f"${total_pnl:+,.2f}", delta=f"{total_pnl_pct:+.1f}%")
+
+            # Holdings table
+            st.markdown("---")
+            st.subheader("Individual Holdings")
+
+            display_data = []
+            for _, row in holdings_df.iterrows():
+                pnl_emoji = "🟢" if row["unrealized_pnl_pct"] >= 0 else "🔴"
+                display_data.append({
+                    "Status": pnl_emoji,
+                    "Ticker": row["ticker"],
+                    "Shares": f"{row['shares']:.2f}",
+                    "Buy Price": f"${row['buy_price']:.2f}",
+                    "Current": f"${row['current_price']:.2f}",
+                    "Cost": f"${row['cost_basis']:,.2f}",
+                    "Value": f"${row['current_value']:,.2f}",
+                    "P&L": f"${row['unrealized_pnl']:+,.2f}",
+                    "P&L %": f"{row['unrealized_pnl_pct']:+.1f}%",
+                    "Buy Date": str(row["buy_date"])[:10] if row.get("buy_date") else "N/A",
+                })
+
+            st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+
+            # Close position section
+            st.markdown("---")
+            st.subheader("Close a Position")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                close_id = st.selectbox(
+                    "Select Position",
+                    options=holdings_df["id"].tolist(),
+                    format_func=lambda x: f"#{x} - {holdings_df[holdings_df['id']==x]['ticker'].values[0]}"
+                )
+            with col2:
+                sell_price = st.number_input("Sell Price", min_value=0.01, step=0.01)
+            with col3:
+                sell_date = st.date_input("Sell Date", date.today())
+
+            if st.button("Close Position", type="secondary"):
+                if close_id and sell_price > 0:
+                    try:
+                        result = tracker.close_holding(close_id, sell_date, sell_price)
+                        st.success(f"Closed {result['ticker']}: P&L ${result['realized_pnl']:+,.2f} ({result['realized_pnl_pct']:+.1f}%)")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.warning("Please enter a valid sell price")
+
+        else:
+            st.info("No long-term holdings yet. Use the 'Add Position' tab to record your purchases.")
+
+    # TAB 2: Add Position
+    with tab2:
+        st.subheader("Record a New Purchase")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            new_ticker = st.text_input("Ticker Symbol", placeholder="e.g., AAPL").upper()
+            new_shares = st.number_input("Shares", min_value=0.01, step=0.01)
+            new_buy_date = st.date_input("Purchase Date", date.today())
+
+        with col2:
+            new_buy_price = st.number_input("Buy Price per Share", min_value=0.01, step=0.01)
+            new_strategy = st.selectbox("Strategy", ["long_term", "active"])
+            new_notes = st.text_input("Notes (optional)", placeholder="Reason for purchase")
+
+        # Preview
+        if new_ticker and new_shares and new_buy_price:
+            cost = new_shares * new_buy_price
+            st.markdown("---")
+            st.markdown(f"**Preview:** Buy {new_shares} shares of **{new_ticker}** @ ${new_buy_price:.2f} = **${cost:,.2f}**")
+
+        if st.button("Add Position", type="primary"):
+            if new_ticker and new_shares > 0 and new_buy_price > 0:
+                try:
+                    holding_id = tracker.add_holding(
+                        ticker=new_ticker,
+                        buy_date=new_buy_date,
+                        buy_price=new_buy_price,
+                        shares=new_shares,
+                        strategy_type=new_strategy,
+                        notes=new_notes if new_notes else None
+                    )
+                    st.success(f"Added position #{holding_id}: {new_shares} shares of {new_ticker}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error adding position: {e}")
+            else:
+                st.warning("Please fill in all required fields")
+
+    # TAB 3: Closed Positions
+    with tab3:
+        st.subheader("Closed Positions History")
+
+        closed_df = tracker.get_closed_holdings("long_term")
+
+        if not closed_df.empty:
+            # Summary stats
+            total_realized = closed_df["realized_pnl"].sum()
+            total_closed_trades = len(closed_df)
+            wins = len(closed_df[closed_df["realized_pnl"] > 0])
+            win_rate = (wins / total_closed_trades * 100) if total_closed_trades > 0 else 0
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Closed Trades", total_closed_trades)
+            with col2:
+                st.metric("Win Rate", f"{win_rate:.1f}%")
+            with col3:
+                st.metric("Total Realized", f"${total_realized:+,.2f}")
+            with col4:
+                avg_pnl = closed_df["realized_pnl_pct"].mean()
+                st.metric("Avg Return", f"{avg_pnl:+.1f}%")
+
+            # Closed positions table
+            st.markdown("---")
+            display_cols = ["ticker", "buy_date", "sell_date", "buy_price", "sell_price",
+                          "shares", "realized_pnl", "realized_pnl_pct"]
+            available = [c for c in display_cols if c in closed_df.columns]
+            display_df = closed_df[available].copy()
+
+            if "buy_price" in display_df.columns:
+                display_df["buy_price"] = display_df["buy_price"].apply(lambda x: f"${x:.2f}")
+            if "sell_price" in display_df.columns:
+                display_df["sell_price"] = display_df["sell_price"].apply(lambda x: f"${x:.2f}" if x else "N/A")
+            if "realized_pnl" in display_df.columns:
+                display_df["realized_pnl"] = display_df["realized_pnl"].apply(lambda x: f"${x:+,.2f}" if x else "N/A")
+            if "realized_pnl_pct" in display_df.columns:
+                display_df["realized_pnl_pct"] = display_df["realized_pnl_pct"].apply(lambda x: f"{x:+.1f}%" if x else "N/A")
+
+            display_df = display_df.rename(columns={
+                "ticker": "Ticker",
+                "buy_date": "Buy Date",
+                "sell_date": "Sell Date",
+                "buy_price": "Buy",
+                "sell_price": "Sell",
+                "shares": "Shares",
+                "realized_pnl": "P&L",
+                "realized_pnl_pct": "P&L %"
+            })
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No closed positions yet.")
 
 
 def render_settings_page(services: dict):
