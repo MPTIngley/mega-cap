@@ -62,10 +62,16 @@ class PositionManager:
         self.max_positions = int(env_max_positions) if env_max_positions else self.portfolio_config.get("max_positions", 25)
 
         # Concentration limits
-        self.max_per_stock_pct = self.risk_config.get("max_per_stock_pct", 20.0)
         self.max_per_strategy_pct = self.risk_config.get("max_per_strategy_pct", 40.0)
-        self.max_position_size_pct = self.risk_config.get("max_position_size_pct", 20.0)
+        self.max_position_size_pct = self.risk_config.get("max_position_size_pct", 15.0)
         self.min_position_size_pct = self.risk_config.get("min_position_size_pct", 3.0)
+
+        # Position sizing: base * strategy_weight * confidence_multiplier
+        self.confidence_config = self.config.get("confidence_scaling", {})
+        self.base_size_pct = self.confidence_config.get("base_size_pct", 5.0)
+        self.confidence_75_mult = self.confidence_config.get("confidence_75_multiplier", 2.0)
+        self.confidence_85_mult = self.confidence_config.get("confidence_85_multiplier", 3.0)
+        self.strategy_allocation = self.config.get("strategy_allocation", {})
 
         # Transaction costs
         self.commission = self.trading_config.get("commission_per_trade", 0.0)
@@ -236,6 +242,46 @@ class PositionManager:
             # Win resets the consecutive loss count
             self._loss_count_cache[ticker] = 0
 
+    def calculate_position_size_pct(self, signal: Signal) -> float:
+        """
+        Calculate position size percentage based on confidence and strategy.
+
+        Formula: base_size * strategy_weight * confidence_multiplier
+        Capped at max_position_size_pct.
+
+        Args:
+            signal: The signal to size
+
+        Returns:
+            Position size as percentage of capital
+        """
+        # Get strategy allocation weight (default 1.0)
+        strategy_weight = self.strategy_allocation.get(signal.strategy, 1.0)
+
+        # Get confidence multiplier
+        confidence = signal.confidence
+        if confidence >= 85:
+            confidence_mult = self.confidence_85_mult  # 3.0x for super confident
+        elif confidence >= 75:
+            confidence_mult = self.confidence_75_mult  # 2.0x for confident
+        else:
+            confidence_mult = 1.0  # Base size for lower confidence
+
+        # Calculate final size
+        final_size = self.base_size_pct * strategy_weight * confidence_mult
+
+        # Apply caps
+        final_size = min(final_size, self.max_position_size_pct)
+        final_size = max(final_size, self.min_position_size_pct)
+
+        logger.debug(
+            f"Position sizing for {signal.ticker}: "
+            f"base={self.base_size_pct}% × strategy={strategy_weight} × conf_mult={confidence_mult} "
+            f"= {final_size:.1f}% (conf={confidence}%)"
+        )
+
+        return final_size
+
     def open_position_from_signal(
         self,
         signal: Signal,
@@ -253,13 +299,15 @@ class PositionManager:
         """
         if capital is None:
             capital = self.initial_capital
+
         # Check risk limits
         if not self._check_risk_limits(signal):
             logger.info(f"Risk limits prevent opening position for {signal.ticker}")
             return None
 
-        # Calculate position size using configured percentage
-        max_position_value = capital * (self.position_size_pct / 100)
+        # Calculate position size using confidence-based formula
+        position_size_pct = self.calculate_position_size_pct(signal)
+        max_position_value = capital * (position_size_pct / 100)
 
         # Apply slippage to entry price
         if signal.direction == SignalDirection.BUY:
@@ -295,7 +343,7 @@ class PositionManager:
             """, (signal.ticker, signal.strategy))
             position_id = result[0] if result else None
 
-            logger.info(f"Opened position {position_id}: {signal.direction.value} {shares:.2f} shares of {signal.ticker} @ ${entry_price:.2f}")
+            logger.info(f"Opened position {position_id}: {signal.direction.value} {shares:.2f} shares of {signal.ticker} @ ${entry_price:.2f} ({position_size_pct:.1f}% of capital, conf={signal.confidence}%)")
 
             return position_id
 

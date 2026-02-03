@@ -123,11 +123,19 @@ alerts:
   send_daily_digest: true
   send_error_alerts: true
 
+# Position sizing formula:
+#   final_size = base_size * strategy_weight * confidence_multiplier
+#   final_size = min(final_size, max_position_size_pct)
+#
+# Example: High-confidence (90%) sector_rotation signal:
+#   5% * 2.0 (strategy weight) * 3.0 (confidence mult) = 30% → capped at 15%
+# Example: Low-confidence (65%) rsi signal:
+#   5% * 1.0 * 1.0 = 5%
 confidence_scaling:
   enabled: true
-  base_size_pct: 5.0
-  confidence_75_plus: 7.0
-  confidence_85_plus: 10.0
+  base_size_pct: 5.0              # Starting position size
+  confidence_75_multiplier: 2.0   # 75-84% confidence → 2x base
+  confidence_85_multiplier: 3.0   # 85%+ confidence → 3x base (hits 15% with good strategy)
 
 universe:
   source: auto
@@ -137,25 +145,20 @@ universe:
 
 portfolio:
   # NOTE: These can be overridden by env vars:
-  #   STOCKPULSE_INITIAL_CAPITAL, STOCKPULSE_POSITION_SIZE_PCT, STOCKPULSE_MAX_POSITIONS
+  #   STOCKPULSE_INITIAL_CAPITAL, STOCKPULSE_MAX_POSITIONS
   initial_capital: 100000.0
-  base_position_size_pct: 15.0   # Base % of capital per position (before allocation weight)
-  max_positions: 25
+  max_positions: 40
 
 risk_management:
-  # Per-position limits
-  max_position_size_pct: 20.0           # Hard cap per position (after allocation weight)
-  min_position_size_pct: 3.0            # Don't open if < 3% of capital
-
-  # Per-stock concentration limit
-  max_per_stock_pct: 20.0               # Never more than 20% in one stock
+  # Position sizing limits (see confidence_scaling above for formula)
+  max_position_size_pct: 15.0           # Hard cap per position (only hit with high confidence + good strategy)
+  min_position_size_pct: 3.0            # Don't open if final size < 3%
 
   # Per-strategy concentration limit
   max_per_strategy_pct: 40.0            # Never more than 40% in one strategy
 
   # Portfolio-level limits
   max_portfolio_exposure_pct: 80.0      # Max 80% invested at once
-  max_concurrent_positions: 25
   max_drawdown_disable_pct: 15.0        # Stop trading if drawdown > 15%
 
   # Churn prevention
