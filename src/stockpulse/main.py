@@ -222,6 +222,8 @@ def run_scheduler():
     from stockpulse.strategies.position_manager import PositionManager
     from stockpulse.scanner.long_term_scanner import LongTermScanner
     from stockpulse.alerts.alert_manager import AlertManager
+    from stockpulse.strategies.base import SignalDirection
+    from stockpulse.utils.config import get_config
 
     logger.info("Starting StockPulse scheduler...")
 
@@ -230,13 +232,49 @@ def run_scheduler():
     position_manager = PositionManager()
     long_term_scanner = LongTermScanner()
     alert_manager = AlertManager()
+    config = get_config()
 
     def on_intraday_scan(tickers):
-        """Callback for intraday scans."""
+        """Callback for intraday scans - generates signals, opens positions, sends alerts."""
         signals = signal_generator.generate_signals(tickers)
-        alert_manager.process_signals(signals)
 
-        # Update positions
+        if not signals:
+            logger.info("No signals generated")
+            return
+
+        # Separate BUY and SELL signals
+        buy_signals = [s for s in signals if s.direction == SignalDirection.BUY]
+        sell_signals = [s for s in signals if s.direction == SignalDirection.SELL]
+
+        logger.info(f"Generated {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
+
+        # Get current portfolio
+        open_positions_df = position_manager.get_open_positions()
+        portfolio_tickers = set(open_positions_df["ticker"].tolist()) if not open_positions_df.empty else set()
+
+        # Filter SELL signals to stocks we own
+        actionable_sells = [s for s in sell_signals if s.ticker in portfolio_tickers]
+
+        # Open positions for BUY signals
+        max_positions = config.get("portfolio", {}).get("max_positions", 40)
+        current_positions = len(portfolio_tickers)
+        available_slots = max_positions - current_positions
+
+        positions_opened = 0
+        if buy_signals and available_slots > 0:
+            for signal in sorted(buy_signals, key=lambda s: s.confidence, reverse=True)[:available_slots]:
+                try:
+                    pos_id = position_manager.open_position_from_signal(signal)
+                    if pos_id:
+                        positions_opened += 1
+                        logger.info(f"Opened position {pos_id} for {signal.ticker}")
+                except Exception as e:
+                    logger.error(f"Failed to open position for {signal.ticker}: {e}")
+
+        if positions_opened > 0:
+            logger.info(f"Opened {positions_opened} new paper positions")
+
+        # Update existing positions (check stops/targets)
         from stockpulse.data.ingestion import DataIngestion
         ingestion = DataIngestion()
         prices_df = ingestion.get_daily_prices(tickers)
@@ -249,10 +287,24 @@ def run_scheduler():
             for update in updates:
                 alert_manager.process_position_exit(update)
 
+        # Send consolidated email
+        allocation_weights = config.get("strategy_allocation", {})
+        base_position_pct = config.get("confidence_scaling", {}).get("base_size_pct", 5.0)
+        initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
+
+        alert_manager.send_consolidated_scan_alert(
+            buy_signals=buy_signals,
+            sell_signals=actionable_sells,
+            portfolio_tickers=portfolio_tickers,
+            allocation_weights=allocation_weights,
+            base_position_pct=base_position_pct,
+            initial_capital=initial_capital
+        )
+
     def on_daily_scan(tickers):
         """Callback for daily scans."""
-        signals = signal_generator.generate_signals(tickers)
-        alert_manager.process_signals(signals)
+        # Same as intraday but runs once at end of day
+        on_intraday_scan(tickers)
 
     def on_long_term_scan(tickers):
         """Callback for long-term scanner."""
@@ -584,25 +636,35 @@ def run_scan():
     positions_opened = 0
     if buy_signals:
         # Open positions for top signals (up to max concurrent)
-        max_positions = config.get("risk_management", {}).get("max_concurrent_positions", 20)
+        max_positions = config.get("portfolio", {}).get("max_positions", 40)
         current_positions = len(portfolio_tickers)
         available_slots = max_positions - current_positions
+
+        logger.info(f"Position slots: {available_slots} available ({current_positions}/{max_positions} used)")
 
         if available_slots > 0:
             for signal in buy_signals[:available_slots]:
                 try:
+                    logger.info(f"Attempting to open position for {signal.ticker} (conf={signal.confidence}%)")
                     pos_id = position_manager.open_position_from_signal(signal)
                     if pos_id:
                         positions_opened += 1
-                        logger.info(f"Opened position for {signal.ticker}")
+                        logger.info(f"✅ Opened position {pos_id} for {signal.ticker}")
+                    else:
+                        logger.info(f"❌ Position not opened for {signal.ticker} (risk limits)")
                 except Exception as e:
                     logger.error(f"Failed to open position for {signal.ticker}: {e}")
 
             if positions_opened > 0:
                 print(f"  ✅ Opened {positions_opened} new paper positions")
+            else:
+                print(f"  ⚠️  No positions opened (check risk limits)")
+        else:
+            print(f"  ⚠️  No slots available ({current_positions}/{max_positions} positions)")
 
     # === SEND CONSOLIDATED EMAIL ===
     if buy_signals or actionable_sells:
+        logger.info(f"Sending consolidated alert: {len(buy_signals)} buys, {len(actionable_sells)} sells")
         sent = alert_manager.send_consolidated_scan_alert(
             buy_signals=buy_signals,
             sell_signals=actionable_sells,
