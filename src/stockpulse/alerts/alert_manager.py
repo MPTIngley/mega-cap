@@ -303,6 +303,140 @@ class AlertManager:
         # Already stored in _log_alert via the body field
         pass
 
+    def send_scan_results_email(
+        self,
+        opened_positions: list[tuple],  # (signal, size_pct, dollar_amount)
+        blocked_signals: list[tuple],   # (signal, reason)
+        sell_signals: list[Signal],
+        portfolio_exposure_pct: float,
+        initial_capital: float
+    ) -> bool:
+        """
+        Send email showing actual scan results - what was opened and what was blocked.
+
+        Args:
+            opened_positions: List of (signal, size_pct, dollar_amount) for opened positions
+            blocked_signals: List of (signal, reason) for blocked signals
+            sell_signals: Actionable sell signals
+            portfolio_exposure_pct: Current portfolio exposure percentage
+            initial_capital: Initial capital amount
+        """
+        if self._is_quiet_hours():
+            logger.info("Quiet hours - skipping scan alert")
+            return False
+
+        # Skip if nothing happened
+        if not opened_positions and not blocked_signals and not sell_signals:
+            logger.info("No scan activity to report")
+            return False
+
+        today = datetime.now().strftime('%Y-%m-%d %H:%M')
+        subject = f"📊 StockPulse: Opened {len(opened_positions)} positions"
+        if blocked_signals:
+            subject += f", {len(blocked_signals)} blocked"
+
+        # Build opened positions table
+        opened_rows = ""
+        total_allocated = 0.0
+        for signal, size_pct, dollar_amount in opened_positions:
+            total_allocated += size_pct
+            upside_pct = ((signal.target_price - signal.entry_price) / signal.entry_price * 100) if signal.entry_price > 0 else 0
+            opened_rows += f"""
+            <tr>
+                <td><strong style="color: #22c55e;">{signal.ticker}</strong></td>
+                <td>{signal.strategy}</td>
+                <td>{signal.confidence:.0f}%</td>
+                <td>${signal.entry_price:.2f}</td>
+                <td>${signal.target_price:.2f} (+{upside_pct:.1f}%)</td>
+                <td>${signal.stop_price:.2f}</td>
+                <td><strong>{size_pct:.1f}%</strong> (${dollar_amount:,.0f})</td>
+            </tr>
+            """
+
+        # Build blocked signals table
+        blocked_rows = ""
+        for signal, reason in blocked_signals:
+            size_pct = self.position_manager.calculate_position_size_pct(signal)
+            blocked_rows += f"""
+            <tr style="opacity: 0.7;">
+                <td>{signal.ticker}</td>
+                <td>{signal.strategy}</td>
+                <td>{signal.confidence:.0f}%</td>
+                <td>{size_pct:.1f}%</td>
+                <td style="color: #f59e0b;">{reason}</td>
+            </tr>
+            """
+
+        # Build sell signals table
+        sell_rows = ""
+        for signal in sorted(sell_signals, key=lambda s: s.confidence, reverse=True)[:5]:
+            sell_rows += f"""
+            <tr>
+                <td><strong style="color: #ef4444;">{signal.ticker}</strong></td>
+                <td>{signal.strategy}</td>
+                <td>{signal.confidence:.0f}%</td>
+                <td>${signal.entry_price:.2f}</td>
+            </tr>
+            """
+
+        body_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #0f172a; color: #e2e8f0; }}
+                .header {{ background: #1e293b; color: white; padding: 20px; text-align: center; border-bottom: 3px solid #3b82f6; }}
+                .content {{ padding: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #1e293b; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #334155; color: #e2e8f0; }}
+                th {{ background: #334155; font-weight: 600; }}
+                .section-title {{ color: #f1f5f9; margin-top: 25px; padding: 10px; border-left: 4px solid #22c55e; background: #1e293b; }}
+                .blocked-title {{ border-left-color: #f59e0b; }}
+                .sell-title {{ border-left-color: #ef4444; }}
+                .summary {{ background: #1e293b; padding: 15px; border-radius: 8px; margin: 15px 0; }}
+                .stat {{ display: inline-block; margin-right: 30px; }}
+                .stat-value {{ font-size: 1.5em; font-weight: bold; color: #3b82f6; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📊 StockPulse Scan Results</h1>
+                <p>{today}</p>
+            </div>
+            <div class="content">
+                <div class="summary">
+                    <span class="stat"><span class="stat-value">{len(opened_positions)}</span> Positions Opened</span>
+                    <span class="stat"><span class="stat-value">{total_allocated:.1f}%</span> Allocated</span>
+                    <span class="stat"><span class="stat-value">{portfolio_exposure_pct:.1f}%</span> Total Exposure</span>
+                    <span class="stat"><span class="stat-value">${initial_capital:,.0f}</span> Capital</span>
+                </div>
+
+                {"<h2 class='section-title'>✅ Positions Opened (" + str(len(opened_positions)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + opened_rows + "</table>" if opened_rows else "<p style='color: #94a3b8;'>No positions opened this scan.</p>"}
+
+                {"<h2 class='section-title blocked-title'>⏸️ Signals Blocked (" + str(len(blocked_signals)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Would Be</th><th>Reason</th></tr>" + blocked_rows + "</table>" if blocked_rows else ""}
+
+                {"<h2 class='section-title sell-title'>📉 Sell Signals (" + str(len(sell_signals)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Price</th></tr>" + sell_rows + "</table>" if sell_rows else ""}
+
+                <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
+                    <strong>Allocation Rules:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br>
+                    <strong>Disclaimer:</strong> Paper trading only. Not financial advice.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        success = self.email_sender.send_email(subject, body_html)
+
+        self._log_alert(
+            "scan_results",
+            None,
+            subject,
+            f"Opened: {len(opened_positions)}, Blocked: {len(blocked_signals)}, Exposure: {portfolio_exposure_pct:.1f}%",
+            success
+        )
+
+        return success
+
     def process_position_exit(self, position_data: dict[str, Any]) -> bool:
         """
         Process a position exit and send alert.

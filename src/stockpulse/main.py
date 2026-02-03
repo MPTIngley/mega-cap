@@ -248,31 +248,81 @@ def run_scheduler():
 
         logger.info(f"Generated {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
 
-        # Get current portfolio
+        # Get current portfolio state
         open_positions_df = position_manager.get_open_positions()
         portfolio_tickers = set(open_positions_df["ticker"].tolist()) if not open_positions_df.empty else set()
+
+        # Calculate current portfolio exposure
+        current_exposure_pct = 0.0
+        if not open_positions_df.empty:
+            total_invested = (open_positions_df["entry_price"] * open_positions_df["shares"]).sum()
+            current_exposure_pct = (total_invested / position_manager.initial_capital) * 100
 
         # Filter SELL signals to stocks we own
         actionable_sells = [s for s in sell_signals if s.ticker in portfolio_tickers]
 
-        # Open positions for BUY signals
+        # Get constraints from config
+        risk_config = config.get("risk_management", {})
         max_positions = config.get("portfolio", {}).get("max_positions", 40)
+        max_exposure_pct = risk_config.get("max_portfolio_exposure_pct", 80.0)
+
+        # Rank signals by expected return: confidence × upside potential
+        def expected_return(signal):
+            upside = (signal.target_price - signal.entry_price) / signal.entry_price if signal.entry_price > 0 else 0
+            return signal.confidence * upside * 100
+
+        ranked_buys = sorted(buy_signals, key=expected_return, reverse=True)
+
+        # Track what happens to each signal
+        opened_positions = []  # (signal, size_pct, dollar_amount)
+        blocked_signals = []   # (signal, reason)
+
+        running_exposure_pct = current_exposure_pct
         current_positions = len(portfolio_tickers)
-        available_slots = max_positions - current_positions
 
-        positions_opened = 0
-        if buy_signals and available_slots > 0:
-            for signal in sorted(buy_signals, key=lambda s: s.confidence, reverse=True)[:available_slots]:
-                try:
-                    pos_id = position_manager.open_position_from_signal(signal)
-                    if pos_id:
-                        positions_opened += 1
-                        logger.info(f"Opened position {pos_id} for {signal.ticker}")
-                except Exception as e:
-                    logger.error(f"Failed to open position for {signal.ticker}: {e}")
+        for signal in ranked_buys:
+            # Skip if already in portfolio
+            if signal.ticker in portfolio_tickers:
+                blocked_signals.append((signal, "Already in portfolio"))
+                continue
 
-        if positions_opened > 0:
-            logger.info(f"Opened {positions_opened} new paper positions")
+            # Check position limit
+            if current_positions >= max_positions:
+                blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
+                continue
+
+            # Calculate position size
+            size_pct = position_manager.calculate_position_size_pct(signal)
+
+            # Check if this would exceed portfolio exposure limit
+            if running_exposure_pct + size_pct > max_exposure_pct:
+                # Try to fit a smaller position
+                remaining_pct = max_exposure_pct - running_exposure_pct
+                if remaining_pct >= risk_config.get("min_position_size_pct", 3.0):
+                    size_pct = remaining_pct
+                else:
+                    blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
+                    continue
+
+            # Try to open the position
+            try:
+                pos_id = position_manager.open_position_from_signal(signal)
+                if pos_id:
+                    dollar_amount = position_manager.initial_capital * (size_pct / 100)
+                    opened_positions.append((signal, size_pct, dollar_amount))
+                    running_exposure_pct += size_pct
+                    current_positions += 1
+                    portfolio_tickers.add(signal.ticker)
+                    logger.info(f"Opened position {pos_id} for {signal.ticker} at {size_pct:.1f}%")
+                else:
+                    # Position manager returned None - check why
+                    blocked_signals.append((signal, "Blocked by risk check"))
+            except Exception as e:
+                blocked_signals.append((signal, f"Error: {str(e)[:50]}"))
+                logger.error(f"Failed to open position for {signal.ticker}: {e}")
+
+        if opened_positions:
+            logger.info(f"Opened {len(opened_positions)} positions, total exposure: {running_exposure_pct:.1f}%")
 
         # Update existing positions (check stops/targets)
         from stockpulse.data.ingestion import DataIngestion
@@ -287,17 +337,14 @@ def run_scheduler():
             for update in updates:
                 alert_manager.process_position_exit(update)
 
-        # Send consolidated email
-        allocation_weights = config.get("strategy_allocation", {})
-        base_position_pct = config.get("confidence_scaling", {}).get("base_size_pct", 5.0)
-        initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
+        # Send consolidated email with actual results
+        initial_capital = position_manager.initial_capital
 
-        alert_manager.send_consolidated_scan_alert(
-            buy_signals=buy_signals,
+        alert_manager.send_scan_results_email(
+            opened_positions=opened_positions,
+            blocked_signals=blocked_signals[:10],  # Top 10 blocked
             sell_signals=actionable_sells,
-            portfolio_tickers=portfolio_tickers,
-            allocation_weights=allocation_weights,
-            base_position_pct=base_position_pct,
+            portfolio_exposure_pct=running_exposure_pct,
             initial_capital=initial_capital
         )
 
