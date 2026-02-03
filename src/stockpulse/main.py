@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email"],
         help="Command to execute"
     )
 
@@ -116,6 +116,87 @@ def main():
         run_optimize()
     elif args.command == "reset":
         run_reset(keep_market_data=not args.clear_all)
+    elif args.command == "test-email":
+        run_test_email()
+
+
+def run_test_email():
+    """Test email configuration and send a test email."""
+    import os
+    from stockpulse.alerts.email_sender import EmailSender
+
+    print("\n" + "="*60)
+    print("EMAIL CONFIGURATION TEST")
+    print("="*60)
+
+    # Check environment variables
+    sender = os.environ.get("STOCKPULSE_EMAIL_SENDER", "")
+    recipient = os.environ.get("STOCKPULSE_EMAIL_RECIPIENT", "")
+    password = os.environ.get("STOCKPULSE_EMAIL_PASSWORD", "")
+    cc = os.environ.get("STOCKPULSE_EMAIL_RECIPIENTS_CC", "")
+
+    print(f"\nEnvironment Variables:")
+    print(f"  STOCKPULSE_EMAIL_SENDER:    {'[SET]' if sender else '[MISSING]'} {sender if sender else ''}")
+    print(f"  STOCKPULSE_EMAIL_RECIPIENT: {'[SET]' if recipient else '[MISSING]'} {recipient if recipient else ''}")
+    print(f"  STOCKPULSE_EMAIL_PASSWORD:  {'[SET]' if password else '[MISSING]'} {'*' * len(password) if password else ''}")
+    print(f"  STOCKPULSE_EMAIL_RECIPIENTS_CC: {cc if cc else '[not set]'}")
+
+    # Check .env file location
+    from pathlib import Path
+    env_paths = [
+        Path.cwd() / ".env",
+        Path(__file__).parent.parent.parent.parent / ".env",
+        Path.home() / "mega-cap" / ".env",
+    ]
+    print(f"\n.env file search paths:")
+    for p in env_paths:
+        exists = p.exists()
+        print(f"  {p}: {'[EXISTS]' if exists else '[not found]'}")
+
+    # Initialize email sender
+    print(f"\nInitializing EmailSender...")
+    email_sender = EmailSender()
+
+    print(f"  is_configured: {email_sender.is_configured}")
+    print(f"  smtp_server: {email_sender.smtp_server}")
+    print(f"  smtp_port: {email_sender.smtp_port}")
+
+    if not email_sender.is_configured:
+        print("\n[ERROR] Email is NOT configured. Check your .env file.")
+        print("Make sure the .env file is in the project root directory.")
+        return
+
+    # Try to send a test email
+    print(f"\nSending test email...")
+    from datetime import datetime
+
+    subject = f"StockPulse Test Email - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    body_html = """
+    <html>
+    <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <h1 style="color: #2c3e50;">StockPulse Email Test</h1>
+        <p>If you're reading this, your email configuration is working correctly!</p>
+        <p style="color: #27ae60; font-weight: bold;">Configuration verified.</p>
+        <hr>
+        <p style="color: #666; font-size: 12px;">This is an automated test email from StockPulse.</p>
+    </body>
+    </html>
+    """
+
+    try:
+        result = email_sender.send_email(subject, body_html)
+        if result:
+            print(f"\n[SUCCESS] Test email sent!")
+            print(f"  To: {recipient}")
+            if cc:
+                print(f"  CC: {cc}")
+            print(f"\nCheck your inbox (and spam folder).")
+        else:
+            print(f"\n[FAILED] send_email returned False")
+    except Exception as e:
+        print(f"\n[ERROR] Exception while sending: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def run_scheduler():

@@ -136,13 +136,29 @@ universe:
   refresh_interval_days: 7
 
 portfolio:
+  # NOTE: These can be overridden by env vars:
+  #   STOCKPULSE_INITIAL_CAPITAL, STOCKPULSE_POSITION_SIZE_PCT, STOCKPULSE_MAX_POSITIONS
   initial_capital: 100000.0
+  base_position_size_pct: 15.0   # Base % of capital per position (before allocation weight)
+  max_positions: 25
 
 risk_management:
-  max_position_size_pct: 5.0
-  max_portfolio_exposure_pct: 80.0
-  max_concurrent_positions: 20
-  max_drawdown_disable_pct: 15.0
+  # Per-position limits
+  max_position_size_pct: 20.0           # Hard cap per position (after allocation weight)
+  min_position_size_pct: 3.0            # Don't open if < 3% of capital
+
+  # Per-stock concentration limit
+  max_per_stock_pct: 20.0               # Never more than 20% in one stock
+
+  # Per-strategy concentration limit
+  max_per_strategy_pct: 40.0            # Never more than 40% in one strategy
+
+  # Portfolio-level limits
+  max_portfolio_exposure_pct: 80.0      # Max 80% invested at once
+  max_concurrent_positions: 25
+  max_drawdown_disable_pct: 15.0        # Stop trading if drawdown > 15%
+
+  # Churn prevention
   min_days_between_same_ticker: 3
 
 backtest:

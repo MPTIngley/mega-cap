@@ -56,10 +56,16 @@ class PositionManager:
         self.initial_capital = float(env_capital) if env_capital else self.portfolio_config.get("initial_capital", 100000.0)
 
         env_position_pct = os.environ.get("STOCKPULSE_POSITION_SIZE_PCT")
-        self.position_size_pct = float(env_position_pct) if env_position_pct else self.risk_config.get("max_position_size_pct", 5.0)
+        self.position_size_pct = float(env_position_pct) if env_position_pct else self.portfolio_config.get("base_position_size_pct", 15.0)
 
         env_max_positions = os.environ.get("STOCKPULSE_MAX_POSITIONS")
-        self.max_positions = int(env_max_positions) if env_max_positions else self.risk_config.get("max_concurrent_positions", 20)
+        self.max_positions = int(env_max_positions) if env_max_positions else self.portfolio_config.get("max_positions", 25)
+
+        # Concentration limits
+        self.max_per_stock_pct = self.risk_config.get("max_per_stock_pct", 20.0)
+        self.max_per_strategy_pct = self.risk_config.get("max_per_strategy_pct", 40.0)
+        self.max_position_size_pct = self.risk_config.get("max_position_size_pct", 20.0)
+        self.min_position_size_pct = self.risk_config.get("min_position_size_pct", 3.0)
 
         # Transaction costs
         self.commission = self.trading_config.get("commission_per_trade", 0.0)
@@ -297,6 +303,40 @@ class PositionManager:
             logger.error(f"Error opening position: {e}")
             return None
 
+    def _check_strategy_concentration(self, strategy: str) -> tuple[bool, str]:
+        """
+        Check if adding this position would exceed per-strategy concentration limit.
+
+        Returns:
+            (is_allowed, reason) - True if trade is allowed
+        """
+        try:
+            # Get current open positions for this strategy
+            strategy_positions = self.db.fetchdf("""
+                SELECT ticker, entry_price, shares
+                FROM positions_paper
+                WHERE status = 'open' AND strategy = ?
+            """, (strategy,))
+
+            if strategy_positions.empty:
+                return True, ""
+
+            # Calculate current strategy exposure
+            strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
+            new_position_value = self.initial_capital * (self.position_size_pct / 100)
+            new_strategy_value = strategy_value + new_position_value
+
+            strategy_pct = (new_strategy_value / self.initial_capital) * 100
+
+            if strategy_pct > self.max_per_strategy_pct:
+                return False, f"Strategy {strategy} would be {strategy_pct:.1f}% of capital (max {self.max_per_strategy_pct:.0f}%)"
+
+            return True, ""
+
+        except Exception as e:
+            logger.warning(f"Error checking strategy concentration: {e}")
+            return True, ""  # Allow on error
+
     def _check_risk_limits(self, signal: Signal) -> bool:
         """
         Check if opening a position would violate risk limits.
@@ -307,6 +347,7 @@ class PositionManager:
         3. Cooldown periods (churn prevention)
         4. Loss limits per ticker
         5. Sector concentration limits
+        6. Per-strategy concentration limits
         """
         ticker = signal.ticker
 
@@ -343,6 +384,12 @@ class PositionManager:
         sector_ok, sector_reason = self._check_sector_concentration(ticker)
         if not sector_ok:
             logger.info(f"Concentration prevents {ticker}: {sector_reason}")
+            return False
+
+        # Check per-strategy concentration
+        strategy_ok, strategy_reason = self._check_strategy_concentration(signal.strategy)
+        if not strategy_ok:
+            logger.info(f"Strategy concentration prevents {ticker}: {strategy_reason}")
             return False
 
         return True
