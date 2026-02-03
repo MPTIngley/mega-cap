@@ -351,14 +351,19 @@ class PositionManager:
             logger.error(f"Error opening position: {e}")
             return None
 
-    def _check_strategy_concentration(self, strategy: str) -> tuple[bool, str]:
+    def _check_strategy_concentration(self, signal: Signal) -> tuple[bool, str]:
         """
         Check if adding this position would exceed per-strategy concentration limit.
+
+        Args:
+            signal: The signal being considered
 
         Returns:
             (is_allowed, reason) - True if trade is allowed
         """
         try:
+            strategy = signal.strategy
+
             # Get current open positions for this strategy
             strategy_positions = self.db.fetchdf("""
                 SELECT ticker, entry_price, shares
@@ -366,18 +371,19 @@ class PositionManager:
                 WHERE status = 'open' AND strategy = ?
             """, (strategy,))
 
-            if strategy_positions.empty:
-                return True, ""
-
             # Calculate current strategy exposure
-            strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
-            new_position_value = self.initial_capital * (self.base_size_pct / 100)
-            new_strategy_value = strategy_value + new_position_value
+            current_strategy_value = 0.0
+            if not strategy_positions.empty:
+                current_strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
 
-            strategy_pct = (new_strategy_value / self.initial_capital) * 100
+            current_strategy_pct = (current_strategy_value / self.initial_capital) * 100
 
-            if strategy_pct > self.max_per_strategy_pct:
-                return False, f"Strategy {strategy} would be {strategy_pct:.1f}% of capital (max {self.max_per_strategy_pct:.0f}%)"
+            # Calculate the ACTUAL size this position would be (not base size)
+            new_position_pct = self.calculate_position_size_pct(signal)
+            new_strategy_pct = current_strategy_pct + new_position_pct
+
+            if new_strategy_pct > self.max_per_strategy_pct:
+                return False, f"Strategy {strategy} would be {new_strategy_pct:.1f}% of capital (max {self.max_per_strategy_pct:.0f}%)"
 
             return True, ""
 
@@ -434,8 +440,8 @@ class PositionManager:
             logger.info(f"Concentration prevents {ticker}: {sector_reason}")
             return False
 
-        # Check per-strategy concentration
-        strategy_ok, strategy_reason = self._check_strategy_concentration(signal.strategy)
+        # Check per-strategy concentration (pass full signal for accurate size calculation)
+        strategy_ok, strategy_reason = self._check_strategy_concentration(signal)
         if not strategy_ok:
             logger.info(f"Strategy concentration prevents {ticker}: {strategy_reason}")
             return False

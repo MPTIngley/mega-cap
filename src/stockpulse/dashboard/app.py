@@ -1268,75 +1268,162 @@ def render_portfolio_page(services: dict):
         except:
             st.caption("DB: error reading")
 
+    # Get portfolio data
     positions_df = services["positions"].get_open_positions()
+    closed_df = services["positions"].get_closed_positions(start_date=date.today() - timedelta(days=90))
+    performance = services["positions"].get_performance_summary()
 
+    # Get initial capital from config
+    config = get_config()
+    initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
+
+    # Calculate invested amount
+    invested_amount = 0.0
+    if not positions_df.empty:
+        invested_amount = (positions_df["entry_price"] * positions_df["shares"]).sum()
+
+    # Get current prices for unrealized P&L
+    unrealized_pnl = 0.0
+    positions_with_pnl = []
+    if not positions_df.empty:
+        try:
+            db = services.get("db") or get_db()
+            tickers = positions_df["ticker"].tolist()
+            prices_df = db.fetchdf(f"""
+                SELECT ticker, close FROM prices_daily
+                WHERE ticker IN ({','.join(['?']*len(tickers))})
+                AND date = (SELECT MAX(date) FROM prices_daily)
+            """, tuple(tickers))
+            current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
+
+            for _, pos in positions_df.iterrows():
+                ticker = pos["ticker"]
+                entry_price = pos["entry_price"]
+                shares = pos["shares"]
+                current_price = current_prices.get(ticker, entry_price)
+                pos_value = current_price * shares
+                cost_basis = entry_price * shares
+                pos_unrealized = pos_value - cost_basis
+                pos_unrealized_pct = (pos_unrealized / cost_basis * 100) if cost_basis > 0 else 0
+                unrealized_pnl += pos_unrealized
+
+                positions_with_pnl.append({
+                    "status": "🟢",
+                    "ticker": ticker,
+                    "strategy": pos.get("strategy", ""),
+                    "entry": entry_price,
+                    "current": current_price,
+                    "shares": shares,
+                    "cost": cost_basis,
+                    "value": pos_value,
+                    "unrealized": pos_unrealized,
+                    "unrealized_pct": pos_unrealized_pct,
+                    "entry_date": pos.get("entry_date", ""),
+                })
+        except Exception as e:
+            st.warning(f"Error fetching current prices: {e}")
+
+    # Calculate realized P&L from closed positions
+    realized_pnl = performance.get("total_pnl", 0)
+
+    # Calculate totals
+    cash_available = initial_capital - invested_amount + realized_pnl
+    total_portfolio_value = cash_available + invested_amount + unrealized_pnl
+    total_return = total_portfolio_value - initial_capital
+    total_return_pct = (total_return / initial_capital * 100) if initial_capital > 0 else 0
+
+    # === PORTFOLIO SUMMARY ===
     st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
+    st.subheader("💰 Portfolio Summary")
 
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Initial Capital", f"${initial_capital:,.0f}")
+    with col2:
+        st.metric("Cash Available", f"${cash_available:,.2f}")
+    with col3:
+        st.metric("Invested", f"${invested_amount:,.2f}")
+    with col4:
+        delta_color = "normal" if total_return >= 0 else "inverse"
+        st.metric("Total Value", f"${total_portfolio_value:,.2f}", delta=f"{total_return_pct:+.2f}%")
+
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Open Positions", len(positions_df))
-
     with col2:
-        if not positions_df.empty:
-            total_value = (positions_df["entry_price"] * positions_df["shares"]).sum()
-            st.metric("Total Value", f"${total_value:,.2f}")
-        else:
-            st.metric("Total Value", "$0.00")
-
+        color = "normal" if unrealized_pnl >= 0 else "inverse"
+        st.metric("Unrealized P&L", f"${unrealized_pnl:+,.2f}")
     with col3:
-        performance = services["positions"].get_performance_summary()
-        total_pnl = performance.get("total_pnl", 0)
-        st.metric("Total P&L", f"${total_pnl:+,.2f}")
-
+        st.metric("Realized P&L", f"${realized_pnl:+,.2f}")
     with col4:
         win_rate = performance.get("win_rate", 0)
         st.metric("Win Rate", f"{win_rate:.1f}%")
 
+    # === OPEN POSITIONS WITH P&L ===
     st.markdown("---")
-    st.subheader("Open Positions")
+    st.subheader("📈 Open Positions")
 
-    if not positions_df.empty:
-        # Calculate unrealized P&L
-        display_cols = ["ticker", "direction", "entry_price", "shares", "entry_date", "strategy"]
-        available_cols = [c for c in display_cols if c in positions_df.columns]
-        display_df = positions_df[available_cols].copy()
+    if positions_with_pnl:
+        # Group by strategy
+        strategies = sorted(set(p["strategy"] for p in positions_with_pnl))
 
-        # Add position value
-        if "entry_price" in positions_df.columns and "shares" in positions_df.columns:
-            display_df["value"] = positions_df["entry_price"] * positions_df["shares"]
-            display_df["value"] = display_df["value"].apply(lambda x: f"${x:,.2f}")
+        for strategy in strategies:
+            strategy_positions = [p for p in positions_with_pnl if p["strategy"] == strategy]
+            strategy_unrealized = sum(p["unrealized"] for p in strategy_positions)
 
-        if "entry_price" in display_df.columns:
-            display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
-        if "shares" in display_df.columns:
-            display_df["shares"] = display_df["shares"].apply(lambda x: f"{x:.2f}")
-
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+            with st.expander(f"**{strategy}** ({len(strategy_positions)} positions, ${strategy_unrealized:+,.2f})", expanded=True):
+                display_data = []
+                for p in strategy_positions:
+                    display_data.append({
+                        "Status": p["status"],
+                        "Ticker": p["ticker"],
+                        "Entry": f"${p['entry']:.2f}",
+                        "Current": f"${p['current']:.2f}",
+                        "Shares": f"{p['shares']:.2f}",
+                        "Value": f"${p['value']:,.2f}",
+                        "P&L": f"${p['unrealized']:+,.2f}",
+                        "P&L %": f"{p['unrealized_pct']:+.2f}%",
+                    })
+                st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
     else:
         st.warning("No open positions. Click 'Run Manual Scan' to generate signals and open positions.")
 
+    # === CLOSED POSITIONS ===
     st.markdown("---")
-    st.subheader("Recent Closed Positions")
-
-    closed_df = services["positions"].get_closed_positions(start_date=date.today() - timedelta(days=30))
+    st.subheader("📉 Closed Positions")
 
     if not closed_df.empty:
-        display_cols = ["ticker", "direction", "entry_price", "exit_price", "pnl", "pnl_pct", "exit_reason", "strategy"]
-        available_cols = [c for c in display_cols if c in closed_df.columns]
-        display_df = closed_df[available_cols].copy()
+        # Add status indicator and sort
+        closed_df = closed_df.copy()
+        closed_df["status"] = closed_df["pnl"].apply(lambda x: "✅" if x and x > 0 else "❌" if x and x < 0 else "⚪")
 
-        if "entry_price" in display_df.columns:
-            display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
-        if "exit_price" in display_df.columns:
-            display_df["exit_price"] = display_df["exit_price"].apply(lambda x: f"${x:.2f}" if x else "N/A")
-        if "pnl" in display_df.columns:
-            display_df["pnl"] = display_df["pnl"].apply(lambda x: f"${x:+,.2f}" if x else "N/A")
-        if "pnl_pct" in display_df.columns:
-            display_df["pnl_pct"] = display_df["pnl_pct"].apply(lambda x: f"{x:+.2f}%" if x else "N/A")
+        # Group by strategy
+        strategies = closed_df["strategy"].unique() if "strategy" in closed_df.columns else ["Unknown"]
 
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        for strategy in strategies:
+            strategy_closed = closed_df[closed_df["strategy"] == strategy] if "strategy" in closed_df.columns else closed_df
+            strategy_pnl = strategy_closed["pnl"].sum() if "pnl" in strategy_closed.columns else 0
+            wins = len(strategy_closed[strategy_closed["pnl"] > 0]) if "pnl" in strategy_closed.columns else 0
+            losses = len(strategy_closed[strategy_closed["pnl"] <= 0]) if "pnl" in strategy_closed.columns else 0
+
+            with st.expander(f"**{strategy}** ({wins}W/{losses}L, ${strategy_pnl:+,.2f})", expanded=False):
+                display_cols = ["status", "ticker", "entry_price", "exit_price", "pnl", "pnl_pct", "exit_reason"]
+                available_cols = [c for c in display_cols if c in strategy_closed.columns]
+                display_df = strategy_closed[available_cols].copy()
+
+                if "entry_price" in display_df.columns:
+                    display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
+                if "exit_price" in display_df.columns:
+                    display_df["exit_price"] = display_df["exit_price"].apply(lambda x: f"${x:.2f}" if x else "N/A")
+                if "pnl" in display_df.columns:
+                    display_df["pnl"] = display_df["pnl"].apply(lambda x: f"${x:+,.2f}" if x else "N/A")
+                if "pnl_pct" in display_df.columns:
+                    display_df["pnl_pct"] = display_df["pnl_pct"].apply(lambda x: f"{x:+.2f}%" if x else "N/A")
+
+                display_df = display_df.rename(columns={"status": "W/L", "entry_price": "Entry", "exit_price": "Exit", "pnl": "P&L", "pnl_pct": "P&L %", "exit_reason": "Reason"})
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
-        st.info("No closed positions in the last 30 days.")
+        st.info("No closed positions yet.")
 
     # Show blocked tickers (cooldowns)
     st.markdown("---")
