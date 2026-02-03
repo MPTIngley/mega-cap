@@ -34,6 +34,7 @@ class StockPulseScheduler:
         self.on_intraday_scan: Callable | None = None
         self.on_daily_scan: Callable | None = None
         self.on_long_term_scan: Callable | None = None
+        self.on_daily_digest: Callable | None = None
 
     def _is_market_hours(self) -> bool:
         """Check if current time is during market hours."""
@@ -125,6 +126,18 @@ class StockPulseScheduler:
         finally:
             release_db_locks()
 
+    def _run_daily_digest_job(self) -> None:
+        """Send daily portfolio digest email."""
+        logger.info("Running daily digest job")
+
+        try:
+            if self.on_daily_digest:
+                self.on_daily_digest()
+            logger.info("Daily digest job completed")
+
+        except Exception as e:
+            logger.error(f"Error in daily digest job: {e}", exc_info=True)
+
     def start(self) -> None:
         """Start the scheduler with all jobs."""
         interval_minutes = self.scanning_config["interval_minutes"]
@@ -166,6 +179,23 @@ class StockPulseScheduler:
                 ),
                 id="long_term_scan",
                 name="Long-term investment scanner",
+                replace_existing=True
+            )
+
+        # Daily digest email - configured time (default 17:00 ET)
+        alerts_config = self.config.get("alerts", {})
+        if alerts_config.get("send_daily_digest", True):
+            digest_time = alerts_config.get("daily_digest_time", "17:00").split(":")
+            self.scheduler.add_job(
+                self._run_daily_digest_job,
+                CronTrigger(
+                    hour=int(digest_time[0]),
+                    minute=int(digest_time[1]),
+                    day_of_week="mon-fri",
+                    timezone=self.timezone
+                ),
+                id="daily_digest",
+                name="Daily portfolio digest email",
                 replace_existing=True
             )
 

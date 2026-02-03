@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest"],
         help="Command to execute"
     )
 
@@ -118,6 +118,22 @@ def main():
         run_reset(keep_market_data=not args.clear_all)
     elif args.command == "test-email":
         run_test_email()
+    elif args.command == "digest":
+        run_digest()
+
+
+def run_digest():
+    """Send daily portfolio digest email now."""
+    from stockpulse.alerts.alert_manager import AlertManager
+
+    print("\nSending daily portfolio digest...")
+    alert_manager = AlertManager()
+    success = alert_manager.send_daily_digest()
+
+    if success:
+        print("[SUCCESS] Daily digest sent!")
+    else:
+        print("[FAILED] Could not send digest. Check email configuration.")
 
 
 def run_test_email():
@@ -237,16 +253,20 @@ def run_scheduler():
         """Callback for daily scans."""
         signals = signal_generator.generate_signals(tickers)
         alert_manager.process_signals(signals)
-        alert_manager.send_daily_digest()
 
     def on_long_term_scan(tickers):
         """Callback for long-term scanner."""
         opportunities = long_term_scanner.run_scan(tickers)
         long_term_scanner.send_digest(opportunities)
 
+    def on_daily_digest():
+        """Callback for daily portfolio digest email."""
+        alert_manager.send_daily_digest()
+
     scheduler.on_intraday_scan = on_intraday_scan
     scheduler.on_daily_scan = on_daily_scan
     scheduler.on_long_term_scan = on_long_term_scan
+    scheduler.on_daily_digest = on_daily_digest
 
     scheduler.start()
 

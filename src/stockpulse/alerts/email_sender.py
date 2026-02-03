@@ -284,27 +284,137 @@ class EmailSender:
         self,
         signals: list[dict],
         positions: list[dict],
-        performance: dict[str, Any]
+        performance: dict[str, Any],
+        portfolio_summary: dict[str, Any] | None = None,
+        todays_opened: list[dict] | None = None,
+        todays_closed: list[dict] | None = None,
+        recent_closed: list[dict] | None = None
     ) -> bool:
         """
-        Send daily digest email.
+        Send daily digest email with full portfolio status.
 
         Args:
             signals: Today's signals
-            positions: Open positions
+            positions: Open positions with unrealized P&L
             performance: Performance summary
+            portfolio_summary: Portfolio value and totals
+            todays_opened: Positions opened today
+            todays_closed: Positions closed today
+            recent_closed: Recently closed positions
 
         Returns:
             True if sent successfully
         """
         today = datetime.now().strftime('%Y-%m-%d')
-        subject = f"📊 StockPulse Daily Digest - {today}"
 
-        # Build signals section
+        # Portfolio summary defaults
+        if portfolio_summary is None:
+            portfolio_summary = {
+                "portfolio_value": 100000,
+                "total_return_pct": 0,
+                "total_realized_pnl": 0,
+                "total_unrealized_pnl": 0,
+                "positions_count": len(positions),
+                "todays_opened": 0,
+                "todays_closed": 0,
+            }
+
+        portfolio_value = portfolio_summary.get("portfolio_value", 100000)
+        total_return_pct = portfolio_summary.get("total_return_pct", 0)
+        total_realized = portfolio_summary.get("total_realized_pnl", 0)
+        total_unrealized = portfolio_summary.get("total_unrealized_pnl", 0)
+
+        subject = f"📊 StockPulse Portfolio: ${portfolio_value:,.0f} ({total_return_pct:+.1f}%) - {today}"
+
+        # Today's activity section
+        todays_activity_html = ""
+        if todays_opened or todays_closed:
+            activity_rows = ""
+            for p in (todays_opened or []):
+                activity_rows += f"""
+                <tr style="background: #e8f5e9;">
+                    <td>OPENED</td>
+                    <td>{p.get('ticker', 'N/A')}</td>
+                    <td>{p.get('direction', 'BUY')}</td>
+                    <td>${p.get('entry_price', 0):.2f}</td>
+                    <td>{p.get('strategy', 'N/A')}</td>
+                </tr>
+                """
+            for p in (todays_closed or []):
+                pnl = p.get('pnl', 0)
+                pnl_pct = p.get('pnl_pct', 0)
+                activity_rows += f"""
+                <tr style="background: {'#e8f5e9' if pnl >= 0 else '#ffebee'};">
+                    <td>CLOSED</td>
+                    <td>{p.get('ticker', 'N/A')}</td>
+                    <td>{p.get('exit_reason', 'N/A').upper()}</td>
+                    <td>${p.get('exit_price', 0):.2f}</td>
+                    <td style="color: {'green' if pnl >= 0 else 'red'}">{pnl_pct:+.1f}%</td>
+                </tr>
+                """
+            todays_activity_html = f"""
+            <h2>Today's Activity</h2>
+            <table>
+                <tr><th>Action</th><th>Ticker</th><th>Type</th><th>Price</th><th>Result</th></tr>
+                {activity_rows}
+            </table>
+            """
+
+        # Open positions with unrealized P&L
+        positions_html = ""
+        if positions:
+            positions_rows = ""
+            for p in positions[:15]:
+                unrealized = p.get('unrealized_pnl', 0)
+                unrealized_pct = p.get('unrealized_pct', 0)
+                positions_rows += f"""
+                <tr>
+                    <td><strong>{p.get('ticker', 'N/A')}</strong></td>
+                    <td>${p.get('entry_price', 0):.2f}</td>
+                    <td>${p.get('current_price', 0):.2f}</td>
+                    <td style="color: {'green' if unrealized >= 0 else 'red'}">${unrealized:+,.2f}</td>
+                    <td style="color: {'green' if unrealized >= 0 else 'red'}">{unrealized_pct:+.1f}%</td>
+                    <td>{p.get('strategy', 'N/A')}</td>
+                </tr>
+                """
+            positions_html = f"""
+            <h2>Open Positions ({len(positions)})</h2>
+            <table>
+                <tr><th>Ticker</th><th>Entry</th><th>Current</th><th>P&L</th><th>%</th><th>Strategy</th></tr>
+                {positions_rows}
+            </table>
+            """
+        else:
+            positions_html = "<h2>Open Positions</h2><p>No open positions.</p>"
+
+        # Recent closed positions
+        recent_html = ""
+        if recent_closed:
+            recent_rows = ""
+            for p in recent_closed[:5]:
+                pnl = p.get('pnl', 0)
+                pnl_pct = p.get('pnl_pct', 0)
+                recent_rows += f"""
+                <tr>
+                    <td>{p.get('ticker', 'N/A')}</td>
+                    <td>{p.get('exit_reason', 'N/A')}</td>
+                    <td style="color: {'green' if pnl >= 0 else 'red'}">${pnl:+,.2f}</td>
+                    <td style="color: {'green' if pnl >= 0 else 'red'}">{pnl_pct:+.1f}%</td>
+                </tr>
+                """
+            recent_html = f"""
+            <h2>Recent Closes (7 days)</h2>
+            <table>
+                <tr><th>Ticker</th><th>Reason</th><th>P&L</th><th>%</th></tr>
+                {recent_rows}
+            </table>
+            """
+
+        # Today's signals section
         signals_html = ""
         if signals:
             signals_rows = ""
-            for s in signals[:10]:  # Limit to 10
+            for s in signals[:10]:
                 signals_rows += f"""
                 <tr>
                     <td>{s.get('ticker', 'N/A')}</td>
@@ -320,82 +430,74 @@ class EmailSender:
                 {signals_rows}
             </table>
             """
-        else:
-            signals_html = "<p>No new signals today.</p>"
 
-        # Build positions section
-        positions_html = ""
-        if positions:
-            positions_rows = ""
-            for p in positions[:10]:
-                positions_rows += f"""
-                <tr>
-                    <td>{p.get('ticker', 'N/A')}</td>
-                    <td>{p.get('direction', 'N/A')}</td>
-                    <td>${p.get('entry_price', 0):.2f}</td>
-                    <td>{p.get('strategy', 'N/A')}</td>
-                </tr>
-                """
-            positions_html = f"""
-            <h2>Open Positions ({len(positions)})</h2>
-            <table>
-                <tr><th>Ticker</th><th>Direction</th><th>Entry</th><th>Strategy</th></tr>
-                {positions_rows}
-            </table>
-            """
-        else:
-            positions_html = "<p>No open positions.</p>"
-
-        # Performance section
-        total_pnl = performance.get("total_pnl", 0)
+        # Performance stats
         win_rate = performance.get("win_rate", 0)
         total_trades = performance.get("total_trades", 0)
+        profit_factor = performance.get("profit_factor", 0)
 
         body_html = f"""
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; }}
-                .header {{ background: #2c3e50; color: white; padding: 20px; text-align: center; }}
-                .content {{ padding: 20px; }}
-                .metrics {{ display: flex; justify-content: space-around; margin: 20px 0; }}
-                .metric {{ text-align: center; }}
-                .metric-value {{ font-size: 24px; font-weight: bold; }}
-                .metric-label {{ font-size: 12px; color: #666; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-                td, th {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
-                th {{ background: #f8f9fa; }}
-                h2 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+                body {{ font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; background: #1a1a2e; color: #eee; }}
+                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; text-align: center; border-radius: 10px 10px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 28px; }}
+                .content {{ padding: 20px; background: #16213e; }}
+                .portfolio-box {{ background: #0f3460; border-radius: 10px; padding: 20px; margin-bottom: 20px; }}
+                .portfolio-value {{ font-size: 36px; font-weight: bold; color: #00d9ff; }}
+                .portfolio-return {{ font-size: 20px; color: {'#4ade80' if total_return_pct >= 0 else '#f87171'}; }}
+                .metrics {{ display: flex; justify-content: space-around; margin: 15px 0; flex-wrap: wrap; }}
+                .metric {{ text-align: center; padding: 10px; min-width: 80px; }}
+                .metric-value {{ font-size: 20px; font-weight: bold; color: #00d9ff; }}
+                .metric-label {{ font-size: 11px; color: #94a3b8; text-transform: uppercase; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #0f3460; border-radius: 8px; overflow: hidden; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #1e3a5f; }}
+                th {{ background: #1e3a5f; color: #94a3b8; font-size: 11px; text-transform: uppercase; }}
+                h2 {{ color: #00d9ff; border-bottom: 2px solid #667eea; padding-bottom: 10px; margin-top: 25px; }}
+                .footer {{ color: #64748b; font-size: 11px; margin-top: 30px; text-align: center; padding: 15px; }}
             </style>
         </head>
         <body>
             <div class="header">
-                <h1>StockPulse Daily Digest</h1>
-                <p>{today}</p>
+                <h1>StockPulse Daily Report</h1>
+                <p style="margin: 5px 0 0 0; opacity: 0.9;">{today}</p>
             </div>
             <div class="content">
-                <div class="metrics">
-                    <div class="metric">
-                        <div class="metric-value" style="color: {'green' if total_pnl >= 0 else 'red'}">${total_pnl:+,.2f}</div>
-                        <div class="metric-label">Total P&L</div>
+                <div class="portfolio-box">
+                    <div style="text-align: center;">
+                        <div class="portfolio-value">${portfolio_value:,.2f}</div>
+                        <div class="portfolio-return">{total_return_pct:+.2f}% all-time</div>
                     </div>
-                    <div class="metric">
-                        <div class="metric-value">{win_rate:.1f}%</div>
-                        <div class="metric-label">Win Rate</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">{total_trades}</div>
-                        <div class="metric-label">Total Trades</div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="metric-value" style="color: {'#4ade80' if total_realized >= 0 else '#f87171'}">${total_realized:+,.0f}</div>
+                            <div class="metric-label">Realized</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" style="color: {'#4ade80' if total_unrealized >= 0 else '#f87171'}">${total_unrealized:+,.0f}</div>
+                            <div class="metric-label">Unrealized</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">{win_rate:.0f}%</div>
+                            <div class="metric-label">Win Rate</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">{total_trades}</div>
+                            <div class="metric-label">Trades</div>
+                        </div>
                     </div>
                 </div>
 
-                {signals_html}
+                {todays_activity_html}
                 {positions_html}
+                {recent_html}
+                {signals_html}
 
-                <p style="color: #666; font-size: 12px; margin-top: 30px; text-align: center;">
-                    StockPulse - Automated Trading Signals<br>
+                <div class="footer">
+                    StockPulse Paper Trading System<br>
                     This is not financial advice. Trade at your own risk.
-                </p>
+                </div>
             </div>
         </body>
         </html>

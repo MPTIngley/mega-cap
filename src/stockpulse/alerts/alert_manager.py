@@ -333,7 +333,7 @@ class AlertManager:
 
     def send_daily_digest(self) -> bool:
         """
-        Send daily digest email.
+        Send daily digest email with full portfolio status.
 
         Returns:
             True if sent successfully
@@ -349,24 +349,110 @@ class AlertManager:
         """)
         signals = signals_df.to_dict("records") if not signals_df.empty else []
 
-        # Get open positions
+        # Get open positions with current prices
         positions_df = self.position_manager.get_open_positions()
-        positions = positions_df.to_dict("records") if not positions_df.empty else []
+        positions = []
+        if not positions_df.empty:
+            # Get current prices for unrealized P&L
+            tickers = positions_df["ticker"].tolist()
+            current_prices = self._get_current_prices(tickers)
+
+            for _, pos in positions_df.iterrows():
+                ticker = pos["ticker"]
+                entry_price = pos["entry_price"]
+                shares = pos["shares"]
+                current_price = current_prices.get(ticker, entry_price)
+
+                if pos["direction"] == "BUY":
+                    unrealized_pnl = (current_price - entry_price) * shares
+                else:
+                    unrealized_pnl = (entry_price - current_price) * shares
+
+                unrealized_pct = (unrealized_pnl / (entry_price * shares)) * 100 if entry_price * shares > 0 else 0
+
+                positions.append({
+                    **pos.to_dict(),
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "unrealized_pct": unrealized_pct,
+                    "position_value": current_price * shares
+                })
+
+        # Get today's trades (opened and closed)
+        todays_opened = self.db.fetchdf("""
+            SELECT * FROM positions_paper
+            WHERE DATE(entry_date) = DATE('now')
+            ORDER BY entry_date DESC
+        """)
+
+        todays_closed = self.db.fetchdf("""
+            SELECT * FROM positions_paper
+            WHERE DATE(exit_date) = DATE('now') AND status = 'closed'
+            ORDER BY exit_date DESC
+        """)
+
+        # Get recent closed positions (last 7 days)
+        recent_closed = self.db.fetchdf("""
+            SELECT * FROM positions_paper
+            WHERE status = 'closed'
+            AND exit_date >= DATE('now', '-7 days')
+            ORDER BY exit_date DESC
+            LIMIT 10
+        """)
 
         # Get performance summary
         performance = self.position_manager.get_performance_summary()
 
-        success = self.email_sender.send_daily_digest(signals, positions, performance)
+        # Calculate portfolio totals
+        total_unrealized = sum(p["unrealized_pnl"] for p in positions)
+        total_realized = performance.get("total_pnl", 0)
+        initial_capital = self.position_manager.initial_capital
+        portfolio_value = initial_capital + total_realized + total_unrealized
+
+        portfolio_summary = {
+            "initial_capital": initial_capital,
+            "total_realized_pnl": total_realized,
+            "total_unrealized_pnl": total_unrealized,
+            "portfolio_value": portfolio_value,
+            "total_return_pct": ((portfolio_value - initial_capital) / initial_capital) * 100,
+            "positions_count": len(positions),
+            "todays_opened": len(todays_opened) if not todays_opened.empty else 0,
+            "todays_closed": len(todays_closed) if not todays_closed.empty else 0,
+        }
+
+        success = self.email_sender.send_daily_digest(
+            signals=signals,
+            positions=positions,
+            performance=performance,
+            portfolio_summary=portfolio_summary,
+            todays_opened=todays_opened.to_dict("records") if not todays_opened.empty else [],
+            todays_closed=todays_closed.to_dict("records") if not todays_closed.empty else [],
+            recent_closed=recent_closed.to_dict("records") if not recent_closed.empty else []
+        )
 
         self._log_alert(
             "digest",
             None,
             "Daily Digest",
-            f"Signals: {len(signals)}, Positions: {len(positions)}",
+            f"Portfolio: ${portfolio_value:,.2f}, Positions: {len(positions)}",
             success
         )
 
         return success
+
+    def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
+        """Get current prices for a list of tickers."""
+        from stockpulse.data.ingestion import DataIngestion
+        ingestion = DataIngestion()
+        prices = {}
+        try:
+            for ticker in tickers:
+                df = ingestion.get_daily_prices([ticker], days=1)
+                if not df.empty:
+                    prices[ticker] = df[df["ticker"] == ticker]["close"].iloc[-1]
+        except Exception as e:
+            logger.warning(f"Error fetching current prices: {e}")
+        return prices
 
     def send_long_term_digest(self, opportunities: list[dict]) -> bool:
         """
