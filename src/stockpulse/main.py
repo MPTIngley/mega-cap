@@ -280,6 +280,10 @@ def run_scheduler():
         running_exposure_pct = current_exposure_pct
         current_positions = len(portfolio_tickers)
 
+        # Track strategy allocations during this scan (for accurate remaining capacity)
+        strategy_allocations = {}  # strategy -> total % allocated in this scan
+        min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
+
         for signal in ranked_buys:
             # Skip if already in portfolio
             if signal.ticker in portfolio_tickers:
@@ -298,21 +302,38 @@ def run_scheduler():
             if running_exposure_pct + size_pct > max_exposure_pct:
                 # Try to fit a smaller position
                 remaining_pct = max_exposure_pct - running_exposure_pct
-                if remaining_pct >= risk_config.get("min_position_size_pct", 3.0):
+                if remaining_pct >= min_position_size_pct:
                     size_pct = remaining_pct
                 else:
                     blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
                     continue
 
-            # Try to open the position
+            # Check if this would exceed strategy concentration limit
+            strategy = signal.strategy
+            base_strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
+            # Subtract what we've already allocated to this strategy in this scan
+            already_allocated = strategy_allocations.get(strategy, 0.0)
+            strategy_remaining = base_strategy_remaining - already_allocated
+
+            if size_pct > strategy_remaining:
+                # Try to fit a smaller position
+                if strategy_remaining >= min_position_size_pct:
+                    size_pct = strategy_remaining
+                    logger.info(f"Reduced {signal.ticker} to {size_pct:.1f}% to fit strategy limit")
+                else:
+                    blocked_signals.append((signal, f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)"))
+                    continue
+
+            # Try to open the position with the (potentially reduced) size
             try:
-                pos_id = position_manager.open_position_from_signal(signal)
+                pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
                 if pos_id:
                     dollar_amount = position_manager.initial_capital * (size_pct / 100)
                     opened_positions.append((signal, size_pct, dollar_amount))
                     running_exposure_pct += size_pct
                     current_positions += 1
                     portfolio_tickers.add(signal.ticker)
+                    strategy_allocations[strategy] = already_allocated + size_pct
                     logger.info(f"Opened position {pos_id} for {signal.ticker} at {size_pct:.1f}%")
                 else:
                     # Position manager returned None - check why
@@ -702,6 +723,10 @@ def run_scan():
     running_exposure_pct = current_exposure_pct
     current_positions = len(portfolio_tickers)
 
+    # Track strategy allocations during this scan (for accurate remaining capacity)
+    strategy_allocations = {}  # strategy -> total % allocated in this scan
+    min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
+
     print(f"\n  🎯 OPENING POSITIONS (max {max_positions}, max {max_exposure_pct}% exposure)")
     print("-" * 80)
 
@@ -718,20 +743,37 @@ def run_scan():
 
         if running_exposure_pct + size_pct > max_exposure_pct:
             remaining_pct = max_exposure_pct - running_exposure_pct
-            if remaining_pct >= risk_config.get("min_position_size_pct", 3.0):
+            if remaining_pct >= min_position_size_pct:
                 size_pct = remaining_pct
             else:
                 blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
                 continue
 
+        # Check if this would exceed strategy concentration limit
+        strategy = signal.strategy
+        base_strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
+        # Subtract what we've already allocated to this strategy in this scan
+        already_allocated = strategy_allocations.get(strategy, 0.0)
+        strategy_remaining = base_strategy_remaining - already_allocated
+
+        if size_pct > strategy_remaining:
+            # Try to fit a smaller position
+            if strategy_remaining >= min_position_size_pct:
+                size_pct = strategy_remaining
+                print(f"  📉 {signal.ticker}: reduced to {size_pct:.1f}% to fit strategy limit")
+            else:
+                blocked_signals.append((signal, f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)"))
+                continue
+
         try:
-            pos_id = position_manager.open_position_from_signal(signal)
+            pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
             if pos_id:
                 dollar_amount = initial_capital * (size_pct / 100)
                 opened_positions.append((signal, size_pct, dollar_amount))
                 running_exposure_pct += size_pct
                 current_positions += 1
                 portfolio_tickers.add(signal.ticker)
+                strategy_allocations[strategy] = already_allocated + size_pct
                 print(f"  ✅ {signal.ticker}: {size_pct:.1f}% (${dollar_amount:,.0f}) - {signal.strategy}")
             else:
                 blocked_signals.append((signal, "Blocked by risk check"))

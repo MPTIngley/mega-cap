@@ -285,7 +285,8 @@ class PositionManager:
     def open_position_from_signal(
         self,
         signal: Signal,
-        capital: float | None = None
+        capital: float | None = None,
+        override_size_pct: float | None = None
     ) -> int | None:
         """
         Open a paper position from a signal.
@@ -293,6 +294,8 @@ class PositionManager:
         Args:
             signal: Signal to open position from
             capital: Capital to allocate (defaults to initial_capital from config)
+            override_size_pct: If provided, use this position size instead of calculating.
+                               Useful when caller has already reduced size to fit limits.
 
         Returns:
             Position ID or None if failed
@@ -300,13 +303,16 @@ class PositionManager:
         if capital is None:
             capital = self.initial_capital
 
-        # Check risk limits
-        if not self._check_risk_limits(signal):
+        # Check risk limits (pass override size for accurate concentration check)
+        if not self._check_risk_limits(signal, override_size_pct):
             logger.info(f"Risk limits prevent opening position for {signal.ticker}")
             return None
 
-        # Calculate position size using confidence-based formula
-        position_size_pct = self.calculate_position_size_pct(signal)
+        # Calculate position size using confidence-based formula, or use override
+        if override_size_pct is not None:
+            position_size_pct = override_size_pct
+        else:
+            position_size_pct = self.calculate_position_size_pct(signal)
         max_position_value = capital * (position_size_pct / 100)
 
         # Apply slippage to entry price
@@ -351,35 +357,68 @@ class PositionManager:
             logger.error(f"Error opening position: {e}")
             return None
 
-    def _check_strategy_concentration(self, signal: Signal) -> tuple[bool, str]:
+    def get_strategy_current_exposure_pct(self, strategy: str) -> float:
         """
-        Check if adding this position would exceed per-strategy concentration limit.
+        Get current exposure percentage for a strategy.
 
         Args:
-            signal: The signal being considered
+            strategy: Strategy name
 
         Returns:
-            (is_allowed, reason) - True if trade is allowed
+            Current exposure as percentage of initial capital
         """
         try:
-            strategy = signal.strategy
-
-            # Get current open positions for this strategy
             strategy_positions = self.db.fetchdf("""
                 SELECT ticker, entry_price, shares
                 FROM positions_paper
                 WHERE status = 'open' AND strategy = ?
             """, (strategy,))
 
-            # Calculate current strategy exposure
-            current_strategy_value = 0.0
-            if not strategy_positions.empty:
-                current_strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
+            if strategy_positions.empty:
+                return 0.0
 
-            current_strategy_pct = (current_strategy_value / self.initial_capital) * 100
+            current_strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
+            return (current_strategy_value / self.initial_capital) * 100
 
-            # Calculate the ACTUAL size this position would be (not base size)
-            new_position_pct = self.calculate_position_size_pct(signal)
+        except Exception as e:
+            logger.warning(f"Error getting strategy exposure: {e}")
+            return 0.0
+
+    def get_strategy_remaining_capacity_pct(self, strategy: str) -> float:
+        """
+        Get remaining capacity percentage for a strategy before hitting the limit.
+
+        Args:
+            strategy: Strategy name
+
+        Returns:
+            Remaining capacity as percentage of initial capital
+        """
+        current_pct = self.get_strategy_current_exposure_pct(strategy)
+        remaining = self.max_per_strategy_pct - current_pct
+        return max(0.0, remaining)
+
+    def _check_strategy_concentration(self, signal: Signal, override_size_pct: float | None = None) -> tuple[bool, str]:
+        """
+        Check if adding this position would exceed per-strategy concentration limit.
+
+        Args:
+            signal: The signal being considered
+            override_size_pct: If provided, use this size instead of calculating
+
+        Returns:
+            (is_allowed, reason) - True if trade is allowed
+        """
+        try:
+            strategy = signal.strategy
+            current_strategy_pct = self.get_strategy_current_exposure_pct(strategy)
+
+            # Calculate the size this position would be
+            if override_size_pct is not None:
+                new_position_pct = override_size_pct
+            else:
+                new_position_pct = self.calculate_position_size_pct(signal)
+
             new_strategy_pct = current_strategy_pct + new_position_pct
 
             if new_strategy_pct > self.max_per_strategy_pct:
@@ -391,9 +430,13 @@ class PositionManager:
             logger.warning(f"Error checking strategy concentration: {e}")
             return True, ""  # Allow on error
 
-    def _check_risk_limits(self, signal: Signal) -> bool:
+    def _check_risk_limits(self, signal: Signal, override_size_pct: float | None = None) -> bool:
         """
         Check if opening a position would violate risk limits.
+
+        Args:
+            signal: The signal to check
+            override_size_pct: If provided, use this size for concentration checks
 
         Checks:
         1. Max concurrent positions
@@ -440,8 +483,8 @@ class PositionManager:
             logger.info(f"Concentration prevents {ticker}: {sector_reason}")
             return False
 
-        # Check per-strategy concentration (pass full signal for accurate size calculation)
-        strategy_ok, strategy_reason = self._check_strategy_concentration(signal)
+        # Check per-strategy concentration (pass override size if provided)
+        strategy_ok, strategy_reason = self._check_strategy_concentration(signal, override_size_pct)
         if not strategy_ok:
             logger.info(f"Strategy concentration prevents {ticker}: {strategy_reason}")
             return False
