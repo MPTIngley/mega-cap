@@ -25,7 +25,6 @@ logger = get_logger(__name__)
 LOSS_COOLDOWN_DAYS = 7  # Days to wait before re-entering a losing ticker
 MAX_LOSSES_PER_TICKER = 3  # Max consecutive losses before blocking ticker
 CHURN_COOLDOWN_DAYS = 3  # Days to wait before re-entering after any exit
-MAX_SECTOR_CONCENTRATION = 0.30  # Max 30% of portfolio in one sector
 MIN_DAYS_BETWEEN_SAME_TICKER = 2  # Minimum days between trades on same ticker
 
 
@@ -372,7 +371,7 @@ class PositionManager:
 
             # Calculate current strategy exposure
             strategy_value = (strategy_positions["entry_price"] * strategy_positions["shares"]).sum()
-            new_position_value = self.initial_capital * (self.position_size_pct / 100)
+            new_position_value = self.initial_capital * (self.base_size_pct / 100)
             new_strategy_value = strategy_value + new_position_value
 
             strategy_pct = (new_strategy_value / self.initial_capital) * 100
