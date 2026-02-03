@@ -10,35 +10,37 @@ Before writing any code, do the following:
 
 ---
 
-## Current Phase: **5.5 — Smart Trading Enhancements (COMPLETE)**
+## Current Phase: **6 — Live Trading (ACTIVE)**
 ## Last Session: 2026-02-02
-## Status: READY FOR LIVE TESTING
+## Status: OPTIMIZED AND READY
 
 ### What's Working:
 - ✅ Database initialized with 2 years historical data
 - ✅ Dashboard accessible at http://localhost:8501
-- ✅ 8 trading strategies implemented (5 original + 3 new)
+- ✅ 6 active trading strategies (2 disabled after optimization)
 - ✅ Smart de-duplication (cooldowns, loss limits, sector concentration)
 - ✅ Equity curve tracking with drawdown
 - ✅ Email alerts configured
 - ✅ Hyperparameter optimizer with drawdown constraint
-- ✅ Interactive backtest dashboard with param tuning
+- ✅ Strategy allocation weights based on backtest performance
 
-### Strategies:
-1. RSI Mean Reversion
-2. Bollinger Squeeze Breakout
-3. MACD + Volume
-4. Z-Score Mean Reversion
-5. Momentum Breakout
-6. **Gap Fade** (NEW) - trades overnight gaps that fill
-7. **52-Week Low Bounce** (NEW) - quality stocks bouncing off lows
-8. **Sector Rotation** (NEW) - buy leaders in strongest sectors
+### Active Strategies (as of 2026-02-02):
+| Strategy | Return | Sharpe | Allocation | Status |
+|----------|--------|--------|------------|--------|
+| Sector Rotation | +40.2% | 2.87 | 2.0x | ✅ TOP |
+| Momentum Breakout | +19.3% | 2.23 | 1.5x | ✅ |
+| 52-Week Low Bounce | +10.4% | 3.67 | 1.5x | ✅ Best risk-adj |
+| Z-Score Mean Reversion | +14.9% | 1.80 | 1.2x | ✅ |
+| MACD + Volume | +13.2% | 2.21 | 1.2x | ✅ |
+| RSI Mean Reversion | +11.4% | 1.73 | 1.0x | ✅ |
+| Bollinger Squeeze | +0.6% | 1.66 | 0 | ❌ DISABLED |
+| Gap Fade | -1.3% | -0.23 | 0 | ❌ DISABLED |
 
 ### Next Steps:
-1. Run `stockpulse optimize` to find optimal params
-2. Push optimized config to git
-3. Reset trading data and start fresh
-4. Start scheduler during market hours
+1. ~~Run `stockpulse optimize` to find optimal params~~ ✅ DONE
+2. ~~Push optimized config to git~~ ✅ DONE
+3. Reset trading data: `stockpulse reset`
+4. Start scheduler during market hours: `stockpulse run`
 5. Review performance after 1-2 weeks
 
 ### To Test Right Now:
@@ -210,6 +212,81 @@ stockpulse scan
 | 2026-02-02 | Hyperparameter optimizer | `stockpulse optimize` finds best params with 25% max DD |
 | 2026-02-02 | 3 new strategies added | Gap Fade, 52-Week Low Bounce, Sector Rotation |
 | 2026-02-02 | 8 total strategies | Full suite for different market conditions |
+| 2026-02-02 | **Optimization complete** | 18-month backtest (2024-08-11 to 2026-02-02), 30 tickers, 50 param combos each |
+| 2026-02-02 | Disabled 2 strategies | Gap Fade (-1.3%), Bollinger Squeeze (+0.6%) - underperforming |
+| 2026-02-02 | Added allocation weights | sector_rotation 2.0x, momentum/week52 1.5x, others 1.0-1.2x |
+| 2026-02-02 | Best performer | Sector Rotation: +40.2% return, 2.87 Sharpe, 9.3% max DD |
+| 2026-02-02 | Best risk-adjusted | 52-Week Low Bounce: +10.4% return, 3.67 Sharpe, 0.8% max DD |
+
+---
+
+## Optimization Results (2026-02-02)
+
+### Backtest Period
+- **Start:** 2024-08-11
+- **End:** 2026-02-02 (18 months)
+- **Universe:** 30 tickers (top by market cap)
+- **Initial Capital:** $100,000
+- **Constraint:** Max 25% drawdown
+
+### Strategy Performance Summary
+
+| Strategy | Final Value | Return | Std Dev | Sharpe | Max DD | Trades |
+|----------|-------------|--------|---------|--------|--------|--------|
+| sector_rotation | $140,157 | +40.2% | ±8.2% | 2.87 | 9.3% | Active |
+| momentum_breakout | $119,346 | +19.3% | ±5.5% | 2.23 | 3.3% | Active |
+| zscore_mean_reversion | $114,881 | +14.9% | ±5.3% | 1.80 | 1.8% | Active |
+| macd_volume | $113,195 | +13.2% | ±3.9% | 2.21 | 2.4% | Active |
+| rsi_mean_reversion | $111,422 | +11.4% | ±4.3% | 1.73 | 3.9% | Active |
+| week52_low_bounce | $110,392 | +10.4% | ±1.8% | 3.67 | 0.8% | Active |
+| bollinger_squeeze | $100,622 | +0.6% | ±0.3% | 1.66 | 0.0% | **DISABLED** |
+| gap_fade | $98,682 | -1.3% | ±3.6% | -0.23 | 6.0% | **DISABLED** |
+
+### Optimized Parameters (Active Strategies)
+
+**sector_rotation** (2.0x allocation)
+- lookback_days: 10
+- top_sectors: 2
+- min_sector_return: 1.5
+- relative_strength_threshold: 1.2
+- stop_loss_pct: 3.0
+- take_profit_pct: 8.0
+
+**momentum_breakout** (1.5x allocation)
+- lookback_days: 20
+- breakout_threshold: 0.01
+- volume_confirmation: 1.3
+- stop_loss_pct: 5.0
+- take_profit_pct: 15.0
+
+**week52_low_bounce** (1.5x allocation)
+- low_threshold_pct: 12.0
+- bounce_threshold_pct: 2.0
+- volume_surge: 1.5
+- stop_loss_pct: 5.0
+- take_profit_pct: 20.0
+
+**zscore_mean_reversion** (1.2x allocation)
+- lookback_period: 20
+- zscore_entry: -2.25
+- zscore_exit: 0.5
+- stop_loss_pct: 6.0
+- take_profit_pct: 12.0
+
+**macd_volume** (1.2x allocation)
+- macd_fast: 16
+- macd_slow: 26
+- macd_signal: 7
+- volume_threshold: 1.5
+- stop_loss_pct: 3.0
+- take_profit_pct: 15.0
+
+**rsi_mean_reversion** (1.0x allocation)
+- rsi_period: 10
+- rsi_oversold: 25
+- rsi_overbought: 80
+- stop_loss_pct: 5.0
+- take_profit_pct: 6.0
 
 ---
 
