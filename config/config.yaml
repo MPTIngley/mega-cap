@@ -155,10 +155,10 @@ risk_management:
   min_position_size_pct: 3.0            # Don't open if final size < 3%
 
   # Per-strategy concentration limit
-  max_per_strategy_pct: 40.0            # Never more than 40% in one strategy
+  max_per_strategy_pct: 65.0            # Never more than 65% in one strategy
 
   # Sector concentration limit (% of total capital)
-  max_sector_concentration_pct: 40.0    # Max 40% in any single sector
+  max_sector_concentration_pct: 65.0    # Max 65% in any single sector
 
   # Portfolio-level limits
   max_portfolio_exposure_pct: 80.0      # Max 80% invested at once

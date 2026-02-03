@@ -129,6 +129,26 @@ STRATEGY_CLASSES = {
     "sector_rotation": SectorRotationStrategy,
 }
 
+# Portfolio-level parameter search space
+PORTFOLIO_PARAM_SEARCH_SPACE = {
+    # Position sizing
+    "base_size_pct": [3.0, 5.0, 7.5, 10.0],
+    "max_position_size_pct": [10.0, 15.0, 20.0],
+    "min_position_size_pct": [2.0, 3.0, 5.0],
+
+    # Confidence multipliers
+    "confidence_75_multiplier": [1.5, 2.0, 2.5],
+    "confidence_85_multiplier": [2.0, 2.5, 3.0],
+
+    # Concentration limits
+    "max_per_strategy_pct": [40.0, 50.0, 65.0, 80.0],
+    "max_sector_concentration_pct": [40.0, 50.0, 65.0, 80.0],
+    "max_portfolio_exposure_pct": [60.0, 70.0, 80.0, 90.0],
+
+    # Risk management
+    "max_drawdown_disable_pct": [10.0, 15.0, 20.0],
+}
+
 
 class StrategyOptimizer:
     """
@@ -485,6 +505,201 @@ class StrategyOptimizer:
 def get_param_ranges(strategy_name: str) -> dict[str, list]:
     """Get parameter search ranges for a strategy."""
     return PARAM_SEARCH_SPACES.get(strategy_name, {})
+
+
+def get_portfolio_param_ranges() -> dict[str, list]:
+    """Get portfolio-level parameter search ranges."""
+    return PORTFOLIO_PARAM_SEARCH_SPACE.copy()
+
+
+class PortfolioOptimizer:
+    """
+    Optimize portfolio-level parameters like position sizing and concentration limits.
+
+    Uses the backtester with multiple strategies to find optimal portfolio parameters.
+    """
+
+    def __init__(self, max_drawdown_pct: float = 25.0):
+        """Initialize portfolio optimizer."""
+        self.max_drawdown_pct = max_drawdown_pct
+        self.db = get_db()
+        self.config = get_config()
+        self.backtester = Backtester()
+        self.data_ingestion = DataIngestion()
+
+    def optimize_portfolio_params(
+        self,
+        tickers: list[str],
+        strategies: list[str] | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        objective: str = "sharpe",
+        max_iterations: int = 50,
+        progress_callback: Callable[[int, int, dict], None] | None = None
+    ) -> dict:
+        """
+        Optimize portfolio-level parameters.
+
+        Args:
+            tickers: Tickers to test on
+            strategies: Strategy names to use (None = all enabled)
+            start_date: Backtest start date
+            end_date: Backtest end date
+            objective: Optimization objective ("sharpe", "return", "sortino")
+            max_iterations: Max parameter combinations to try
+            progress_callback: Progress callback function
+
+        Returns:
+            Dict with best portfolio parameters and results
+        """
+        import time
+        start_time = time.time()
+
+        # Set dates
+        if start_date is None:
+            start_date = date.today() - timedelta(days=365 * 2)
+        if end_date is None:
+            end_date = date.today()
+
+        # Get strategies to use
+        if strategies is None:
+            strategies = [name for name, cls in STRATEGY_CLASSES.items()
+                         if self.config.get("strategies", {}).get(name, {}).get("enabled", True)]
+
+        # Generate parameter combinations
+        search_space = PORTFOLIO_PARAM_SEARCH_SPACE
+        param_names = list(search_space.keys())
+        param_values = [search_space[name] for name in param_names]
+        all_combinations = list(itertools.product(*param_values))
+
+        # Limit iterations
+        if len(all_combinations) > max_iterations:
+            np.random.seed(42)
+            indices = np.random.choice(len(all_combinations), max_iterations, replace=False)
+            all_combinations = [all_combinations[i] for i in indices]
+
+        logger.info(f"Optimizing portfolio params with {len(all_combinations)} combinations")
+
+        all_results = []
+        best_result = None
+        best_score = float("-inf")
+
+        for i, combo in enumerate(all_combinations):
+            params = dict(zip(param_names, combo))
+
+            try:
+                # Create temporary config with these portfolio params
+                test_config = {
+                    "confidence_scaling": {
+                        "enabled": True,
+                        "base_size_pct": params["base_size_pct"],
+                        "confidence_75_multiplier": params["confidence_75_multiplier"],
+                        "confidence_85_multiplier": params["confidence_85_multiplier"],
+                    },
+                    "risk_management": {
+                        "max_position_size_pct": params["max_position_size_pct"],
+                        "min_position_size_pct": params["min_position_size_pct"],
+                        "max_per_strategy_pct": params["max_per_strategy_pct"],
+                        "max_sector_concentration_pct": params["max_sector_concentration_pct"],
+                        "max_portfolio_exposure_pct": params["max_portfolio_exposure_pct"],
+                        "max_drawdown_disable_pct": params["max_drawdown_disable_pct"],
+                    }
+                }
+
+                # Run multi-strategy backtest with these params
+                result = self.backtester.run_portfolio_backtest(
+                    strategy_names=strategies,
+                    tickers=tickers,
+                    start_date=start_date,
+                    end_date=end_date,
+                    portfolio_config=test_config
+                )
+
+                # Calculate score
+                if objective == "sharpe":
+                    score = result.get("sharpe_ratio", 0)
+                elif objective == "return":
+                    score = result.get("total_return_pct", 0)
+                else:
+                    score = result.get("sharpe_ratio", 0)
+
+                # Check constraint
+                meets_constraint = abs(result.get("max_drawdown_pct", 100)) <= self.max_drawdown_pct
+
+                result_dict = {
+                    "params": params,
+                    "total_return_pct": result.get("total_return_pct", 0),
+                    "sharpe_ratio": result.get("sharpe_ratio", 0),
+                    "max_drawdown_pct": result.get("max_drawdown_pct", 0),
+                    "final_value": result.get("final_value", 100000),
+                    "total_trades": result.get("total_trades", 0),
+                    "win_rate": result.get("win_rate", 0),
+                    "meets_constraint": meets_constraint,
+                    "score": score if meets_constraint else float("-inf"),
+                }
+                all_results.append(result_dict)
+
+                if meets_constraint and score > best_score:
+                    best_score = score
+                    best_result = result_dict
+
+                if progress_callback:
+                    progress_callback(i + 1, len(all_combinations), result_dict)
+
+            except Exception as e:
+                logger.warning(f"Error testing portfolio params {params}: {e}")
+                continue
+
+        elapsed = time.time() - start_time
+
+        if best_result is None and all_results:
+            all_results.sort(key=lambda x: abs(x.get("max_drawdown_pct", 100)))
+            best_result = all_results[0]
+
+        return {
+            "best_params": best_result["params"] if best_result else {},
+            "best_return_pct": best_result.get("total_return_pct", 0) if best_result else 0,
+            "best_sharpe": best_result.get("sharpe_ratio", 0) if best_result else 0,
+            "best_drawdown_pct": best_result.get("max_drawdown_pct", 0) if best_result else 0,
+            "all_results": all_results,
+            "optimization_time_seconds": elapsed,
+            "strategies_tested": strategies,
+        }
+
+    def save_portfolio_params(self, best_params: dict, config_path: str | None = None):
+        """Save optimized portfolio parameters to config."""
+        import yaml
+        from pathlib import Path
+
+        if config_path is None:
+            config_path = Path(__file__).parent.parent.parent.parent / "config" / "config.yaml"
+        else:
+            config_path = Path(config_path)
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        # Update confidence_scaling
+        if "confidence_scaling" not in config:
+            config["confidence_scaling"] = {}
+        config["confidence_scaling"]["base_size_pct"] = best_params.get("base_size_pct", 5.0)
+        config["confidence_scaling"]["confidence_75_multiplier"] = best_params.get("confidence_75_multiplier", 2.0)
+        config["confidence_scaling"]["confidence_85_multiplier"] = best_params.get("confidence_85_multiplier", 3.0)
+
+        # Update risk_management
+        if "risk_management" not in config:
+            config["risk_management"] = {}
+        config["risk_management"]["max_position_size_pct"] = best_params.get("max_position_size_pct", 15.0)
+        config["risk_management"]["min_position_size_pct"] = best_params.get("min_position_size_pct", 3.0)
+        config["risk_management"]["max_per_strategy_pct"] = best_params.get("max_per_strategy_pct", 65.0)
+        config["risk_management"]["max_sector_concentration_pct"] = best_params.get("max_sector_concentration_pct", 65.0)
+        config["risk_management"]["max_portfolio_exposure_pct"] = best_params.get("max_portfolio_exposure_pct", 80.0)
+        config["risk_management"]["max_drawdown_disable_pct"] = best_params.get("max_drawdown_disable_pct", 15.0)
+
+        with open(config_path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        logger.info(f"Saved optimized portfolio params to {config_path}")
 
 
 def get_strategy_params(strategy_name: str) -> dict[str, Any]:

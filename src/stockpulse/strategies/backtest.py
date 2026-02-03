@@ -607,3 +607,242 @@ class Backtester:
             current_start += timedelta(days=step_days)
 
         return results
+
+    def run_portfolio_backtest(
+        self,
+        strategy_names: list[str],
+        tickers: list[str],
+        start_date: date | None = None,
+        end_date: date | None = None,
+        portfolio_config: dict | None = None,
+        initial_capital: float | None = None
+    ) -> dict:
+        """
+        Run a multi-strategy portfolio backtest with concentration limits.
+
+        Args:
+            strategy_names: List of strategy names to include
+            tickers: List of tickers to test on
+            start_date: Start date for backtest
+            end_date: End date for backtest
+            portfolio_config: Optional config overrides for portfolio params
+            initial_capital: Starting capital
+
+        Returns:
+            Dict with portfolio-level performance metrics
+        """
+        from .rsi_mean_reversion import RSIMeanReversionStrategy
+        from .bollinger_squeeze import BollingerSqueezeStrategy
+        from .macd_volume import MACDVolumeStrategy
+        from .zscore_mean_reversion import ZScoreMeanReversionStrategy
+        from .momentum_breakout import MomentumBreakoutStrategy
+        from .gap_fade import GapFadeStrategy
+        from .week52_low_bounce import Week52LowBounceStrategy
+        from .sector_rotation import SectorRotationStrategy
+
+        strategy_classes = {
+            "rsi_mean_reversion": RSIMeanReversionStrategy,
+            "bollinger_squeeze": BollingerSqueezeStrategy,
+            "macd_volume": MACDVolumeStrategy,
+            "zscore_mean_reversion": ZScoreMeanReversionStrategy,
+            "momentum_breakout": MomentumBreakoutStrategy,
+            "gap_fade": GapFadeStrategy,
+            "week52_low_bounce": Week52LowBounceStrategy,
+            "sector_rotation": SectorRotationStrategy,
+        }
+
+        if start_date is None:
+            start_str = self.backtest_config.get("start_date", "2023-01-01")
+            start_date = date.fromisoformat(start_str)
+
+        if end_date is None:
+            end_str = self.backtest_config.get("end_date")
+            end_date = date.fromisoformat(end_str) if end_str else date.today()
+
+        if initial_capital is None:
+            initial_capital = self.initial_capital
+
+        # Get portfolio constraints from config or overrides
+        if portfolio_config:
+            conf_scaling = portfolio_config.get("confidence_scaling", {})
+            risk_mgmt = portfolio_config.get("risk_management", {})
+        else:
+            conf_scaling = self.config.get("confidence_scaling", {})
+            risk_mgmt = self.config.get("risk_management", {})
+
+        base_size_pct = conf_scaling.get("base_size_pct", 5.0)
+        max_position_pct = risk_mgmt.get("max_position_size_pct", 15.0)
+        max_per_strategy_pct = risk_mgmt.get("max_per_strategy_pct", 65.0)
+        max_exposure_pct = risk_mgmt.get("max_portfolio_exposure_pct", 80.0)
+
+        # Load strategies
+        strategies = []
+        for name in strategy_names:
+            if name in strategy_classes:
+                strat_config = self.config.get("strategies", {}).get(name, {})
+                strat_config["enabled"] = True
+                try:
+                    strategies.append(strategy_classes[name](strat_config))
+                except Exception as e:
+                    logger.warning(f"Failed to load {name}: {e}")
+
+        if not strategies:
+            return {"error": "No strategies loaded", "sharpe_ratio": 0, "total_return_pct": 0, "max_drawdown_pct": 0}
+
+        # Get price data
+        price_data = self.data_ingestion.get_daily_prices(
+            tickers=tickers,
+            start_date=start_date - timedelta(days=90),
+            end_date=end_date
+        )
+
+        if price_data.empty:
+            return {"error": "No price data", "sharpe_ratio": 0, "total_return_pct": 0, "max_drawdown_pct": 0}
+
+        # Run combined backtest
+        trades = []
+        open_positions = {}
+        capital = initial_capital
+        equity_history = []
+        strategy_exposure = {s.name: 0.0 for s in strategies}
+
+        # Get trading days
+        all_dates = sorted(price_data["date"].unique())
+        trading_dates = []
+        for d in all_dates:
+            try:
+                if isinstance(d, date) and not isinstance(d, datetime):
+                    dt = d
+                elif hasattr(d, 'date'):
+                    dt = d.date()
+                else:
+                    dt = date.fromisoformat(str(d)[:10])
+                if start_date <= dt <= end_date:
+                    trading_dates.append(dt)
+            except:
+                continue
+
+        for current_date in trading_dates:
+            date_str = current_date.isoformat()
+            day_prices = price_data[price_data["date"] == date_str]
+            price_dict = {row["ticker"]: row for _, row in day_prices.iterrows()}
+
+            # Update open positions (check exits)
+            closed_today = []
+            for ticker, pos in list(open_positions.items()):
+                if ticker not in price_dict:
+                    continue
+                row = price_dict[ticker]
+                high, low, close = row["high"], row["low"], row["close"]
+
+                exit_price = None
+                exit_reason = None
+
+                if pos["direction"] == "BUY":
+                    if low <= pos["stop"]:
+                        exit_price, exit_reason = pos["stop"], "stop"
+                    elif high >= pos["target"]:
+                        exit_price, exit_reason = pos["target"], "target"
+                else:
+                    if high >= pos["stop"]:
+                        exit_price, exit_reason = pos["stop"], "stop"
+                    elif low <= pos["target"]:
+                        exit_price, exit_reason = pos["target"], "target"
+
+                if exit_price:
+                    pnl = (exit_price - pos["entry"]) * pos["shares"]
+                    if pos["direction"] == "SELL":
+                        pnl = -pnl
+                    capital += pos["value"] + pnl
+                    strategy_exposure[pos["strategy"]] -= pos["pct"]
+                    trades.append({
+                        "ticker": ticker, "entry": pos["entry"], "exit": exit_price,
+                        "pnl": pnl, "reason": exit_reason, "strategy": pos["strategy"]
+                    })
+                    closed_today.append(ticker)
+
+            for t in closed_today:
+                del open_positions[t]
+
+            # Generate signals from all strategies
+            all_signals = []
+            for strategy in strategies:
+                for ticker in tickers:
+                    if ticker in open_positions or ticker not in price_dict:
+                        continue
+                    ticker_data = price_data[price_data["ticker"] == ticker].copy()
+                    if len(ticker_data) < 60:
+                        continue
+                    ticker_data = ticker_data.sort_values("date")
+                    try:
+                        signals = strategy.generate_signals(ticker_data, ticker)
+                        for sig in signals:
+                            if sig.direction == SignalDirection.BUY:
+                                all_signals.append(sig)
+                    except:
+                        continue
+
+            # Open positions with constraints
+            current_exposure = sum(p["pct"] for p in open_positions.values())
+            for signal in sorted(all_signals, key=lambda s: s.confidence, reverse=True):
+                if current_exposure >= max_exposure_pct:
+                    break
+                if strategy_exposure.get(signal.strategy, 0) >= max_per_strategy_pct:
+                    continue
+                if signal.ticker in open_positions:
+                    continue
+
+                pos_pct = min(base_size_pct, max_position_pct)
+                pos_value = initial_capital * (pos_pct / 100)
+                if signal.ticker in price_dict:
+                    entry_price = price_dict[signal.ticker]["close"]
+                    shares = pos_value / entry_price
+
+                    open_positions[signal.ticker] = {
+                        "entry": entry_price, "shares": shares, "value": pos_value,
+                        "pct": pos_pct, "direction": "BUY", "strategy": signal.strategy,
+                        "stop": signal.stop_price, "target": signal.target_price
+                    }
+                    capital -= pos_value
+                    current_exposure += pos_pct
+                    strategy_exposure[signal.strategy] = strategy_exposure.get(signal.strategy, 0) + pos_pct
+
+            # Record equity
+            pos_value = sum(
+                price_dict.get(t, {}).get("close", p["entry"]) * p["shares"]
+                for t, p in open_positions.items()
+                if t in price_dict
+            )
+            equity_history.append({"date": current_date, "equity": capital + pos_value})
+
+        # Calculate metrics
+        if not equity_history:
+            return {"sharpe_ratio": 0, "total_return_pct": 0, "max_drawdown_pct": 0}
+
+        equity_df = pd.DataFrame(equity_history)
+        final_value = equity_df["equity"].iloc[-1]
+        total_return_pct = ((final_value - initial_capital) / initial_capital) * 100
+
+        # Drawdown
+        equity_df["peak"] = equity_df["equity"].cummax()
+        equity_df["drawdown"] = (equity_df["equity"] - equity_df["peak"]) / equity_df["peak"] * 100
+        max_drawdown_pct = equity_df["drawdown"].min()
+
+        # Sharpe
+        equity_df["daily_return"] = equity_df["equity"].pct_change()
+        mean_return = equity_df["daily_return"].mean() * 252
+        std_return = equity_df["daily_return"].std() * np.sqrt(252)
+        sharpe_ratio = mean_return / std_return if std_return > 0 else 0
+
+        # Win rate
+        wins = len([t for t in trades if t["pnl"] > 0])
+        win_rate = (wins / len(trades) * 100) if trades else 0
+
+        return {
+            "total_return_pct": total_return_pct,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown_pct": max_drawdown_pct,
+            "final_value": final_value,
+            "total_trades": len(trades),
+            "win_rate": win_rate,
+        }
