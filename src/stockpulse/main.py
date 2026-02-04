@@ -387,9 +387,6 @@ def run_scheduler():
 
         running_exposure_pct = current_exposure_pct
         current_positions = len(portfolio_tickers)
-
-        # Track strategy allocations during this scan (for accurate remaining capacity)
-        strategy_allocations = {}  # strategy -> total % allocated in this scan
         min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
 
         for signal in ranked_buys:
@@ -417,13 +414,13 @@ def run_scheduler():
                     continue
 
             # Check if this would exceed strategy concentration limit
+            # Note: get_strategy_remaining_capacity_pct queries DB which includes positions
+            # opened earlier in this scan, so no need to track separately
             strategy = signal.strategy
-            base_strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
-            # Subtract what we've already allocated to this strategy in this scan
-            already_allocated = strategy_allocations.get(strategy, 0.0)
-            strategy_remaining = base_strategy_remaining - already_allocated
+            strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
 
             if size_pct > strategy_remaining:
+                # Try to fit a smaller position
                 # Try to fit a smaller position
                 if strategy_remaining >= min_position_size_pct:
                     size_pct = strategy_remaining
@@ -441,7 +438,6 @@ def run_scheduler():
                     running_exposure_pct += size_pct
                     current_positions += 1
                     portfolio_tickers.add(signal.ticker)
-                    strategy_allocations[strategy] = already_allocated + size_pct
                     d = sizing_details
                     logger.info(f"Opened {signal.ticker} at {size_pct:.1f}%: {d['base_size_pct']}% × {d['strategy_weight']:.1f}strat × {d['confidence_mult']:.2f}conf")
                 else:
@@ -883,9 +879,6 @@ def run_scan():
     blocked_signals = []
     running_exposure_pct = current_exposure_pct
     current_positions = len(portfolio_tickers)
-
-    # Track strategy allocations during this scan (for accurate remaining capacity)
-    strategy_allocations = {}  # strategy -> total % allocated in this scan
     min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
 
     print(f"\n  🎯 OPENING POSITIONS (max {max_positions}, max {max_exposure_pct}% exposure)")
@@ -912,11 +905,10 @@ def run_scan():
                 continue
 
         # Check if this would exceed strategy concentration limit
+        # Note: get_strategy_remaining_capacity_pct queries DB which includes positions
+        # opened earlier in this scan, so no need to track separately
         strategy = signal.strategy
-        base_strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
-        # Subtract what we've already allocated to this strategy in this scan
-        already_allocated = strategy_allocations.get(strategy, 0.0)
-        strategy_remaining = base_strategy_remaining - already_allocated
+        strategy_remaining = position_manager.get_strategy_remaining_capacity_pct(strategy)
 
         if size_pct > strategy_remaining:
             # Try to fit a smaller position
@@ -935,7 +927,6 @@ def run_scan():
                 running_exposure_pct += size_pct
                 current_positions += 1
                 portfolio_tickers.add(signal.ticker)
-                strategy_allocations[strategy] = already_allocated + size_pct
                 # Show sizing calculation: base × strategy × conf_mult = raw → final
                 d = sizing_details
                 cap_note = " [CAPPED]" if d["was_capped"] else ""
