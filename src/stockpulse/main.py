@@ -566,10 +566,21 @@ def run_scheduler():
 
                         # Add note if job will be skipped due to market hours
                         skip_note = ""
-                        if job_id == "intraday_scan" and not market_open:
+                        if job_id.startswith("intraday") and not market_open:
                             skip_note = " [will skip - market closed]"
 
-                        print(f"  {job_id}: {next_time.strftime('%H:%M:%S')} (in {countdown}){skip_note}")
+                        # Friendly names for job IDs
+                        job_names = {
+                            "intraday_open": "scan (open+2m)",
+                            "intraday_scan": "scan (15m interval)",
+                            "intraday_close": "scan (close-2m)",
+                            "daily_scan": "daily scan",
+                            "daily_digest": "daily digest",
+                            "long_term_scan": "long-term scan",
+                        }
+                        display_name = job_names.get(job_id, job_id)
+
+                        print(f"  {display_name}: {next_time.strftime('%H:%M:%S')} (in {countdown}){skip_note}")
                     else:
                         print(f"  {job_id}: running now...")
 
