@@ -117,6 +117,22 @@ stockpulse reset        # Clear trading data (keeps prices)
 - [x] Dashboard tab: Long-Term Watchlist with scores, fundamentals, and charts
 - [x] **MILESTONE:** Long-term scanner complete
 
+### Long-Term Backtester Enhancements (2026-02-04)
+- [x] Transaction costs (0.1% round-trip)
+- [x] Optimizable stop-loss (extended to 20-45%)
+- [x] VIX regime detection (skip buying in high vol)
+- [x] Sector diversification (40% max per sector)
+- [x] Walk-forward optimization (2yr train / 1yr test)
+- [x] Optimizable min_score (extended to 40-70)
+- [x] Edge-of-range detection for optimal parameters
+- [x] **Earnings calendar blackout** - skip buying before earnings
+- [x] **Momentum factor** - weight recent 3mo winners
+- [x] **Dynamic position sizing** - 0.75x-1.5x based on conviction
+- [x] **Trailing stop-loss option** - vs fixed stop
+- [x] **Risk profiles** - optimal params by stop-loss level (20-45%)
+- [x] **Holdings tracker** - track actual purchases in dashboard
+- [x] CLI commands: `stockpulse add-holding`, `stockpulse close-holding`
+
 ## Phase 5 — Trade Tracker (Real Trades) (COMPLETE)
 
 - [x] Add manual trade entry (ticker, direction, price, date, size, strategy)
@@ -233,6 +249,10 @@ stockpulse reset        # Clear trading data (keeps prices)
 | 2026-02-03 | Daily digest enhanced | Portfolio value, unrealized P&L, today's activity |
 | 2026-02-03 | Max positions to 40 | Increased from 25 to allow more diversification |
 | 2026-02-03 | **LIVE TRADING STARTED** | Scheduler running, paper portfolio active |
+| 2026-02-04 | Long-term backtester v2 | Trailing stops, momentum, dynamic sizing, earnings blackout |
+| 2026-02-04 | Extended param ranges | stop_loss 20-45%, min_score 40-70 |
+| 2026-02-04 | Risk profiles | Optimal params by stop-loss level for risk tuning |
+| 2026-02-04 | Holdings tracker | Track actual purchases, CLI commands, dashboard page |
 
 ---
 

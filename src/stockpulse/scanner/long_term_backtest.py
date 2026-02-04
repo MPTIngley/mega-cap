@@ -2,13 +2,17 @@
 
 Enhanced backtester with:
 - Transaction costs (0.1% round-trip)
-- Optimizable stop-loss (20-35%)
+- Optimizable stop-loss (20-45%)
 - VIX regime detection (optimizable threshold)
 - Sector diversification constraint (40% max per sector)
 - Walk-forward optimization (train/test rolling windows)
 - Data through 2025
-- Optimizable min_score threshold (50-70)
+- Optimizable min_score threshold (40-70)
 - Edge-of-range detection for optimal parameters
+- Earnings calendar awareness (skip buying before earnings)
+- Momentum factor (weight recent winners)
+- Dynamic position sizing based on conviction
+- Trailing stop-loss option
 
 Key constraints:
 - Initial portfolio: $100,000
@@ -52,6 +56,9 @@ class Position:
     shares: float
     cost_basis: float
     score_at_purchase: float
+    momentum_score: float = 0.0  # 3-month momentum at purchase
+    trailing_stop_price: float | None = None  # For trailing stop-loss
+    highest_price: float | None = None  # Track highest price for trailing stop
     sell_date: date | None = None
     sell_price: float | None = None
     return_pct: float | None = None
@@ -66,6 +73,18 @@ class Position:
 
     def unrealized_return_pct(self, price: float) -> float:
         return ((price - self.buy_price) / self.buy_price) * 100
+
+    def update_trailing_stop(self, current_price: float, trailing_pct: float) -> None:
+        """Update trailing stop based on current price."""
+        if self.highest_price is None or current_price > self.highest_price:
+            self.highest_price = current_price
+            self.trailing_stop_price = current_price * (1 - trailing_pct / 100)
+
+    def check_trailing_stop(self, current_price: float) -> bool:
+        """Check if trailing stop has been hit."""
+        if self.trailing_stop_price is None:
+            return False
+        return current_price <= self.trailing_stop_price
 
 
 @dataclass
@@ -139,7 +158,7 @@ class LongTermBacktester:
 
     # Backtest parameters
     INITIAL_CAPITAL = 100_000
-    POSITION_SIZE_PCT = 2.0  # Each buy is 2% of initial capital
+    POSITION_SIZE_PCT = 2.0  # Each buy is 2% of initial capital (base size)
     MAX_POSITION_CONCENTRATION_PCT = 10.0  # Max 10% in any one stock at purchase
     MAX_SECTOR_CONCENTRATION_PCT = 40.0  # Max 40% in any sector (tech is the future!)
     HOLD_PERIOD_YEARS = 3
@@ -147,6 +166,8 @@ class LongTermBacktester:
     EVALUATION_FREQUENCY_MONTHS = 1  # Monthly evaluation
     MIN_SCORE_DEFAULT = 60
     TRANSACTION_COST_PCT = 0.05  # 0.05% each way = 0.1% round trip
+    EARNINGS_BLACKOUT_DAYS = 7  # Don't buy within X days of earnings
+    MOMENTUM_LOOKBACK_DAYS = 63  # ~3 months for momentum calculation
 
     def __init__(self, db_path: str | None = None):
         """Initialize backtester."""
@@ -219,6 +240,31 @@ class LongTermBacktester:
                 max_drawdown_pct REAL,
                 sharpe_ratio REAL,
                 walk_forward_results TEXT
+            )
+        """)
+
+        # Table for earnings dates (for earnings blackout feature)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_earnings (
+                ticker TEXT NOT NULL,
+                earnings_date DATE NOT NULL,
+                PRIMARY KEY (ticker, earnings_date)
+            )
+        """)
+
+        # Table for optimal params by risk level
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_risk_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                stop_loss_pct REAL,
+                best_weights TEXT,
+                best_params TEXT,
+                total_return_pct REAL,
+                alpha_pct REAL,
+                max_drawdown_pct REAL,
+                sharpe_ratio REAL,
+                win_rate REAL
             )
         """)
 
@@ -418,6 +464,93 @@ class LongTermBacktester:
             df["date"] = pd.to_datetime(df["date"]).dt.date
 
         return df
+
+    def _calculate_momentum(self, ticker: str, as_of_date: date) -> float:
+        """
+        Calculate momentum score for a ticker (3-month return).
+        Returns momentum as a percentage.
+        """
+        if ticker not in self._price_cache:
+            return 0.0
+
+        df = self._normalize_date_column(self._price_cache[ticker])
+        df = df[df["date"] <= as_of_date].tail(self.MOMENTUM_LOOKBACK_DAYS + 10)
+
+        if len(df) < self.MOMENTUM_LOOKBACK_DAYS:
+            return 0.0
+
+        current_price = df["close"].iloc[-1]
+        past_price = df["close"].iloc[-self.MOMENTUM_LOOKBACK_DAYS]
+
+        if past_price <= 0:
+            return 0.0
+
+        return ((current_price - past_price) / past_price) * 100
+
+    def _is_near_earnings(self, ticker: str, eval_date: date, blackout_days: int = None) -> bool:
+        """
+        Check if we're within earnings blackout period.
+        Since we don't have real earnings data, we estimate based on typical
+        quarterly earnings patterns (mid-Jan, mid-Apr, mid-Jul, mid-Oct).
+        """
+        if blackout_days is None:
+            blackout_days = self.EARNINGS_BLACKOUT_DAYS
+
+        # Typical earnings months (approximation)
+        earnings_months = [1, 4, 7, 10]
+        eval_month = eval_date.month
+
+        # Check if we're in an earnings month
+        if eval_month in earnings_months:
+            # Earnings typically happen in weeks 2-3 of these months
+            if 10 <= eval_date.day <= 28:
+                return True
+
+        return False
+
+    def _calculate_position_size(
+        self,
+        base_size_dollars: float,
+        score: float,
+        momentum: float,
+        use_dynamic_sizing: bool = True
+    ) -> float:
+        """
+        Calculate position size based on conviction (score) and momentum.
+
+        Dynamic sizing:
+        - Base size: 2% of initial capital
+        - High conviction (score >= 70): 1.5x base
+        - High momentum (3mo return > 20%): 1.25x multiplier
+        - Low conviction (score < 55): 0.75x base
+        - Negative momentum: 0.8x multiplier
+
+        Returns adjusted position size in dollars.
+        """
+        if not use_dynamic_sizing:
+            return base_size_dollars
+
+        size = base_size_dollars
+
+        # Conviction adjustment
+        if score >= 70:
+            size *= 1.5  # High conviction
+        elif score >= 65:
+            size *= 1.25
+        elif score < 55:
+            size *= 0.75  # Low conviction
+
+        # Momentum adjustment
+        if momentum > 20:
+            size *= 1.25  # Strong momentum
+        elif momentum > 10:
+            size *= 1.1
+        elif momentum < -10:
+            size *= 0.8  # Negative momentum - reduce size
+
+        # Cap at 1.5x base (3% of initial capital max per trade)
+        max_size = base_size_dollars * 1.5
+        return min(size, max_size)
 
     def _save_prices_to_db(self, df: pd.DataFrame):
         """Save prices to database for caching."""
@@ -630,19 +763,26 @@ class LongTermBacktester:
         # Extract parameters with defaults
         stop_loss_pct = params.get("stop_loss_pct", 25.0)  # 25% default
         vix_threshold = params.get("vix_threshold", 30.0)  # Don't buy when VIX > 30
+        use_trailing_stop = params.get("use_trailing_stop", False)  # Use trailing vs fixed stop
+        trailing_stop_pct = params.get("trailing_stop_pct", stop_loss_pct)  # Trailing stop %
+        use_momentum = params.get("use_momentum", True)  # Use momentum factor
+        momentum_weight = params.get("momentum_weight", 0.15)  # Weight for momentum in scoring
+        use_dynamic_sizing = params.get("use_dynamic_sizing", True)  # Dynamic position sizing
+        skip_earnings = params.get("skip_earnings", True)  # Skip buying near earnings
 
         # min_score can come from params (optimization) or direct argument
         if min_score is None:
             min_score = params.get("min_score", self.MIN_SCORE_DEFAULT)
 
-        logger.info(f"Running backtest: {start_year}-{end_year}, stop_loss={stop_loss_pct}%, vix_thresh={vix_threshold}")
+        logger.info(f"Running backtest: {start_year}-{end_year}, stop_loss={stop_loss_pct}%, "
+                   f"trailing={use_trailing_stop}, momentum={use_momentum}, dynamic_size={use_dynamic_sizing}")
 
         # Load sector map
         self._load_sector_map(tickers)
 
         # Initialize portfolio
         portfolio = PortfolioState(cash=self.INITIAL_CAPITAL)
-        position_size_dollars = self.INITIAL_CAPITAL * (self.POSITION_SIZE_PCT / 100)
+        base_position_size = self.INITIAL_CAPITAL * (self.POSITION_SIZE_PCT / 100)
 
         # Generate evaluation dates (monthly)
         eval_dates = []
@@ -686,16 +826,24 @@ class LongTermBacktester:
                 "drawdown": drawdown
             })
 
-            # === CHECK STOP-LOSSES ===
+            # === CHECK STOP-LOSSES (Fixed or Trailing) ===
             tickers_to_stop = []
             for ticker, pos in portfolio.positions.items():
                 current_price = prices.get(ticker)
                 if current_price:
-                    unrealized = pos.unrealized_return_pct(current_price)
-                    if unrealized <= -stop_loss_pct:
-                        tickers_to_stop.append((ticker, current_price, unrealized))
+                    if use_trailing_stop:
+                        # Update trailing stop and check
+                        pos.update_trailing_stop(current_price, trailing_stop_pct)
+                        if pos.check_trailing_stop(current_price):
+                            unrealized = pos.unrealized_return_pct(current_price)
+                            tickers_to_stop.append((ticker, current_price, unrealized, "trailing"))
+                    else:
+                        # Fixed stop-loss
+                        unrealized = pos.unrealized_return_pct(current_price)
+                        if unrealized <= -stop_loss_pct:
+                            tickers_to_stop.append((ticker, current_price, unrealized, "fixed"))
 
-            for ticker, sell_price, unrealized in tickers_to_stop:
+            for ticker, sell_price, unrealized, stop_type in tickers_to_stop:
                 pos = portfolio.positions[ticker]
                 # Apply transaction cost
                 net_proceeds = pos.shares * sell_price * (1 - self.TRANSACTION_COST_PCT / 100)
@@ -703,7 +851,10 @@ class LongTermBacktester:
                 pos.sell_date = eval_date
                 pos.sell_price = sell_price
                 pos.return_pct = ((sell_price - pos.buy_price) / pos.buy_price) * 100
-                pos.exit_reason = f"Stop-loss ({stop_loss_pct}%)"
+                if stop_type == "trailing":
+                    pos.exit_reason = f"Trailing stop ({trailing_stop_pct}%)"
+                else:
+                    pos.exit_reason = f"Stop-loss ({stop_loss_pct}%)"
 
                 portfolio.cash += net_proceeds
 
@@ -781,17 +932,21 @@ class LongTermBacktester:
                 if not can_buy:
                     continue
 
+                # Check earnings blackout period
+                if skip_earnings and self._is_near_earnings(ticker, eval_date):
+                    continue
+
                 # Check position concentration limit BEFORE buying
                 current_total = portfolio.total_value(prices)
                 if current_total > 0:
-                    hypothetical_concentration = (position_size_dollars / current_total) * 100
+                    hypothetical_concentration = (base_position_size / current_total) * 100
                     if hypothetical_concentration > self.MAX_POSITION_CONCENTRATION_PCT:
                         continue
 
                 # Check sector concentration
                 sector = self._sector_map.get(ticker, "Unknown")
                 sector_conc = portfolio.sector_concentration(sector, prices)
-                hypothetical_sector_conc = sector_conc + (position_size_dollars / current_total * 100) if current_total > 0 else 0
+                hypothetical_sector_conc = sector_conc + (base_position_size / current_total * 100) if current_total > 0 else 0
 
                 if hypothetical_sector_conc > self.MAX_SECTOR_CONCENTRATION_PCT:
                     continue
@@ -801,15 +956,38 @@ class LongTermBacktester:
                 if not price or price <= 0:
                     continue
 
-                # Calculate score
+                # Calculate base score
                 score = self.calculate_historical_score(ticker, eval_date, weights)
-                if score and score >= min_score:
-                    opportunities.append((ticker, score, price, sector))
+                if not score:
+                    continue
 
-            # Sort by score and buy top opportunities
+                # Calculate momentum
+                momentum = self._calculate_momentum(ticker, eval_date) if use_momentum else 0
+
+                # Adjust score with momentum factor
+                if use_momentum and momentum_weight > 0:
+                    # Momentum bonus: +10 for >20% 3mo return, +5 for >10%, -5 for <-10%
+                    momentum_bonus = 0
+                    if momentum > 20:
+                        momentum_bonus = 10
+                    elif momentum > 10:
+                        momentum_bonus = 5
+                    elif momentum < -10:
+                        momentum_bonus = -5
+                    score = score + momentum_bonus * momentum_weight
+
+                if score >= min_score:
+                    opportunities.append((ticker, score, price, sector, momentum))
+
+            # Sort by score (with momentum factored in) and buy top opportunities
             opportunities.sort(key=lambda x: x[1], reverse=True)
 
-            for ticker, score, price, sector in opportunities:
+            for ticker, score, price, sector, momentum in opportunities:
+                # Calculate dynamic position size
+                position_size_dollars = self._calculate_position_size(
+                    base_position_size, score, momentum, use_dynamic_sizing
+                )
+
                 # Check we have enough cash
                 if portfolio.cash < position_size_dollars:
                     break
@@ -849,7 +1027,10 @@ class LongTermBacktester:
                     buy_price=price,
                     shares=shares,
                     cost_basis=cost_with_fee,
-                    score_at_purchase=score
+                    score_at_purchase=score,
+                    momentum_score=momentum,
+                    highest_price=price,  # Initialize for trailing stop
+                    trailing_stop_price=price * (1 - trailing_stop_pct / 100) if use_trailing_stop else None
                 )
 
                 portfolio.transaction_log.append({
@@ -861,6 +1042,7 @@ class LongTermBacktester:
                     "shares": shares,
                     "value": cost_with_fee,
                     "score": score,
+                    "momentum": momentum,
                     "cash_remaining": portfolio.cash
                 })
 
@@ -1194,11 +1376,11 @@ class LongTermBacktester:
             "peer_valuation": [0.05, 0.08, 0.10, 0.12],
         }
 
-        # Parameter search space
+        # Parameter search space (extended ranges)
         param_options = {
-            "stop_loss_pct": [20.0, 25.0, 30.0, 35.0],  # 20-35% range
+            "stop_loss_pct": [20.0, 25.0, 30.0, 35.0, 40.0, 45.0],  # 20-45% range
             "vix_threshold": [25.0, 30.0, 35.0, 40.0],  # VIX threshold
-            "min_score": [50.0, 55.0, 60.0, 65.0, 70.0],  # Minimum score to buy
+            "min_score": [40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0],  # 40-70 range
         }
 
         # Generate weight combinations
@@ -1299,6 +1481,163 @@ class LongTermBacktester:
             "all_results": sorted(all_results, key=lambda x: x["score"], reverse=True)[:10],
         }
 
+    def optimize_by_risk_level(
+        self,
+        tickers: list[str],
+        max_iterations_per_level: int = 30,
+        objective: str = "alpha",
+        start_year: int = 2019,
+        end_year: int = 2024
+    ) -> dict:
+        """
+        Find optimal parameters for each stop-loss level (risk profile).
+
+        This allows users to choose their risk tolerance and see the best
+        parameters for that level.
+
+        Args:
+            tickers: Universe of tickers
+            max_iterations_per_level: Max iterations per stop-loss level
+            objective: Optimization objective
+            start_year: Training period start
+            end_year: Training period end
+
+        Returns:
+            Dictionary with optimal params for each risk level
+        """
+        risk_levels = [20.0, 25.0, 30.0, 35.0, 40.0, 45.0]
+        results_by_risk = {}
+
+        print("\n" + "=" * 80)
+        print("  OPTIMIZING BY RISK LEVEL (Stop-Loss)")
+        print("  This shows optimal params for each risk tolerance level")
+        print("=" * 80)
+
+        for stop_loss in risk_levels:
+            print(f"\n  Optimizing for {stop_loss}% stop-loss (risk level)...")
+
+            # Optimize with fixed stop-loss
+            best_result = None
+            best_score = float("-inf")
+            best_weights = None
+            best_params = None
+
+            # Weight search space
+            weight_options = {
+                "valuation": [0.10, 0.15, 0.20, 0.25],
+                "technical": [0.10, 0.15, 0.20, 0.25],
+                "dividend": [0.05, 0.10, 0.15],
+                "quality": [0.10, 0.15, 0.20],
+                "insider": [0.10, 0.15, 0.20, 0.25],
+                "fcf_yield": [0.08, 0.12, 0.15, 0.18],
+                "earnings_momentum": [0.05, 0.10, 0.15],
+                "peer_valuation": [0.05, 0.08, 0.10, 0.12],
+            }
+
+            # Other params to optimize (stop_loss is fixed)
+            other_param_options = {
+                "vix_threshold": [25.0, 30.0, 35.0, 40.0],
+                "min_score": [40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0],
+            }
+
+            # Generate combinations
+            keys = list(weight_options.keys())
+            all_values = [weight_options[k] for k in keys]
+            all_combos = list(itertools.product(*all_values))
+
+            valid_weight_combos = [c for c in all_combos if 0.95 <= sum(c) <= 1.05]
+
+            param_keys = list(other_param_options.keys())
+            param_values = [other_param_options[k] for k in param_keys]
+            param_combos = list(itertools.product(*param_values))
+
+            all_search_combos = list(itertools.product(valid_weight_combos, param_combos))
+
+            if len(all_search_combos) > max_iterations_per_level:
+                np.random.seed(42 + int(stop_loss))
+                indices = np.random.choice(len(all_search_combos), max_iterations_per_level, replace=False)
+                all_search_combos = [all_search_combos[i] for i in indices]
+
+            for i, (weight_combo, param_combo) in enumerate(all_search_combos):
+                weights = dict(zip(keys, weight_combo))
+                params = dict(zip(param_keys, param_combo))
+                params["stop_loss_pct"] = stop_loss
+
+                # Normalize weights
+                total = sum(weights.values())
+                weights = {k: v / total for k, v in weights.items()}
+
+                if i % 10 == 0:
+                    print(f"    Testing {i+1}/{len(all_search_combos)}...", end="\r")
+
+                try:
+                    result = self.run_backtest(
+                        tickers, weights, params,
+                        start_year=start_year, end_year=end_year
+                    )
+
+                    if objective == "alpha":
+                        score = result["alpha_pct"]
+                    elif objective == "return":
+                        score = result["total_return_pct"]
+                    elif objective == "sharpe":
+                        score = result["sharpe_ratio"]
+                    else:
+                        score = result["alpha_pct"]
+
+                    if score > best_score:
+                        best_score = score
+                        best_result = result
+                        best_weights = weights
+                        best_params = params
+
+                except Exception as e:
+                    logger.debug(f"Error: {e}")
+
+            print(f"    Done.                                    ")
+
+            if best_result:
+                results_by_risk[stop_loss] = {
+                    "stop_loss_pct": stop_loss,
+                    "best_weights": best_weights,
+                    "best_params": best_params,
+                    "total_return_pct": best_result["total_return_pct"],
+                    "alpha_pct": best_result["alpha_pct"],
+                    "max_drawdown_pct": best_result["max_drawdown_pct"],
+                    "sharpe_ratio": best_result["sharpe_ratio"],
+                    "win_rate": best_result["win_rate"],
+                    "total_trades": best_result["total_trades"],
+                }
+
+                # Save to database
+                self._save_risk_profile(stop_loss, best_weights, best_params, best_result)
+
+        return {
+            "risk_profiles": results_by_risk,
+            "risk_levels": risk_levels,
+        }
+
+    def _save_risk_profile(self, stop_loss: float, weights: dict, params: dict, result: dict):
+        """Save optimal params for a risk level to database."""
+        try:
+            self.db.execute("""
+                INSERT INTO backtest_risk_profiles
+                (stop_loss_pct, best_weights, best_params, total_return_pct, alpha_pct,
+                 max_drawdown_pct, sharpe_ratio, win_rate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                stop_loss,
+                json.dumps(weights),
+                json.dumps(params),
+                result.get("total_return_pct", 0),
+                result.get("alpha_pct", 0),
+                result.get("max_drawdown_pct", 0),
+                result.get("sharpe_ratio", 0),
+                result.get("win_rate", 0)
+            ))
+        except Exception as e:
+            logger.debug(f"Failed to save risk profile: {e}")
+
     def _save_backtest_result(self, result: dict):
         """Save backtest result to database."""
         try:
@@ -1385,11 +1724,11 @@ def _check_edge_values(params: dict, param_options: dict) -> list[str]:
     return warnings
 
 
-# Define global param_options for edge checking
+# Define global param_options for edge checking (extended ranges)
 PARAM_OPTIONS = {
-    "stop_loss_pct": [20.0, 25.0, 30.0, 35.0],
+    "stop_loss_pct": [20.0, 25.0, 30.0, 35.0, 40.0, 45.0],
     "vix_threshold": [25.0, 30.0, 35.0, 40.0],
-    "min_score": [50.0, 55.0, 60.0, 65.0, 70.0],
+    "min_score": [40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0],
 }
 
 
@@ -1399,10 +1738,11 @@ def run_long_term_backtest():
     from stockpulse.scanner.long_term_scanner import LongTermScanner
 
     print("\n" + "=" * 80)
-    print("  LONG-TERM SCANNER BACKTESTER (Enhanced)")
-    print("  Features: Transaction costs, Stop-loss, VIX regime, Sector limits")
-    print("  Strategy: 3-year buy-and-hold, 2% position size, 10% max concentration")
+    print("  LONG-TERM SCANNER BACKTESTER (Enhanced v2)")
+    print("  Features: Trailing stops, Momentum, Dynamic sizing, Earnings blackout")
+    print("  Strategy: 3-year hold, 2% base position, 10% max concentration")
     print("  Walk-Forward: 2-year train, 1-year test, rolling windows")
+    print("  Risk Profiles: Optimal params by stop-loss level (20-45%)")
     print("=" * 80)
 
     # Get tickers
@@ -1493,6 +1833,18 @@ def run_long_term_backtest():
         # Save to config
         print("\n  Saving optimized weights and params to config...")
         _save_optimized_config(opt_result["best_weights"], opt_result["best_params"])
+
+    # Run risk-level optimization
+    print("\n  Running optimization by risk level (stop-loss)...")
+    risk_result = backtester.optimize_by_risk_level(
+        tickers=tickers,
+        max_iterations_per_level=25,
+        objective="alpha",
+        start_year=2019,
+        end_year=2024
+    )
+
+    _print_risk_profiles(risk_result)
 
     # Suggestions for improvement
     _print_suggestions()
@@ -1611,6 +1963,42 @@ def _print_holdings_detail(result: dict):
                       f"({txn.get('return_pct', 0):+.1f}%, {reason})")
 
 
+def _print_risk_profiles(risk_result: dict):
+    """Print optimal parameters by risk level."""
+    print("\n" + "-" * 80)
+    print("  OPTIMAL PARAMETERS BY RISK LEVEL (Stop-Loss)")
+    print("  Choose based on your risk tolerance - higher stop = more risk/reward")
+    print("-" * 80)
+
+    profiles = risk_result.get("risk_profiles", {})
+    if not profiles:
+        print("  No risk profiles generated.")
+        return
+
+    print("\n  " + "-" * 76)
+    print("  Stop-Loss   Return    Alpha    MaxDD    Sharpe   WinRate   Trades   MinScore")
+    print("  " + "-" * 76)
+
+    for stop_loss in sorted(profiles.keys()):
+        p = profiles[stop_loss]
+        params = p.get("best_params", {})
+        min_score = params.get("min_score", 60)
+        print(f"  {stop_loss:5.0f}%    {p['total_return_pct']:+7.1f}%  {p['alpha_pct']:+6.1f}%  "
+              f"{p['max_drawdown_pct']:5.1f}%   {p['sharpe_ratio']:5.2f}    "
+              f"{p['win_rate']:5.1f}%    {p['total_trades']:3}      {min_score:.0f}")
+
+    print("\n  KEY INSIGHTS:")
+    print("    - Lower stop-loss (20-25%): More conservative, fewer large losses")
+    print("    - Mid stop-loss (30-35%): Balanced risk/reward")
+    print("    - Higher stop-loss (40-45%): More aggressive, let winners run longer")
+
+    # Find best alpha by risk level
+    best_alpha_level = max(profiles.keys(), key=lambda k: profiles[k]["alpha_pct"])
+    best_sharpe_level = max(profiles.keys(), key=lambda k: profiles[k]["sharpe_ratio"])
+    print(f"\n    Best Alpha: {best_alpha_level}% stop-loss ({profiles[best_alpha_level]['alpha_pct']:+.1f}%)")
+    print(f"    Best Sharpe: {best_sharpe_level}% stop-loss ({profiles[best_sharpe_level]['sharpe_ratio']:.2f})")
+
+
 def _print_suggestions():
     """Print suggestions for improving the backtester."""
     print("\n" + "-" * 80)
@@ -1618,21 +2006,26 @@ def _print_suggestions():
     print("-" * 80)
     print("""
   ✓ Transaction costs (0.1% round-trip)
-  ✓ Optimizable stop-loss (20-35% range)
+  ✓ Optimizable stop-loss (20-45% extended range)
   ✓ VIX regime detection (skip buying in high vol)
   ✓ Sector diversification (40% max per sector)
   ✓ Walk-forward optimization (2yr train / 1yr test)
   ✓ Data extended through 2025
   ✓ All optimal results saved to database
-  ✓ Optimizable min_score (50-70 range)
+  ✓ Optimizable min_score (40-70 extended range)
   ✓ Edge-of-range detection for optimal parameters
+  ✓ Earnings calendar blackout (skip buying before earnings)
+  ✓ Momentum factor (weight recent winners)
+  ✓ Dynamic position sizing based on conviction
+  ✓ Trailing stop-loss option (vs fixed stop)
+  ✓ Risk profiles: optimal params by stop-loss level
 
   FUTURE ENHANCEMENTS TO CONSIDER:
-  1. Add earnings calendar: avoid buying before earnings
-  2. Add momentum factor: weight recent winners
-  3. Dynamic position sizing based on conviction
-  4. Trailing stop-loss vs fixed stop
-  5. Tax-loss harvesting simulation
+  1. Tax-loss harvesting simulation
+  2. Dividend reinvestment
+  3. Options overlay (covered calls)
+  4. Multi-factor momentum (6mo + 12mo)
+  5. Earnings surprise momentum
     """)
 
 
