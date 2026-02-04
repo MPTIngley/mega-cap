@@ -540,23 +540,59 @@ def run_scheduler():
             for update in updates:
                 alert_manager.process_position_exit(update)
 
-        # Send consolidated email with actual results
+        # Send consolidated email ONLY if actual trades occurred (opened or actionable sells)
         initial_capital = position_manager.initial_capital
 
-        email_sent = alert_manager.send_scan_results_email(
-            opened_positions=opened_positions,
-            blocked_signals=blocked_signals[:10],  # Top 10 blocked
-            sell_signals=actionable_sells,
-            portfolio_exposure_pct=running_exposure_pct,
-            initial_capital=initial_capital,
-            near_misses=near_misses,
-            strategy_status=strategy_status
-        )
+        # Build per-strategy signal summary with action status
+        strategy_signal_summary = {}
+        for strat in all_strategies:
+            strat_signals = strategy_signals.get(strat, [])
+            strat_summary = []
+            for sig in sorted(strat_signals, key=lambda s: s.confidence, reverse=True)[:10]:
+                # Check if this signal was opened
+                was_opened = any(op[0].ticker == sig.ticker for op in opened_positions)
+                # Check if it was blocked and why
+                blocked_entry = next((b for b in blocked_signals if b[0].ticker == sig.ticker), None)
 
-        if email_sent:
-            print("  Email: SENT")
+                if was_opened:
+                    status = "OPENED"
+                    reason = ""
+                elif blocked_entry:
+                    status = "BLOCKED"
+                    reason = blocked_entry[1]
+                else:
+                    status = "NOT_ACTED"
+                    reason = "Unknown"
+
+                strat_summary.append({
+                    "ticker": sig.ticker,
+                    "confidence": sig.confidence,
+                    "entry_price": sig.entry_price,
+                    "target_price": sig.target_price,
+                    "status": status,
+                    "reason": reason,
+                })
+            strategy_signal_summary[strat] = strat_summary
+
+        # Only send email if we made actual trades
+        if opened_positions or actionable_sells:
+            email_sent = alert_manager.send_scan_results_email(
+                opened_positions=opened_positions,
+                blocked_signals=blocked_signals[:10],  # Top 10 blocked
+                sell_signals=actionable_sells,
+                portfolio_exposure_pct=running_exposure_pct,
+                initial_capital=initial_capital,
+                near_misses=near_misses,
+                strategy_status=strategy_status,
+                strategy_signal_summary=strategy_signal_summary
+            )
+
+            if email_sent:
+                print("  Email: SENT")
+            else:
+                print("  Email: Not sent (quiet hours)")
         else:
-            print("  Email: Not sent (no activity or quiet hours)")
+            print("  Email: Not sent (no trades executed)")
 
         print("=" * 60 + "\n")
 

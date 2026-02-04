@@ -311,7 +311,8 @@ class AlertManager:
         portfolio_exposure_pct: float,
         initial_capital: float,
         near_misses: dict[str, list[dict]] | None = None,
-        strategy_status: dict[str, dict] | None = None
+        strategy_status: dict[str, dict] | None = None,
+        strategy_signal_summary: dict[str, list[dict]] | None = None
     ) -> bool:
         """
         Send email showing actual scan results - what was opened and what was blocked.
@@ -326,6 +327,7 @@ class AlertManager:
             initial_capital: Initial capital amount
             near_misses: Optional dict of strategy -> list of near-miss stocks
             strategy_status: Optional dict of strategy -> status info
+            strategy_signal_summary: Optional dict of strategy -> list of signal dicts with status
         """
         if self._is_quiet_hours():
             logger.info("Quiet hours - skipping scan alert")
@@ -412,12 +414,94 @@ class AlertManager:
             </tr>
             """
 
-        # Build strategy insights section
+        # Build strategy insights section with per-strategy signal breakdown
         strategy_insights_html = ""
-        if near_misses or strategy_status:
-            all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
-                            "momentum_breakout", "week52_low_bounce", "sector_rotation"]
+        all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
+                        "momentum_breakout", "week52_low_bounce", "sector_rotation"]
 
+        if strategy_signal_summary:
+            # Build per-strategy signal tables
+            strategy_tables_html = ""
+            for strat in all_strategies:
+                signals_for_strat = strategy_signal_summary.get(strat, [])
+                status = strategy_status.get(strat, {}) if strategy_status else {}
+                exposure = status.get("current_exposure_pct", 0)
+                max_pct = status.get("max_allowed_pct", 70)
+
+                if signals_for_strat:
+                    signal_rows = ""
+                    for sig in signals_for_strat[:10]:
+                        ticker = sig.get("ticker", "N/A")
+                        conf = sig.get("confidence", 0)
+                        entry = sig.get("entry_price", 0)
+                        target = sig.get("target_price", 0)
+                        sig_status = sig.get("status", "UNKNOWN")
+                        reason = sig.get("reason", "")
+
+                        upside = ((target - entry) / entry * 100) if entry > 0 else 0
+
+                        # Color and icon based on status
+                        if sig_status == "OPENED":
+                            status_html = "<span style='color: #22c55e;'>✅ OPENED</span>"
+                        elif sig_status == "BLOCKED":
+                            reason_short = reason[:40] + "..." if len(reason) > 40 else reason
+                            status_html = f"<span style='color: #f59e0b;'>⏸ {reason_short}</span>"
+                        else:
+                            status_html = "<span style='color: #64748b;'>—</span>"
+
+                        signal_rows += f"""
+                        <tr>
+                            <td>{ticker}</td>
+                            <td>{conf:.0f}%</td>
+                            <td>${entry:.2f}</td>
+                            <td>+{upside:.1f}%</td>
+                            <td>{status_html}</td>
+                        </tr>
+                        """
+
+                    strategy_tables_html += f"""
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                            {strat} <span style="color: #64748b;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
+                        </h3>
+                        <table style="font-size: 13px;">
+                            <tr><th>Ticker</th><th>Conf</th><th>Entry</th><th>Upside</th><th>Status</th></tr>
+                            {signal_rows}
+                        </table>
+                    </div>
+                    """
+                else:
+                    # Show near-misses for strategies with no signals
+                    nm = near_misses.get(strat, []) if near_misses else []
+                    if nm:
+                        nm_info = ", ".join([f"{n['ticker']} ({n['indicator']})" for n in nm[:3]])
+                        strategy_tables_html += f"""
+                        <div style="margin-bottom: 15px;">
+                            <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                                {strat} <span style="color: #64748b;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
+                            </h3>
+                            <p style="color: #64748b; font-size: 12px; margin: 5px 0;">
+                                No signals. Near-misses: {nm_info}
+                            </p>
+                        </div>
+                        """
+                    else:
+                        strategy_tables_html += f"""
+                        <div style="margin-bottom: 10px;">
+                            <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
+                                {strat} <span style="color: #475569;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
+                                — No signals
+                            </h3>
+                        </div>
+                        """
+
+            strategy_insights_html = f"""
+            <h2 class='section-title' style='border-left-color: #6366f1;'>📊 Per-Strategy Signal Breakdown</h2>
+            {strategy_tables_html}
+            """
+
+        elif near_misses or strategy_status:
+            # Fallback to simpler status view if no signal summary
             strat_rows = ""
             for strat in all_strategies:
                 status = strategy_status.get(strat, {}) if strategy_status else {}
