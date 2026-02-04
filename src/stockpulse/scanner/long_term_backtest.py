@@ -286,7 +286,7 @@ class LongTermBacktester:
         if self._vix_cache is None or self._vix_cache.empty:
             return None
 
-        df = self._vix_cache
+        df = self._normalize_date_column(self._vix_cache)
         df_before = df[df["date"] <= target_date]
         if not df_before.empty:
             return df_before["close"].iloc[-1]
@@ -388,6 +388,19 @@ class LongTermBacktester:
             logger.debug(f"Error loading cached prices: {e}")
             return pd.DataFrame()
 
+    def _normalize_date_column(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize date column to Python date objects for comparison."""
+        df = df.copy()
+        if "date" not in df.columns:
+            return df
+        if df["date"].dtype == "object":
+            # Already date objects
+            pass
+        elif hasattr(df["date"].dtype, "tz") or "datetime64" in str(df["date"].dtype):
+            # Convert timezone-aware or naive datetime to date
+            df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.date
+        return df
+
     def _save_prices_to_db(self, df: pd.DataFrame):
         """Save prices to database for caching."""
         try:
@@ -420,7 +433,7 @@ class LongTermBacktester:
         if ticker not in self._price_cache:
             return None
 
-        price_df = self._price_cache[ticker]
+        price_df = self._normalize_date_column(self._price_cache[ticker])
         price_df = price_df[price_df["date"] <= as_of_date].copy()
 
         # Need at least 252 trading days (1 year) of history before as_of_date
@@ -465,7 +478,7 @@ class LongTermBacktester:
         if ticker not in self._price_cache:
             return score
 
-        df = self._price_cache[ticker]
+        df = self._normalize_date_column(self._price_cache[ticker])
         df = df[df["date"] <= as_of_date].tail(252)
 
         if len(df) < 252:
@@ -547,7 +560,7 @@ class LongTermBacktester:
         if ticker not in self._price_cache:
             return None
 
-        df = self._price_cache[ticker]
+        df = self._normalize_date_column(self._price_cache[ticker])
 
         # Find closest date on or before target
         df_before = df[df["date"] <= target_date]
