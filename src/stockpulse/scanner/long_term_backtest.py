@@ -7,6 +7,8 @@ Enhanced backtester with:
 - Sector diversification constraint (40% max per sector)
 - Walk-forward optimization (train/test rolling windows)
 - Data through 2025
+- Optimizable min_score threshold (50-70)
+- Edge-of-range detection for optimal parameters
 
 Key constraints:
 - Initial portfolio: $100,000
@@ -591,15 +593,16 @@ class LongTermBacktester:
         Returns:
             Dictionary with backtest results including detailed holdings
         """
-        if min_score is None:
-            min_score = self.MIN_SCORE_DEFAULT
-
         if params is None:
             params = {}
 
         # Extract parameters with defaults
         stop_loss_pct = params.get("stop_loss_pct", 25.0)  # 25% default
         vix_threshold = params.get("vix_threshold", 30.0)  # Don't buy when VIX > 30
+
+        # min_score can come from params (optimization) or direct argument
+        if min_score is None:
+            min_score = params.get("min_score", self.MIN_SCORE_DEFAULT)
 
         logger.info(f"Running backtest: {start_year}-{end_year}, stop_loss={stop_loss_pct}%, vix_thresh={vix_threshold}")
 
@@ -1164,6 +1167,7 @@ class LongTermBacktester:
         param_options = {
             "stop_loss_pct": [20.0, 25.0, 30.0, 35.0],  # 20-35% range
             "vix_threshold": [25.0, 30.0, 35.0, 40.0],  # VIX threshold
+            "min_score": [50.0, 55.0, 60.0, 65.0, 70.0],  # Minimum score to buy
         }
 
         # Generate weight combinations
@@ -1317,6 +1321,47 @@ class LongTermBacktester:
             logger.warning(f"Failed to save optimal params: {e}")
 
 
+def _check_edge_values(params: dict, param_options: dict) -> list[str]:
+    """
+    Check if any optimal parameter values fall on the edge of their search range.
+
+    Returns list of warning strings for parameters at edges.
+    """
+    warnings = []
+
+    for param_name, optimal_value in params.items():
+        if param_name not in param_options:
+            continue
+
+        search_range = param_options[param_name]
+        if not search_range:
+            continue
+
+        min_val = min(search_range)
+        max_val = max(search_range)
+
+        if optimal_value == min_val:
+            warnings.append(
+                f"⚠ {param_name}={optimal_value} is at LOWER edge of range "
+                f"[{min_val}-{max_val}] - consider extending range lower"
+            )
+        elif optimal_value == max_val:
+            warnings.append(
+                f"⚠ {param_name}={optimal_value} is at UPPER edge of range "
+                f"[{min_val}-{max_val}] - consider extending range higher"
+            )
+
+    return warnings
+
+
+# Define global param_options for edge checking
+PARAM_OPTIONS = {
+    "stop_loss_pct": [20.0, 25.0, 30.0, 35.0],
+    "vix_threshold": [25.0, 30.0, 35.0, 40.0],
+    "min_score": [50.0, 55.0, 60.0, 65.0, 70.0],
+}
+
+
 def run_long_term_backtest():
     """Main entry point for long-term backtesting with walk-forward optimization."""
     from stockpulse.data.universe import UniverseManager, TOP_US_STOCKS
@@ -1404,6 +1449,13 @@ def run_long_term_backtest():
         for k, v in opt_result["best_params"].items():
             print(f"    {k}: {v}")
 
+        # Check for edge values
+        edge_warnings = _check_edge_values(opt_result["best_params"], PARAM_OPTIONS)
+        if edge_warnings:
+            print("\n  EDGE VALUE WARNINGS:")
+            for warning in edge_warnings:
+                print(f"    {warning}")
+
         # Print holdings detail
         _print_holdings_detail(opt_result["best_result"])
 
@@ -1445,6 +1497,7 @@ def _print_backtest_results(title: str, result: dict):
         print(f"  ")
         print(f"  Stop-Loss:           {params.get('stop_loss_pct', 25)}%")
         print(f"  VIX Threshold:       {params.get('vix_threshold', 30)}")
+        print(f"  Min Score:           {params.get('min_score', 60)}")
 
 
 def _print_walk_forward_results(wf_result: dict):
@@ -1464,10 +1517,23 @@ def _print_walk_forward_results(wf_result: dict):
     print("  Train Period    Test Period     Train Ret   Test Ret   Test Alpha   Sharpe")
     print("  " + "-" * 76)
 
+    all_edge_warnings = []
     for w in wf_result["windows"]:
         print(f"  {w['train_period']:14}  {w['test_period']:14}  "
               f"{w['train_return_pct']:+7.1f}%   {w['test_return_pct']:+7.1f}%   "
               f"{w['test_alpha_pct']:+8.1f}%   {w['test_sharpe']:6.2f}")
+        # Collect edge warnings from each window
+        if w.get("params"):
+            warnings = _check_edge_values(w["params"], PARAM_OPTIONS)
+            for warning in warnings:
+                tagged_warning = f"[{w['train_period']}] {warning}"
+                if tagged_warning not in all_edge_warnings:
+                    all_edge_warnings.append(tagged_warning)
+
+    if all_edge_warnings:
+        print("\n  EDGE VALUE WARNINGS (by window):")
+        for warning in all_edge_warnings:
+            print(f"    {warning}")
 
 
 def _print_holdings_detail(result: dict):
@@ -1527,6 +1593,8 @@ def _print_suggestions():
   ✓ Walk-forward optimization (2yr train / 1yr test)
   ✓ Data extended through 2025
   ✓ All optimal results saved to database
+  ✓ Optimizable min_score (50-70 range)
+  ✓ Edge-of-range detection for optimal parameters
 
   FUTURE ENHANCEMENTS TO CONSIDER:
   1. Add earnings calendar: avoid buying before earnings
