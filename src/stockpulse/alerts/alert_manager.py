@@ -933,7 +933,7 @@ class AlertManager:
 
     def send_long_term_digest(self, opportunities: list[dict]) -> bool:
         """
-        Send weekly long-term opportunities digest.
+        Send daily long-term opportunities digest.
 
         Args:
             opportunities: List of long-term investment opportunities
@@ -947,16 +947,43 @@ class AlertManager:
         today = datetime.now().strftime('%Y-%m-%d')
         subject = f"📈 StockPulse Long-Term Opportunities - {today}"
 
-        # Build opportunities table
+        # Build opportunities table with full reasoning
         rows = ""
         for opp in opportunities[:15]:
+            ticker = opp.get('ticker', 'N/A')
+            score = opp.get('composite_score', 0)
+            reasoning = opp.get('reasoning', '')
+
+            # Highlight key metrics in reasoning
             rows += f"""
             <tr>
-                <td><strong>{opp.get('ticker', 'N/A')}</strong></td>
-                <td>{opp.get('composite_score', 0):.0f}</td>
+                <td><strong style="color: #059669; font-size: 16px;">{ticker}</strong></td>
+                <td style="text-align: center;"><strong>{score:.0f}</strong></td>
                 <td>{opp.get('pe_percentile', 0):.0f}%</td>
                 <td>{opp.get('price_vs_52w_low_pct', 0):.1f}%</td>
-                <td style="font-size: 12px;">{opp.get('reasoning', '')[:50]}...</td>
+            </tr>
+            <tr>
+                <td colspan="4" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
+                    {reasoning}
+                </td>
+            </tr>
+            """
+
+        # Build score breakdown table (top 10)
+        breakdown_rows = ""
+        for opp in opportunities[:10]:
+            breakdown_rows += f"""
+            <tr>
+                <td><strong>{opp.get('ticker', 'N/A')}</strong></td>
+                <td style="text-align: center;">{opp.get('composite_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('valuation_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('technical_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('insider_score', 50):.0f}</td>
+                <td style="text-align: center;">{opp.get('fcf_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('earnings_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('peer_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('dividend_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get('quality_score', 0):.0f}</td>
             </tr>
             """
 
@@ -964,37 +991,112 @@ class AlertManager:
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; }}
-                .header {{ background: #27ae60; color: white; padding: 20px; text-align: center; }}
-                .content {{ padding: 20px; }}
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #f9fafb; }}
+                .header {{ background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; padding: 25px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 24px; }}
+                .header p {{ margin: 5px 0 0 0; opacity: 0.9; }}
+                .content {{ padding: 25px; background: white; }}
                 table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
-                th {{ background: #f8f9fa; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+                th {{ background: #f3f4f6; color: #374151; font-size: 12px; text-transform: uppercase; }}
+                .section {{ margin-top: 30px; }}
+                .section h2 {{ color: #059669; font-size: 18px; border-bottom: 2px solid #059669; padding-bottom: 8px; }}
+                .breakdown-table th {{ font-size: 11px; text-align: center; padding: 8px 4px; }}
+                .breakdown-table td {{ font-size: 12px; }}
+                .weight-table {{ background: #f3f4f6; border-radius: 8px; padding: 15px; margin: 20px 0; }}
+                .weight-table td {{ border: none; padding: 5px 15px; }}
+                .footer {{ background: #f3f4f6; padding: 20px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6b7280; }}
             </style>
         </head>
         <body>
             <div class="header">
                 <h1>Long-Term Investment Opportunities</h1>
-                <p>Weekly Scan Results</p>
+                <p>Daily Scan Results - {today}</p>
             </div>
             <div class="content">
-                <p>The following stocks have been identified as potential long-term investment opportunities based on valuation, technical, and quality metrics:</p>
-
-                <table>
-                    <tr>
-                        <th>Ticker</th>
-                        <th>Score</th>
-                        <th>P/E Percentile</th>
-                        <th>vs 52W Low</th>
-                        <th>Notes</th>
-                    </tr>
-                    {rows}
-                </table>
-
-                <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                    <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
-                    for research purposes only. Always do your own due diligence before investing.
+                <p style="color: #4b5563;">
+                    The following {len(opportunities)} stocks have been identified as potential long-term investment opportunities
+                    based on valuation, technical setup, quality metrics, and earnings consistency.
                 </p>
+
+                <div class="section">
+                    <h2>Top Opportunities</h2>
+                    <table>
+                        <tr>
+                            <th>Ticker</th>
+                            <th style="text-align: center;">Score</th>
+                            <th>P/E %ile</th>
+                            <th>vs 52W Low</th>
+                        </tr>
+                        {rows}
+                    </table>
+                </div>
+
+                <div class="section">
+                    <h2>Score Breakdown (Top 10)</h2>
+                    <table class="breakdown-table">
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Total</th>
+                            <th>Value</th>
+                            <th>Tech</th>
+                            <th>Insider</th>
+                            <th>FCF</th>
+                            <th>Earnings</th>
+                            <th>Peers</th>
+                            <th>Div</th>
+                            <th>Quality</th>
+                        </tr>
+                        {breakdown_rows}
+                    </table>
+                </div>
+
+                <div class="section">
+                    <h2>Scoring Methodology</h2>
+                    <p style="color: #4b5563; font-size: 13px;">
+                        Each stock is scored from 0-100 across multiple dimensions. The composite score is a weighted average:
+                    </p>
+                    <table class="weight-table" style="font-size: 13px;">
+                        <tr>
+                            <td><strong>Valuation (25%)</strong></td>
+                            <td>P/E ratio vs history & sector, PEG ratio, Price/Sales</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Technical (15%)</strong></td>
+                            <td>RSI, distance from 52-week low, moving average position</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Insider Activity (10%)</strong></td>
+                            <td>Recent insider buying/selling patterns</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Free Cash Flow (15%)</strong></td>
+                            <td>FCF yield, FCF growth, FCF margin</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Earnings (15%)</strong></td>
+                            <td>EPS beat rate, earnings growth, consistency</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Peer Comparison (10%)</strong></td>
+                            <td>Relative valuation vs sector peers</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Dividend (5%)</strong></td>
+                            <td>Yield, payout ratio, growth history</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Quality (5%)</strong></td>
+                            <td>ROE, debt levels, profit margins</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div class="footer">
+                <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
+                for research purposes only. Always do your own due diligence before investing.
+                <br/><br/>
+                StockPulse Long-Term Scanner | Runs daily at market close
             </div>
         </body>
         </html>
