@@ -393,12 +393,30 @@ class LongTermBacktester:
         df = df.copy()
         if "date" not in df.columns:
             return df
-        if df["date"].dtype == "object":
-            # Already date objects
+
+        # Check first non-null value to determine type
+        first_valid = df["date"].dropna().iloc[0] if not df["date"].dropna().empty else None
+
+        if first_valid is None:
+            return df
+
+        if isinstance(first_valid, date) and not isinstance(first_valid, pd.Timestamp):
+            # Already Python date objects
             pass
+        elif isinstance(first_valid, str):
+            # Strings from database - convert to date
+            df["date"] = pd.to_datetime(df["date"]).dt.date
         elif hasattr(df["date"].dtype, "tz") or "datetime64" in str(df["date"].dtype):
-            # Convert timezone-aware or naive datetime to date
-            df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.date
+            # Timezone-aware or naive datetime - strip tz and convert to date
+            try:
+                df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.date
+            except TypeError:
+                # Already tz-naive
+                df["date"] = pd.to_datetime(df["date"]).dt.date
+        elif isinstance(first_valid, pd.Timestamp):
+            # Pandas Timestamp
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+
         return df
 
     def _save_prices_to_db(self, df: pd.DataFrame):
