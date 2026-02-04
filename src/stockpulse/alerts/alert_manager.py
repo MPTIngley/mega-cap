@@ -443,14 +443,14 @@ class AlertManager:
 
                         upside = ((target - entry) / entry * 100) if entry > 0 else 0
 
-                        # Color and icon based on status
+                        # Color and icon based on status - bright colors for dark background
                         if sig_status == "OPENED":
-                            status_html = "<span style='color: #22c55e;'>✅ OPENED</span>"
+                            status_html = "<span style='color: #4ade80;'>✅ OPENED</span>"
                         elif sig_status == "BLOCKED":
                             reason_short = reason[:40] + "..." if len(reason) > 40 else reason
-                            status_html = f"<span style='color: #f59e0b;'>⏸ {reason_short}</span>"
+                            status_html = f"<span style='color: #fbbf24;'>⏸ {reason_short}</span>"
                         else:
-                            status_html = "<span style='color: #64748b;'>—</span>"
+                            status_html = "<span style='color: #cbd5e1;'>—</span>"
 
                         signal_rows += f"""
                         <tr>
@@ -464,10 +464,10 @@ class AlertManager:
 
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
-                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                        <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px 0;">
+                        <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | Top {len(signals_for_strat[:3])} of {len(signals_for_strat)} signals:
                         </p>
                         <table style="font-size: 13px;">
@@ -485,13 +485,13 @@ class AlertManager:
                             nm_rows += f"<li>{n['ticker']}: {n['indicator']} ({n['distance']})</li>"
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 15px;">
-                            <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                            <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0;">
                                 {strat_desc}
                             </h3>
-                            <p style="color: #64748b; font-size: 11px; margin: 0 0 5px 0;">
+                            <p style="color: #94a3b8; font-size: 11px; margin: 0 0 5px 0;">
                                 Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals, but close:
                             </p>
-                            <ul style="color: #64748b; font-size: 12px; margin: 5px 0; padding-left: 20px;">
+                            <ul style="color: #cbd5e1; font-size: 12px; margin: 5px 0; padding-left: 20px;">
                                 {nm_rows}
                             </ul>
                         </div>
@@ -499,10 +499,10 @@ class AlertManager:
                     else:
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 10px;">
-                            <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
+                            <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
                                 {strat_desc}
                             </h3>
-                            <p style="color: #475569; font-size: 11px; margin: 0;">
+                            <p style="color: #cbd5e1; font-size: 11px; margin: 0;">
                                 Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals
                             </p>
                         </div>
@@ -645,8 +645,8 @@ class AlertManager:
                         </p>
                     </div>
 
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #334155;">
-                        <p style="color: #64748b; font-size: 11px; margin: 0;">
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #475569;">
+                        <p style="color: #94a3b8; font-size: 11px; margin: 0;">
                             <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
                             <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
                         </p>

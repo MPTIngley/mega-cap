@@ -479,14 +479,14 @@ class EmailSender:
 
                         upside = ((target - entry) / entry * 100) if entry > 0 else 0
 
-                        # Status display
+                        # Status display - use bright colors for dark background
                         if sig_status == "OPENED":
-                            status_html = "<span style='color: #22c55e;'>✅ OPENED</span>"
+                            status_html = "<span style='color: #4ade80;'>✅ OPENED</span>"
                         elif sig_status == "BLOCKED":
                             reason_short = reason[:35] + "..." if len(reason) > 35 else reason
-                            status_html = f"<span style='color: #f59e0b;'>⏸ {reason_short}</span>"
+                            status_html = f"<span style='color: #fbbf24;'>⏸ {reason_short}</span>"
                         else:
-                            status_html = f"<span style='color: #64748b;'>— {reason[:25] if reason else 'Not traded'}</span>"
+                            status_html = f"<span style='color: #cbd5e1;'>— {reason[:25] if reason else 'Not traded'}</span>"
 
                         signal_rows += f"""
                         <tr>
@@ -500,10 +500,10 @@ class EmailSender:
 
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
-                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #334155; padding-bottom: 5px;">
+                        <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #475569; padding-bottom: 5px;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px 0;">
+                        <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | Top {len(deduped_signals)} of {signal_count} signals:
                         </p>
                         <table style="font-size: 12px;">
@@ -516,10 +516,10 @@ class EmailSender:
                     # No signals for this strategy
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 15px;">
-                        <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
+                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #475569; font-size: 11px; margin: 0;">
+                        <p style="color: #cbd5e1; font-size: 11px; margin: 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | No signals today
                         </p>
                     </div>
@@ -564,7 +564,7 @@ class EmailSender:
                 td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #1e3a5f; }}
                 th {{ background: #1e3a5f; color: #94a3b8; font-size: 11px; text-transform: uppercase; }}
                 h2 {{ color: #00d9ff; border-bottom: 2px solid #667eea; padding-bottom: 10px; margin-top: 25px; }}
-                .footer {{ color: #64748b; font-size: 11px; margin-top: 30px; text-align: center; padding: 15px; }}
+                .footer {{ color: #94a3b8; font-size: 11px; margin-top: 30px; text-align: center; padding: 15px; }}
             </style>
         </head>
         <body>
@@ -662,7 +662,7 @@ class EmailSender:
                     </div>
 
                     <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #334155;">
-                        <p style="color: #64748b; font-size: 11px; margin: 0;">
+                        <p style="color: #94a3b8; font-size: 11px; margin: 0;">
                             <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
                             <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
                         </p>
