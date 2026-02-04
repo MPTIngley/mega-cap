@@ -284,6 +284,9 @@ def run_test_email():
 
 def run_scheduler():
     """Run the scheduler for continuous scanning."""
+    from datetime import datetime
+    import time
+    import pytz
     from stockpulse.scheduler import StockPulseScheduler
     from stockpulse.strategies.signal_generator import SignalGenerator
     from stockpulse.strategies.position_manager import PositionManager
@@ -300,6 +303,36 @@ def run_scheduler():
     long_term_scanner = LongTermScanner()
     alert_manager = AlertManager()
     config = get_config()
+
+    # Helper function to check market hours
+    def is_market_open() -> tuple[bool, str]:
+        """Check if market is currently open. Returns (is_open, status_message)."""
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+
+        # Check weekday
+        if now.weekday() >= 5:
+            day_name = "Saturday" if now.weekday() == 5 else "Sunday"
+            return False, f"CLOSED ({day_name} - market reopens Monday 9:30 AM ET)"
+
+        # Get market hours from config
+        scanning_config = config.get("scanning", {})
+        market_open_str = scanning_config.get("market_open", "09:30")
+        market_close_str = scanning_config.get("market_close", "16:00")
+
+        market_open = datetime.strptime(market_open_str, "%H:%M").time()
+        market_close = datetime.strptime(market_close_str, "%H:%M").time()
+
+        current_time = now.time()
+
+        if current_time < market_open:
+            # Before market open
+            return False, f"CLOSED (pre-market - opens at {market_open_str} ET)"
+        elif current_time > market_close:
+            # After market close
+            return False, f"CLOSED (after-hours - reopens tomorrow 9:30 AM ET)"
+        else:
+            return True, f"OPEN ({market_open_str} - {market_close_str} ET)"
 
     def on_intraday_scan(tickers):
         """Callback for intraday scans - generates signals, opens positions, sends alerts."""
@@ -461,10 +494,6 @@ def run_scheduler():
     logger.info("Scheduler started. Press Ctrl+C to stop.")
 
     try:
-        import time
-        from datetime import datetime
-        import pytz
-
         et = pytz.timezone("US/Eastern")
 
         while True:
@@ -472,9 +501,22 @@ def run_scheduler():
             next_runs = scheduler.get_next_run_times()
             now = datetime.now(et)
 
+            # Check market status
+            market_open, market_status = is_market_open()
+
             print("\n" + "=" * 60)
             print(f"  StockPulse Scheduler | {now.strftime('%Y-%m-%d %H:%M:%S ET')}")
             print("=" * 60)
+
+            # Show market status prominently
+            if market_open:
+                print(f"  Market: {market_status}")
+                print("  Intraday scans: ACTIVE")
+            else:
+                print(f"  Market: {market_status}")
+                print("  Intraday scans: PAUSED (will resume when market opens)")
+
+            print("-" * 60)
 
             for job_id, next_time in next_runs.items():
                 if next_time:
@@ -487,7 +529,13 @@ def run_scheduler():
                             countdown = f"{hours}h {minutes}m"
                         else:
                             countdown = f"{minutes}m {seconds}s"
-                        print(f"  {job_id}: {next_time.strftime('%H:%M:%S')} (in {countdown})")
+
+                        # Add note if job will be skipped due to market hours
+                        skip_note = ""
+                        if job_id == "intraday_scan" and not market_open:
+                            skip_note = " [will skip - market closed]"
+
+                        print(f"  {job_id}: {next_time.strftime('%H:%M:%S')} (in {countdown}){skip_note}")
                     else:
                         print(f"  {job_id}: running now...")
 
