@@ -438,41 +438,79 @@ class EmailSender:
         total_trades = performance.get("total_trades", 0)
         profit_factor = performance.get("profit_factor", 0)
 
-        # Strategy insights section
+        # Strategy insights section with per-strategy signal breakdown
         strategy_html = ""
         if strategy_insights:
             by_strategy = strategy_insights.get("by_strategy", {})
             blocked_tickers = strategy_insights.get("blocked_tickers", [])
-            capacity_warnings = strategy_insights.get("capacity_warnings", [])
 
-            strategy_rows = ""
+            # Build detailed per-strategy signal tables
+            strategy_tables_html = ""
             for strat_name, strat_info in by_strategy.items():
                 exposure = strat_info.get("exposure_pct", 0)
                 max_pct = strat_info.get("max_pct", 70)
-                util_pct = strat_info.get("utilization_pct", 0)
                 signal_count = strat_info.get("signal_count", 0)
                 pos_count = strat_info.get("position_count", 0)
-                can_open = strat_info.get("can_open_more", True)
+                signal_details = strat_info.get("signal_details", [])
 
-                # Color based on capacity
-                if util_pct >= 100:
-                    util_color = "#ef4444"  # Red - at limit
-                elif util_pct >= 80:
-                    util_color = "#f59e0b"  # Yellow - near limit
+                if signal_details:
+                    # Build signal rows for this strategy
+                    signal_rows = ""
+                    for sig in signal_details[:10]:
+                        ticker = sig.get("ticker", "N/A")
+                        conf = sig.get("confidence", 0)
+                        entry = sig.get("entry_price", 0)
+                        target = sig.get("target_price", 0)
+                        sig_status = sig.get("status", "UNKNOWN")
+                        reason = sig.get("reason", "")
+
+                        upside = ((target - entry) / entry * 100) if entry > 0 else 0
+
+                        # Status display
+                        if sig_status == "OPENED":
+                            status_html = "<span style='color: #22c55e;'>✅ OPENED</span>"
+                        elif sig_status == "BLOCKED":
+                            reason_short = reason[:35] + "..." if len(reason) > 35 else reason
+                            status_html = f"<span style='color: #f59e0b;'>⏸ {reason_short}</span>"
+                        else:
+                            status_html = f"<span style='color: #64748b;'>— {reason[:25]}</span>"
+
+                        signal_rows += f"""
+                        <tr>
+                            <td>{ticker}</td>
+                            <td>{conf:.0f}%</td>
+                            <td>${entry:.2f}</td>
+                            <td>+{upside:.1f}%</td>
+                            <td>{status_html}</td>
+                        </tr>
+                        """
+
+                    strategy_tables_html += f"""
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #334155; padding-bottom: 5px;">
+                            {strat_name}
+                            <span style="color: #64748b; font-weight: normal;">
+                                — {signal_count} signals, {pos_count} positions, {exposure:.0f}%/{max_pct:.0f}% used
+                            </span>
+                        </h3>
+                        <table style="font-size: 12px;">
+                            <tr><th>Ticker</th><th>Conf</th><th>Entry</th><th>Upside</th><th>Action</th></tr>
+                            {signal_rows}
+                        </table>
+                    </div>
+                    """
                 else:
-                    util_color = "#4ade80"  # Green - good capacity
-
-                status_icon = "✓" if can_open else "⏸"
-
-                strategy_rows += f"""
-                <tr>
-                    <td>{strat_name}</td>
-                    <td>{pos_count}</td>
-                    <td>{signal_count}</td>
-                    <td style="color: {util_color}">{exposure:.1f}%/{max_pct:.0f}%</td>
-                    <td>{status_icon}</td>
-                </tr>
-                """
+                    # No signals for this strategy
+                    strategy_tables_html += f"""
+                    <div style="margin-bottom: 15px;">
+                        <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
+                            {strat_name}
+                            <span style="font-weight: normal;">
+                                — 0 signals, {pos_count} positions, {exposure:.0f}%/{max_pct:.0f}% used
+                            </span>
+                        </h3>
+                    </div>
+                    """
 
             blocked_html = ""
             if blocked_tickers:
@@ -482,18 +520,15 @@ class EmailSender:
                 blocked_html = f"""
                 <div style="margin-top: 15px; padding: 10px; background: #1e293b; border-radius: 8px;">
                     <strong style="color: #f59e0b;">⏱️ Blocked Tickers ({len(blocked_tickers)}):</strong>
-                    <ul style="margin: 5px 0; padding-left: 20px; color: #94a3b8;">
+                    <ul style="margin: 5px 0; padding-left: 20px; color: #94a3b8; font-size: 12px;">
                         {blocked_items}
                     </ul>
                 </div>
                 """
 
             strategy_html = f"""
-            <h2>Strategy Breakdown</h2>
-            <table>
-                <tr><th>Strategy</th><th>Positions</th><th>Signals Today</th><th>Exposure</th><th>Status</th></tr>
-                {strategy_rows}
-            </table>
+            <h2>Per-Strategy Signal Breakdown</h2>
+            {strategy_tables_html}
             {blocked_html}
             """
 

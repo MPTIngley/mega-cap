@@ -746,7 +746,7 @@ class AlertManager:
         Get strategy-level insights for the daily digest.
 
         Returns:
-            Dict with strategy breakdowns, capacity info, and blocked tickers
+            Dict with strategy breakdowns, capacity info, blocked tickers, and per-strategy signals
         """
         from stockpulse.strategies.signal_insights import SignalInsights
 
@@ -765,6 +765,13 @@ class AlertManager:
             signal_insights = SignalInsights()
             strategy_status = signal_insights.get_strategy_status(self.position_manager)
 
+            # Get today's opened positions to determine which signals were acted on
+            todays_opened = self.db.fetchdf("""
+                SELECT ticker, strategy FROM positions_paper
+                WHERE DATE(entry_date) = DATE('now')
+            """)
+            opened_tickers = set(todays_opened["ticker"].tolist()) if not todays_opened.empty else set()
+
             for strategy in all_strategies:
                 status = strategy_status.get(strategy, {})
                 current_exp = status.get("current_exposure_pct", 0)
@@ -772,18 +779,47 @@ class AlertManager:
                 position_count = status.get("position_count", 0)
                 can_open = status.get("can_open_more", True)
 
-                # Get today's signals for this strategy
+                # Get today's signals for this strategy with full details
+                signal_details = []
                 if not signals_df.empty and "strategy" in signals_df.columns:
-                    strategy_signals = signals_df[signals_df["strategy"] == strategy]
-                    signal_count = len(strategy_signals)
-                    top_signals = strategy_signals.head(3).to_dict("records") if not strategy_signals.empty else []
+                    strategy_signals = signals_df[signals_df["strategy"] == strategy].head(10)
+                    signal_count = len(signals_df[signals_df["strategy"] == strategy])
+
+                    for _, sig in strategy_signals.iterrows():
+                        ticker = sig.get("ticker", "N/A")
+                        was_opened = ticker in opened_tickers
+
+                        # Determine why it wasn't acted on if not opened
+                        if was_opened:
+                            action_status = "OPENED"
+                            action_reason = ""
+                        else:
+                            # Check blocking reasons
+                            action_status = "NOT_ACTED"
+                            blocking_reasons = signal_insights.get_blocking_reasons(ticker, self.position_manager)
+                            if blocking_reasons:
+                                action_status = "BLOCKED"
+                                action_reason = blocking_reasons[0].get("reason", "Risk limit")
+                            elif not can_open:
+                                action_status = "BLOCKED"
+                                action_reason = f"Strategy at capacity ({current_exp:.0f}%/{max_allowed:.0f}%)"
+                            else:
+                                action_reason = "Did not meet final criteria"
+
+                        signal_details.append({
+                            "ticker": ticker,
+                            "confidence": sig.get("confidence", 0),
+                            "entry_price": sig.get("entry_price", 0),
+                            "target_price": sig.get("target_price", 0),
+                            "status": action_status,
+                            "reason": action_reason,
+                        })
                 else:
                     signal_count = 0
-                    top_signals = []
 
                 insights["by_strategy"][strategy] = {
                     "signal_count": signal_count,
-                    "top_signals": top_signals,
+                    "signal_details": signal_details,  # Full details for top 10
                     "position_count": position_count,
                     "exposure_pct": current_exp,
                     "max_pct": max_allowed,
