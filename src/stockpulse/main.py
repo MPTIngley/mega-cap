@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "add-holding", "close-holding", "holdings"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "add-holding", "close-holding", "holdings"],
         help="Command to execute"
     )
 
@@ -181,6 +181,8 @@ def main():
         run_longterm_backtest()
     elif args.command == "longterm-scan":
         run_longterm_scan()
+    elif args.command == "longterm-backfill":
+        run_longterm_backfill()
     elif args.command == "add-holding":
         run_add_holding(args)
     elif args.command == "close-holding":
@@ -1458,6 +1460,28 @@ def run_longterm_scan():
     if scanner_config.get("send_digest", True):
         print("  Sending opportunity digest email...")
         scanner.send_digest(opportunities[:10])
+
+
+def run_longterm_backfill():
+    """Backfill 6 weeks of long-term scanner history."""
+    from stockpulse.scanner.long_term_scanner import LongTermScanner
+
+    print("\n" + "=" * 70)
+    print("  LONG-TERM SCANNER BACKFILL")
+    print("  Building 6 weeks of historical scan data")
+    print("=" * 70 + "\n")
+
+    scanner = LongTermScanner()
+
+    print("  This may take a few minutes...")
+    print("  Progress will be logged below.\n")
+
+    records = scanner.backfill_history(days=42)
+
+    print("\n" + "=" * 70)
+    print(f"  Backfill complete: {records} historical records created")
+    print("  You can now run 'stockpulse longterm-scan' to see trends")
+    print("=" * 70 + "\n")
 
 
 def run_add_holding(args):

@@ -119,6 +119,9 @@ class LongTermScanner:
         # Store results
         self._store_opportunities(opportunities)
 
+        # Enrich with trend data
+        opportunities = self.enrich_with_trends(opportunities)
+
         logger.info(f"Found {len(opportunities)} long-term opportunities")
 
         return opportunities
@@ -825,21 +828,26 @@ class LongTermScanner:
         return f"{ticker}: " + ", ".join(reasons) + "."
 
     def _store_opportunities(self, opportunities: list[dict]) -> None:
-        """Store opportunities in database."""
+        """Store opportunities in database with full score breakdown."""
         for opp in opportunities:
             try:
                 self.db.execute("""
                     INSERT INTO long_term_watchlist (
                         ticker, scan_date, composite_score, valuation_score,
                         technical_score, dividend_score, quality_score,
+                        insider_score, fcf_score, earnings_score, peer_score,
                         pe_percentile, price_vs_52w_low_pct, reasoning
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (ticker, scan_date) DO UPDATE SET
                         composite_score = excluded.composite_score,
                         valuation_score = excluded.valuation_score,
                         technical_score = excluded.technical_score,
                         dividend_score = excluded.dividend_score,
                         quality_score = excluded.quality_score,
+                        insider_score = excluded.insider_score,
+                        fcf_score = excluded.fcf_score,
+                        earnings_score = excluded.earnings_score,
+                        peer_score = excluded.peer_score,
                         pe_percentile = excluded.pe_percentile,
                         price_vs_52w_low_pct = excluded.price_vs_52w_low_pct,
                         reasoning = excluded.reasoning
@@ -851,6 +859,10 @@ class LongTermScanner:
                     opp["technical_score"],
                     opp.get("dividend_score", 50),
                     opp["quality_score"],
+                    opp.get("insider_score", 50),
+                    opp.get("fcf_score", 50),
+                    opp.get("earnings_score", 50),
+                    opp.get("peer_score", 50),
                     opp["pe_percentile"],
                     opp["price_vs_52w_low_pct"],
                     opp["reasoning"]
@@ -865,6 +877,260 @@ class LongTermScanner:
             WHERE scan_date >= date('now', ?)
             ORDER BY composite_score DESC
         """, (f'-{days_back} days',))
+
+    def get_trend_data(self, ticker: str, days_back: int = 30) -> dict:
+        """
+        Get trend data for a ticker including consecutive days and score history.
+
+        Returns:
+            dict with keys: consecutive_days, score_history, avg_5d, avg_20d,
+                           change_vs_yesterday, change_vs_5d_avg, trend_symbol
+        """
+        history = self.db.fetchdf("""
+            SELECT scan_date, composite_score
+            FROM long_term_watchlist
+            WHERE ticker = ? AND scan_date >= date('now', ?)
+            ORDER BY scan_date DESC
+        """, (ticker, f'-{days_back} days'))
+
+        if history.empty:
+            return {
+                "consecutive_days": 0,
+                "score_history": [],
+                "avg_5d": 0,
+                "avg_20d": 0,
+                "change_vs_yesterday": 0,
+                "change_vs_5d_avg": 0,
+                "trend_symbol": "🆕",
+                "is_new": True
+            }
+
+        scores = history["composite_score"].tolist()
+        dates = history["scan_date"].tolist()
+
+        # Calculate consecutive days (how many recent consecutive days on list)
+        consecutive_days = 1
+        for i in range(1, len(dates)):
+            # Check if dates are consecutive trading days (within 3 calendar days to account for weekends)
+            from datetime import datetime, timedelta
+            d1 = datetime.strptime(dates[i-1], "%Y-%m-%d")
+            d2 = datetime.strptime(dates[i], "%Y-%m-%d")
+            if (d1 - d2).days <= 3:
+                consecutive_days += 1
+            else:
+                break
+
+        # Calculate averages
+        avg_5d = sum(scores[:5]) / len(scores[:5]) if len(scores) >= 1 else scores[0]
+        avg_20d = sum(scores[:20]) / len(scores[:20]) if len(scores) >= 1 else scores[0]
+
+        # Today's score
+        today_score = scores[0]
+
+        # Change vs yesterday
+        change_vs_yesterday = (today_score - scores[1]) if len(scores) > 1 else 0
+
+        # Change vs 5-day average
+        change_vs_5d_avg = today_score - avg_5d
+
+        # Determine trend symbol
+        if len(scores) == 1:
+            trend_symbol = "🆕"  # New
+        elif change_vs_5d_avg > 2:
+            trend_symbol = "📈"  # Strengthening
+        elif change_vs_5d_avg < -2:
+            trend_symbol = "📉"  # Weakening
+        else:
+            trend_symbol = "➡️"  # Stable
+
+        return {
+            "consecutive_days": consecutive_days,
+            "score_history": scores[:10],
+            "avg_5d": avg_5d,
+            "avg_20d": avg_20d,
+            "change_vs_yesterday": change_vs_yesterday,
+            "change_vs_5d_avg": change_vs_5d_avg,
+            "trend_symbol": trend_symbol,
+            "is_new": len(scores) == 1
+        }
+
+    def enrich_with_trends(self, opportunities: list[dict]) -> list[dict]:
+        """Add trend data to each opportunity."""
+        for opp in opportunities:
+            trend = self.get_trend_data(opp["ticker"])
+            opp["consecutive_days"] = trend["consecutive_days"]
+            opp["trend_symbol"] = trend["trend_symbol"]
+            opp["change_vs_yesterday"] = trend["change_vs_yesterday"]
+            opp["change_vs_5d_avg"] = trend["change_vs_5d_avg"]
+            opp["is_new"] = trend["is_new"]
+            opp["avg_5d"] = trend["avg_5d"]
+        return opportunities
+
+    def categorize_opportunities(self, opportunities: list[dict]) -> dict:
+        """
+        Categorize opportunities by signal strength.
+
+        Returns:
+            dict with keys: strong_buy, strengthening, new_signals, persistent, other
+        """
+        categories = {
+            "strong_buy": [],      # Score 70+ AND improving AND 3+ days
+            "strengthening": [],   # Score improving vs 5d avg
+            "new_signals": [],     # First appearance
+            "persistent": [],      # 5+ consecutive days
+            "other": []
+        }
+
+        for opp in opportunities:
+            score = opp.get("composite_score", 0)
+            days = opp.get("consecutive_days", 0)
+            change_5d = opp.get("change_vs_5d_avg", 0)
+            is_new = opp.get("is_new", False)
+
+            # Categorize (a stock can be in multiple categories)
+            if score >= 68 and change_5d >= 0 and days >= 3:
+                categories["strong_buy"].append(opp)
+            elif is_new:
+                categories["new_signals"].append(opp)
+            elif change_5d > 2:
+                categories["strengthening"].append(opp)
+            elif days >= 5:
+                categories["persistent"].append(opp)
+            else:
+                categories["other"].append(opp)
+
+        return categories
+
+    def backfill_history(self, days: int = 42) -> int:
+        """
+        Backfill historical scan data by running scanner on past dates.
+
+        Args:
+            days: Number of days to backfill (default 42 = 6 weeks)
+
+        Returns:
+            Number of records created
+        """
+        from datetime import datetime, timedelta
+        from stockpulse.data.universe import UniverseManager
+
+        logger.info(f"Backfilling {days} days of long-term scan history...")
+
+        universe = UniverseManager()
+        tickers = universe.get_active_tickers()
+
+        if not tickers:
+            logger.warning("No tickers in universe")
+            return 0
+
+        records_created = 0
+        today = datetime.now().date()
+
+        # Get historical price data
+        end_date = today
+        start_date = today - timedelta(days=days + 365)  # Extra year for indicators
+
+        logger.info(f"Fetching price data from {start_date} to {end_date}...")
+        price_data = self.data_ingestion.get_daily_prices(
+            tickers=tickers,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        if price_data.empty:
+            logger.warning("No price data available for backfill")
+            return 0
+
+        # Process each trading day
+        trading_days = sorted(price_data["date"].unique())[-days:]
+        logger.info(f"Processing {len(trading_days)} trading days...")
+
+        for i, scan_date in enumerate(trading_days):
+            # Get data up to this date
+            historical_data = price_data[price_data["date"] <= scan_date].copy()
+
+            # Score each ticker as of this date
+            opportunities = []
+            for ticker in tickers:
+                ticker_data = historical_data[historical_data["ticker"] == ticker]
+                if len(ticker_data) < 60:
+                    continue
+
+                try:
+                    # Calculate scores using data available up to scan_date
+                    score_data = self._score_ticker_historical(ticker, ticker_data, scan_date)
+                    if score_data and score_data.get("composite_score", 0) >= 60:
+                        score_data["scan_date"] = str(scan_date)[:10]
+                        opportunities.append(score_data)
+                except Exception as e:
+                    continue  # Skip errors silently during backfill
+
+            # Store opportunities for this date
+            if opportunities:
+                self._store_opportunities(opportunities)
+                records_created += len(opportunities)
+
+            if (i + 1) % 10 == 0:
+                logger.info(f"  Processed {i + 1}/{len(trading_days)} days, {records_created} records")
+
+        logger.info(f"Backfill complete: {records_created} records created")
+        return records_created
+
+    def _score_ticker_historical(self, ticker: str, price_data: pd.DataFrame, as_of_date) -> dict | None:
+        """Score a ticker using historical data up to a specific date."""
+        try:
+            price_data = price_data.sort_values("date")
+            latest = price_data.iloc[-1]
+            current_price = latest["close"]
+
+            # Calculate indicators
+            close_prices = price_data["close"]
+
+            # RSI
+            delta = close_prices.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            current_rsi = rsi.iloc[-1] if not rsi.empty else 50
+
+            # 52-week low
+            low_52w = price_data["low"].rolling(min(252, len(price_data))).min().iloc[-1]
+            price_vs_52w_low_pct = ((current_price - low_52w) / low_52w * 100) if low_52w > 0 else 0
+
+            # Technical score based on RSI and distance from 52w low
+            technical_score = 50
+            if current_rsi < 40:
+                technical_score += 25
+            if price_vs_52w_low_pct < 15:
+                technical_score += 25
+
+            # Valuation score (simplified - based on price trend)
+            ma_50 = close_prices.rolling(50).mean().iloc[-1] if len(close_prices) >= 50 else current_price
+            valuation_score = 70 if current_price < ma_50 else 50
+
+            # Composite score (simplified for backfill)
+            composite = (valuation_score * 0.25 + technical_score * 0.25 +
+                        50 * 0.5)  # Other factors default to 50
+
+            return {
+                "ticker": ticker,
+                "composite_score": composite,
+                "valuation_score": valuation_score,
+                "technical_score": technical_score,
+                "dividend_score": 50,
+                "quality_score": 50,
+                "insider_score": 50,
+                "fcf_score": 50,
+                "earnings_score": 50,
+                "peer_score": 50,
+                "pe_percentile": 50,
+                "price_vs_52w_low_pct": price_vs_52w_low_pct,
+                "reasoning": f"{ticker}: historical scan as of {str(as_of_date)[:10]}"
+            }
+
+        except Exception as e:
+            return None
 
     def send_digest(self, opportunities: list[dict]) -> bool:
         """Send long-term opportunities digest email."""

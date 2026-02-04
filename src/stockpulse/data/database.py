@@ -217,7 +217,7 @@ class Database:
             )
         """)
 
-        # Long-term watchlist
+        # Long-term watchlist with full score breakdown
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS long_term_watchlist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,12 +228,34 @@ class Database:
                 technical_score REAL,
                 dividend_score REAL,
                 quality_score REAL,
+                insider_score REAL,
+                fcf_score REAL,
+                earnings_score REAL,
+                peer_score REAL,
                 pe_percentile REAL,
                 price_vs_52w_low_pct REAL,
                 reasoning TEXT,
                 UNIQUE (ticker, scan_date)
             )
         """)
+
+        # Add missing columns if table already exists (migration)
+        try:
+            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN insider_score REAL")
+        except Exception:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN fcf_score REAL")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN earnings_score REAL")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN peer_score REAL")
+        except Exception:
+            pass
 
         # Backtest results
         cursor.execute("""

@@ -933,7 +933,7 @@ class AlertManager:
 
     def send_long_term_digest(self, opportunities: list[dict]) -> bool:
         """
-        Send daily long-term opportunities digest.
+        Send daily long-term opportunities digest with trend analysis.
 
         Args:
             opportunities: List of long-term investment opportunities
@@ -947,19 +947,82 @@ class AlertManager:
         today = datetime.now().strftime('%Y-%m-%d')
         subject = f"📈 StockPulse Long-Term Opportunities - {today}"
 
-        # Build opportunities table with full reasoning
+        # Identify strong buys (score 68+, improving or stable, 3+ days)
+        strong_buys = [
+            opp for opp in opportunities
+            if opp.get('composite_score', 0) >= 68
+            and opp.get('change_vs_5d_avg', 0) >= -1
+            and opp.get('consecutive_days', 0) >= 3
+        ]
+
+        # Build strong buys section
+        strong_buys_html = ""
+        if strong_buys:
+            strong_rows = ""
+            for opp in strong_buys[:5]:
+                ticker = opp.get('ticker', 'N/A')
+                score = opp.get('composite_score', 0)
+                days = opp.get('consecutive_days', 0)
+                trend = opp.get('trend_symbol', '➡️')
+                change_5d = opp.get('change_vs_5d_avg', 0)
+                reasoning = opp.get('reasoning', '')
+
+                trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
+
+                strong_rows += f"""
+                <tr style="background: #ecfdf5;">
+                    <td><strong style="color: #059669; font-size: 18px;">{ticker}</strong></td>
+                    <td style="text-align: center; font-size: 18px;"><strong>{score:.0f}</strong></td>
+                    <td style="text-align: center;">{trend} {days}d</td>
+                </tr>
+                <tr style="background: #ecfdf5;">
+                    <td colspan="3" style="padding: 5px 15px 15px; color: #047857; font-size: 13px; border-bottom: 2px solid #059669;">
+                        <strong>Why:</strong> {reasoning}<br/>
+                        <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days
+                    </td>
+                </tr>
+                """
+
+            strong_buys_html = f"""
+            <div style="background: #ecfdf5; border: 2px solid #059669; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
+                <h2 style="color: #047857; margin: 0 0 15px 0; font-size: 20px;">🔥 Strong Buy Candidates ({len(strong_buys)})</h2>
+                <p style="color: #047857; font-size: 13px; margin: 0 0 15px 0;">
+                    High score (68+) + Improving/stable trend + 3+ consecutive days on list
+                </p>
+                <table style="width: 100%;">
+                    <tr>
+                        <th style="text-align: left; color: #047857;">Ticker</th>
+                        <th style="text-align: center; color: #047857;">Score</th>
+                        <th style="text-align: center; color: #047857;">Trend</th>
+                    </tr>
+                    {strong_rows}
+                </table>
+            </div>
+            """
+
+        # Build main opportunities table with trend data
         rows = ""
         for opp in opportunities[:15]:
             ticker = opp.get('ticker', 'N/A')
             score = opp.get('composite_score', 0)
             reasoning = opp.get('reasoning', '')
+            trend = opp.get('trend_symbol', '➡️')
+            days = opp.get('consecutive_days', 0)
+            change_5d = opp.get('change_vs_5d_avg', 0)
+            is_new = opp.get('is_new', False)
 
-            # Highlight key metrics in reasoning
+            # Format trend info
+            if is_new:
+                trend_info = "🆕 New"
+            else:
+                sign = "+" if change_5d >= 0 else ""
+                trend_info = f"{trend} {days}d ({sign}{change_5d:.1f})"
+
             rows += f"""
             <tr>
                 <td><strong style="color: #059669; font-size: 16px;">{ticker}</strong></td>
                 <td style="text-align: center;"><strong>{score:.0f}</strong></td>
-                <td>{opp.get('pe_percentile', 0):.0f}%</td>
+                <td style="text-align: center;">{trend_info}</td>
                 <td>{opp.get('price_vs_52w_low_pct', 0):.1f}%</td>
             </tr>
             <tr>
@@ -972,17 +1035,18 @@ class AlertManager:
         # Build score breakdown table (top 10)
         breakdown_rows = ""
         for opp in opportunities[:10]:
+            trend = opp.get('trend_symbol', '➡️')
+            days = opp.get('consecutive_days', 0)
             breakdown_rows += f"""
             <tr>
                 <td><strong>{opp.get('ticker', 'N/A')}</strong></td>
                 <td style="text-align: center;">{opp.get('composite_score', 0):.0f}</td>
+                <td style="text-align: center;">{trend}{days}d</td>
                 <td style="text-align: center;">{opp.get('valuation_score', 0):.0f}</td>
                 <td style="text-align: center;">{opp.get('technical_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('insider_score', 50):.0f}</td>
                 <td style="text-align: center;">{opp.get('fcf_score', 0):.0f}</td>
                 <td style="text-align: center;">{opp.get('earnings_score', 0):.0f}</td>
                 <td style="text-align: center;">{opp.get('peer_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('dividend_score', 0):.0f}</td>
                 <td style="text-align: center;">{opp.get('quality_score', 0):.0f}</td>
             </tr>
             """
@@ -1005,6 +1069,7 @@ class AlertManager:
                 .breakdown-table td {{ font-size: 12px; }}
                 .weight-table {{ background: #f3f4f6; border-radius: 8px; padding: 15px; margin: 20px 0; }}
                 .weight-table td {{ border: none; padding: 5px 15px; }}
+                .legend {{ background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 15px; margin: 15px 0; font-size: 13px; }}
                 .footer {{ background: #f3f4f6; padding: 20px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6b7280; }}
             </style>
         </head>
@@ -1015,17 +1080,18 @@ class AlertManager:
             </div>
             <div class="content">
                 <p style="color: #4b5563;">
-                    The following {len(opportunities)} stocks have been identified as potential long-term investment opportunities
-                    based on valuation, technical setup, quality metrics, and earnings consistency.
+                    {len(opportunities)} stocks identified. Ranked by composite score with trend analysis.
                 </p>
 
+                {strong_buys_html}
+
                 <div class="section">
-                    <h2>Top Opportunities</h2>
+                    <h2>All Opportunities (Top 15)</h2>
                     <table>
                         <tr>
                             <th>Ticker</th>
                             <th style="text-align: center;">Score</th>
-                            <th>P/E %ile</th>
+                            <th style="text-align: center;">Trend</th>
                             <th>vs 52W Low</th>
                         </tr>
                         {rows}
@@ -1037,15 +1103,14 @@ class AlertManager:
                     <table class="breakdown-table">
                         <tr>
                             <th>Ticker</th>
-                            <th>Total</th>
+                            <th>Score</th>
+                            <th>Trend</th>
                             <th>Value</th>
                             <th>Tech</th>
-                            <th>Insider</th>
                             <th>FCF</th>
-                            <th>Earnings</th>
+                            <th>Earns</th>
                             <th>Peers</th>
-                            <th>Div</th>
-                            <th>Quality</th>
+                            <th>Qual</th>
                         </tr>
                         {breakdown_rows}
                     </table>
@@ -1093,10 +1158,18 @@ class AlertManager:
                 </div>
             </div>
             <div class="footer">
+                <div style="margin-bottom: 15px;">
+                    <strong>Trend Legend:</strong><br/>
+                    📈 = Score improving vs 5-day avg | 📉 = Score declining | ➡️ = Stable | 🆕 = New to list<br/>
+                    <strong>Xd</strong> = X consecutive days on the opportunities list
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>🔥 Strong Buy Criteria:</strong> Score 68+ AND improving/stable trend AND 3+ consecutive days
+                </div>
                 <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
                 for research purposes only. Always do your own due diligence before investing.
                 <br/><br/>
-                StockPulse Long-Term Scanner | Runs daily at market close
+                StockPulse Long-Term Scanner | Runs daily at 5:30pm ET
             </div>
         </body>
         </html>
