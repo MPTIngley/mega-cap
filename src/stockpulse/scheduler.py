@@ -140,14 +140,52 @@ class StockPulseScheduler:
 
     def start(self) -> None:
         """Start the scheduler with all jobs."""
-        interval_minutes = self.scanning_config["interval_minutes"]
+        # Parse market hours from config
+        market_open = self.scanning_config.get("market_open", "09:30")
+        market_close = self.scanning_config.get("market_close", "16:00")
+        open_hour, open_min = map(int, market_open.split(":"))
+        close_hour, close_min = map(int, market_close.split(":"))
 
-        # Intraday job - every 15 minutes during market hours
+        # Opening scan - 2 minutes after market open (e.g., 9:32 AM)
         self.scheduler.add_job(
             self._run_intraday_job,
-            IntervalTrigger(minutes=interval_minutes),
+            CronTrigger(
+                hour=open_hour,
+                minute=open_min + 2,
+                day_of_week="mon-fri",
+                timezone=self.timezone
+            ),
+            id="intraday_open",
+            name="Opening scan (market open +2 min)",
+            replace_existing=True
+        )
+
+        # Regular intraday scans - every 15 minutes at :00, :15, :30, :45
+        # Only during market hours (handled by _is_market_hours check in the job)
+        self.scheduler.add_job(
+            self._run_intraday_job,
+            CronTrigger(
+                hour=f"{open_hour}-{close_hour - 1}",
+                minute="0,15,30,45",
+                day_of_week="mon-fri",
+                timezone=self.timezone
+            ),
             id="intraday_scan",
-            name="Intraday data ingestion and scan",
+            name="Intraday scan (every 15 min)",
+            replace_existing=True
+        )
+
+        # Closing scan - 2 minutes before market close (e.g., 3:58 PM)
+        self.scheduler.add_job(
+            self._run_intraday_job,
+            CronTrigger(
+                hour=close_hour - 1 if close_min < 2 else close_hour,
+                minute=close_min - 2 if close_min >= 2 else 60 + close_min - 2,
+                day_of_week="mon-fri",
+                timezone=self.timezone
+            ),
+            id="intraday_close",
+            name="Closing scan (market close -2 min)",
             replace_existing=True
         )
 
