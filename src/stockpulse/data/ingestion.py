@@ -247,6 +247,60 @@ class DataIngestion:
         logger.info(f"Fetched {len(combined)} intraday price records")
         return combined
 
+    def fetch_current_prices(self, tickers: list[str]) -> dict[str, float]:
+        """
+        Fetch current/live prices for tickers.
+
+        Args:
+            tickers: List of ticker symbols
+
+        Returns:
+            Dictionary mapping ticker to current price
+        """
+        if not tickers:
+            return {}
+
+        logger.info(f"Fetching current prices for {len(tickers)} tickers")
+        prices = {}
+
+        # Batch fetch using yfinance download with period="1d"
+        # This gets the most recent trading data
+        try:
+            self._rate_limit()
+            # Use 1d period with 1m interval to get latest price
+            data = yf.download(
+                tickers,
+                period="1d",
+                interval="1m",
+                progress=False,
+                threads=True
+            )
+
+            if not data.empty:
+                # Get the last available price for each ticker
+                if len(tickers) == 1:
+                    # Single ticker - data is flat
+                    if "Close" in data.columns:
+                        last_price = data["Close"].dropna().iloc[-1] if not data["Close"].dropna().empty else None
+                        if last_price is not None:
+                            prices[tickers[0]] = float(last_price)
+                else:
+                    # Multiple tickers - data has multi-level columns
+                    for ticker in tickers:
+                        try:
+                            if ticker in data["Close"].columns:
+                                ticker_close = data["Close"][ticker].dropna()
+                                if not ticker_close.empty:
+                                    prices[ticker] = float(ticker_close.iloc[-1])
+                        except Exception as e:
+                            logger.debug(f"Could not get price for {ticker}: {e}")
+
+        except Exception as e:
+            logger.warning(f"Error fetching current prices: {e}")
+
+        logger.info(f"Got current prices for {len(prices)} tickers")
+        return prices
+
     def fetch_fundamentals(self, tickers: list[str]) -> pd.DataFrame:
         """
         Fetch fundamental data for tickers.

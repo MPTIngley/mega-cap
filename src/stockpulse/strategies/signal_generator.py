@@ -126,6 +126,25 @@ class SignalGenerator:
         # Apply ensemble logic
         all_signals = self._apply_ensemble_logic(all_signals)
 
+        # Fetch current/live prices and update entry prices
+        if all_signals:
+            signal_tickers = list(set(s.ticker for s in all_signals))
+            current_prices = self.data_ingestion.fetch_current_prices(signal_tickers)
+
+            for signal in all_signals:
+                if signal.ticker in current_prices:
+                    old_entry = signal.entry_price
+                    current_price = current_prices[signal.ticker]
+                    signal.entry_price = current_price
+
+                    # Recalculate target and stop based on current price
+                    # Maintain the same percentage distances
+                    if old_entry > 0:
+                        target_pct = (signal.target_price - old_entry) / old_entry
+                        stop_pct = (signal.stop_price - old_entry) / old_entry
+                        signal.target_price = current_price * (1 + target_pct)
+                        signal.stop_price = current_price * (1 + stop_pct)
+
         # Store signals
         self._store_signals(all_signals)
 
