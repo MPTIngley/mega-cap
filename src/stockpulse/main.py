@@ -336,9 +336,16 @@ def run_scheduler():
 
     def on_intraday_scan(tickers):
         """Callback for intraday scans - generates signals, opens positions, sends alerts."""
+        print("\n" + "=" * 60)
+        print("  INTRADAY SCAN RUNNING")
+        print("=" * 60)
+        print(f"  Scanning {len(tickers)} tickers...")
+
         signals = signal_generator.generate_signals(tickers)
 
         if not signals:
+            print("  Result: No signals generated")
+            print("=" * 60 + "\n")
             logger.info("No signals generated")
             return
 
@@ -346,6 +353,7 @@ def run_scheduler():
         buy_signals = [s for s in signals if s.direction == SignalDirection.BUY]
         sell_signals = [s for s in signals if s.direction == SignalDirection.SELL]
 
+        print(f"  Found: {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
         logger.info(f"Generated {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
 
         # Get current portfolio state
@@ -443,8 +451,27 @@ def run_scheduler():
                 blocked_signals.append((signal, f"Error: {str(e)[:50]}"))
                 logger.error(f"Failed to open position for {signal.ticker}: {e}")
 
+        # Print scan results
+        print("-" * 60)
         if opened_positions:
+            print(f"  OPENED: {len(opened_positions)} positions")
+            for signal, size_pct, dollar_amount, _ in opened_positions:
+                print(f"    + {signal.ticker}: {size_pct:.1f}% (${dollar_amount:,.0f})")
             logger.info(f"Opened {len(opened_positions)} positions, total exposure: {running_exposure_pct:.1f}%")
+        else:
+            print("  OPENED: 0 positions")
+
+        if blocked_signals:
+            print(f"  BLOCKED: {len(blocked_signals)} signals")
+            for signal, reason in blocked_signals[:5]:
+                print(f"    - {signal.ticker}: {reason}")
+            if len(blocked_signals) > 5:
+                print(f"    ... and {len(blocked_signals) - 5} more")
+
+        if actionable_sells:
+            print(f"  SELL SIGNALS: {len(actionable_sells)} (holdings to consider selling)")
+
+        print(f"  Portfolio exposure: {running_exposure_pct:.1f}%")
 
         # Update existing positions (check stops/targets)
         from stockpulse.data.ingestion import DataIngestion
@@ -462,13 +489,20 @@ def run_scheduler():
         # Send consolidated email with actual results
         initial_capital = position_manager.initial_capital
 
-        alert_manager.send_scan_results_email(
+        email_sent = alert_manager.send_scan_results_email(
             opened_positions=opened_positions,
             blocked_signals=blocked_signals[:10],  # Top 10 blocked
             sell_signals=actionable_sells,
             portfolio_exposure_pct=running_exposure_pct,
             initial_capital=initial_capital
         )
+
+        if email_sent:
+            print("  Email: SENT")
+        else:
+            print("  Email: Not sent (no activity or quiet hours)")
+
+        print("=" * 60 + "\n")
 
     def on_daily_scan(tickers):
         """Callback for daily scans."""
