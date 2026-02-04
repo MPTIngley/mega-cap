@@ -336,18 +336,15 @@ def run_scheduler():
 
     def on_intraday_scan(tickers):
         """Callback for intraday scans - generates signals, opens positions, sends alerts."""
+        from stockpulse.strategies.signal_insights import SignalInsights
+
         print("\n" + "=" * 60)
         print("  INTRADAY SCAN RUNNING")
         print("=" * 60)
         print(f"  Scanning {len(tickers)} tickers...")
 
         signals = signal_generator.generate_signals(tickers)
-
-        if not signals:
-            print("  Result: No signals generated")
-            print("=" * 60 + "\n")
-            logger.info("No signals generated")
-            return
+        signal_insights = SignalInsights()
 
         # Separate BUY and SELL signals
         buy_signals = [s for s in signals if s.direction == SignalDirection.BUY]
@@ -356,7 +353,7 @@ def run_scheduler():
         print(f"  Found: {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
         logger.info(f"Generated {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
 
-        # Per-strategy breakdown
+        # Per-strategy breakdown with near-misses
         all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
                          "momentum_breakout", "week52_low_bounce", "sector_rotation"]
         strategy_signals = {s: [] for s in all_strategies}
@@ -364,20 +361,42 @@ def run_scheduler():
             if sig.strategy in strategy_signals:
                 strategy_signals[sig.strategy].append(sig)
 
+        # Get near-misses for strategies without signals
+        near_misses = signal_insights.get_near_misses(tickers, top_n=3)
+
+        # Get strategy capacity status
+        strategy_status = signal_insights.get_strategy_status(position_manager)
+
         print("\n  Per-Strategy Breakdown:")
         print("-" * 60)
         for strat in all_strategies:
             sigs = strategy_signals.get(strat, [])
+            status = strategy_status.get(strat, {})
+            capacity_info = f"[{status.get('current_exposure_pct', 0):.0f}%/{status.get('max_allowed_pct', 70):.0f}% used]"
+
             if sigs:
                 # Sort by confidence and show top 3
                 top_sigs = sorted(sigs, key=lambda s: s.confidence, reverse=True)[:3]
-                print(f"  {strat}: {len(sigs)} signals")
+                print(f"  {strat}: {len(sigs)} signals {capacity_info}")
                 for sig in top_sigs:
                     upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
-                    print(f"    • {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
+                    print(f"    ✓ {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
             else:
-                print(f"  {strat}: 0 signals (no stocks met criteria)")
+                # Show near-misses when no signals
+                nm = near_misses.get(strat, [])
+                if nm:
+                    print(f"  {strat}: 0 signals (near-misses below) {capacity_info}")
+                    for stock in nm:
+                        print(f"    ○ {stock['ticker']}: {stock['indicator']} - {stock['distance']}")
+                else:
+                    print(f"  {strat}: 0 signals (no stocks near criteria) {capacity_info}")
         print("-" * 60)
+
+        if not signals:
+            print("  Result: No signals generated")
+            print("=" * 60 + "\n")
+            logger.info("No signals generated")
+            return
 
         # Get current portfolio state
         open_positions_df = position_manager.get_open_positions()
@@ -405,8 +424,8 @@ def run_scheduler():
         ranked_buys = sorted(buy_signals, key=expected_return, reverse=True)
 
         # Track what happens to each signal
-        opened_positions = []  # (signal, size_pct, dollar_amount)
-        blocked_signals = []   # (signal, reason)
+        opened_positions = []  # (signal, size_pct, dollar_amount, sizing_details)
+        blocked_signals = []   # (signal, reason, detailed_reasons)
 
         running_exposure_pct = current_exposure_pct
         current_positions = len(portfolio_tickers)
@@ -415,12 +434,12 @@ def run_scheduler():
         for signal in ranked_buys:
             # Skip if already in portfolio
             if signal.ticker in portfolio_tickers:
-                blocked_signals.append((signal, "Already in portfolio"))
+                blocked_signals.append((signal, "Already in portfolio", []))
                 continue
 
             # Check position limit
             if current_positions >= max_positions:
-                blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
+                blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
                 continue
 
             # Calculate position size with details
@@ -433,7 +452,7 @@ def run_scheduler():
                 if remaining_pct >= min_position_size_pct:
                     size_pct = remaining_pct
                 else:
-                    blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
+                    blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached", []))
                     continue
 
             # Check if this would exceed strategy concentration limit
@@ -444,12 +463,16 @@ def run_scheduler():
 
             if size_pct > strategy_remaining:
                 # Try to fit a smaller position
-                # Try to fit a smaller position
                 if strategy_remaining >= min_position_size_pct:
                     size_pct = strategy_remaining
                     logger.info(f"Reduced {signal.ticker} to {size_pct:.1f}% to fit strategy limit")
                 else:
-                    blocked_signals.append((signal, f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)"))
+                    current_strat_pct = position_manager.get_strategy_current_exposure_pct(strategy)
+                    blocked_signals.append((
+                        signal,
+                        f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)",
+                        [{"icon": "📊", "reason": f"Strategy at {current_strat_pct:.1f}% (max {position_manager.max_per_strategy_pct:.0f}%)"}]
+                    ))
                     continue
 
             # Try to open the position with the (potentially reduced) size
@@ -464,10 +487,15 @@ def run_scheduler():
                     d = sizing_details
                     logger.info(f"Opened {signal.ticker} at {size_pct:.1f}%: {d['base_size_pct']}% × {d['strategy_weight']:.1f}strat × {d['confidence_mult']:.2f}conf")
                 else:
-                    # Position manager returned None - check why
-                    blocked_signals.append((signal, "Blocked by risk check"))
+                    # Position manager returned None - get detailed blocking reasons
+                    detailed_reasons = signal_insights.get_blocking_reasons(signal.ticker, position_manager)
+                    if detailed_reasons:
+                        reason_summary = "; ".join([r["reason"] for r in detailed_reasons])
+                        blocked_signals.append((signal, reason_summary, detailed_reasons))
+                    else:
+                        blocked_signals.append((signal, "Blocked by risk check", []))
             except Exception as e:
-                blocked_signals.append((signal, f"Error: {str(e)[:50]}"))
+                blocked_signals.append((signal, f"Error: {str(e)[:50]}", []))
                 logger.error(f"Failed to open position for {signal.ticker}: {e}")
 
         # Print scan results
@@ -482,8 +510,15 @@ def run_scheduler():
 
         if blocked_signals:
             print(f"  BLOCKED: {len(blocked_signals)} signals")
-            for signal, reason in blocked_signals[:5]:
-                print(f"    - {signal.ticker}: {reason}")
+            for item in blocked_signals[:5]:
+                signal = item[0]
+                reason = item[1]
+                detailed = item[2] if len(item) > 2 else []
+                print(f"    - {signal.ticker} ({signal.confidence:.0f}% conf): {reason}")
+                # Show additional details if available
+                for detail in detailed:
+                    if detail.get("detail"):
+                        print(f"        {detail.get('icon', '')} {detail.get('detail', '')}")
             if len(blocked_signals) > 5:
                 print(f"    ... and {len(blocked_signals) - 5} more")
 
@@ -513,7 +548,9 @@ def run_scheduler():
             blocked_signals=blocked_signals[:10],  # Top 10 blocked
             sell_signals=actionable_sells,
             portfolio_exposure_pct=running_exposure_pct,
-            initial_capital=initial_capital
+            initial_capital=initial_capital,
+            near_misses=near_misses,
+            strategy_status=strategy_status
         )
 
         if email_sent:
@@ -909,11 +946,11 @@ def run_scan():
 
     for signal in ranked_buys:
         if signal.ticker in portfolio_tickers:
-            blocked_signals.append((signal, "Already in portfolio"))
+            blocked_signals.append((signal, "Already in portfolio", []))
             continue
 
         if current_positions >= max_positions:
-            blocked_signals.append((signal, f"Max positions ({max_positions}) reached"))
+            blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
             continue
 
         # Calculate position size with details for display
@@ -924,7 +961,7 @@ def run_scan():
             if remaining_pct >= min_position_size_pct:
                 size_pct = remaining_pct
             else:
-                blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached"))
+                blocked_signals.append((signal, f"Portfolio exposure limit ({max_exposure_pct}%) reached", []))
                 continue
 
         # Check if this would exceed strategy concentration limit
@@ -939,7 +976,12 @@ def run_scan():
                 size_pct = strategy_remaining
                 print(f"  📉 {signal.ticker}: reduced to {size_pct:.1f}% to fit strategy limit")
             else:
-                blocked_signals.append((signal, f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)"))
+                current_strat_pct = position_manager.get_strategy_current_exposure_pct(strategy)
+                blocked_signals.append((
+                    signal,
+                    f"Strategy {strategy} limit reached ({position_manager.max_per_strategy_pct}%)",
+                    [{"icon": "📊", "reason": f"Strategy at {current_strat_pct:.1f}%"}]
+                ))
                 continue
 
         try:
@@ -956,10 +998,10 @@ def run_scan():
                 print(f"  ✅ {signal.ticker}: {size_pct:.1f}% (${dollar_amount:,.0f}) - {signal.strategy}")
                 print(f"      Sizing: {d['base_size_pct']}% × {d['strategy_weight']:.1f}strat × {d['confidence_mult']:.2f}conf = {d['raw_size_pct']:.1f}% → {d['final_size_pct']:.1f}%{cap_note}")
             else:
-                blocked_signals.append((signal, "Blocked by risk check"))
+                blocked_signals.append((signal, "Blocked by risk check", []))
                 print(f"  ❌ {signal.ticker}: blocked by risk limits")
         except Exception as e:
-            blocked_signals.append((signal, f"Error: {str(e)[:30]}"))
+            blocked_signals.append((signal, f"Error: {str(e)[:30]}", []))
             print(f"  ❌ {signal.ticker}: error - {e}")
 
     print(f"\n  Summary: {len(opened_positions)} opened, {len(blocked_signals)} blocked, {running_exposure_pct:.1f}% exposure")

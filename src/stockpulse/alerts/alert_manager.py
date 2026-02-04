@@ -306,10 +306,12 @@ class AlertManager:
     def send_scan_results_email(
         self,
         opened_positions: list[tuple],  # (signal, size_pct, dollar_amount, sizing_details) or (signal, size_pct, dollar_amount)
-        blocked_signals: list[tuple],   # (signal, reason)
+        blocked_signals: list[tuple],   # (signal, reason, detailed_reasons) or (signal, reason)
         sell_signals: list[Signal],
         portfolio_exposure_pct: float,
-        initial_capital: float
+        initial_capital: float,
+        near_misses: dict[str, list[dict]] | None = None,
+        strategy_status: dict[str, dict] | None = None
     ) -> bool:
         """
         Send email showing actual scan results - what was opened and what was blocked.
@@ -317,10 +319,13 @@ class AlertManager:
         Args:
             opened_positions: List of (signal, size_pct, dollar_amount, sizing_details) for opened positions
                              sizing_details is optional for backwards compat
-            blocked_signals: List of (signal, reason) for blocked signals
+            blocked_signals: List of (signal, reason, detailed_reasons) for blocked signals
+                            detailed_reasons is optional for backwards compat
             sell_signals: Actionable sell signals
             portfolio_exposure_pct: Current portfolio exposure percentage
             initial_capital: Initial capital amount
+            near_misses: Optional dict of strategy -> list of near-miss stocks
+            strategy_status: Optional dict of strategy -> status info
         """
         if self._is_quiet_hours():
             logger.info("Quiet hours - skipping scan alert")
@@ -372,15 +377,26 @@ class AlertManager:
 
         # Build blocked signals table
         blocked_rows = ""
-        for signal, reason in blocked_signals:
+        for item in blocked_signals:
+            signal = item[0]
+            reason = item[1]
+            detailed_reasons = item[2] if len(item) > 2 else []
             size_pct = self.position_manager.calculate_position_size_pct(signal)
+
+            # Show detailed reasons if available
+            reason_html = reason
+            if detailed_reasons:
+                detail_parts = [f"{r.get('icon', '')} {r.get('detail', r.get('reason', ''))}" for r in detailed_reasons if r.get('detail') or r.get('reason')]
+                if detail_parts:
+                    reason_html = f"{reason}<br/><small style='color: #94a3b8;'>{'; '.join(detail_parts)}</small>"
+
             blocked_rows += f"""
             <tr style="opacity: 0.7;">
                 <td>{signal.ticker}</td>
                 <td>{signal.strategy}</td>
                 <td>{signal.confidence:.0f}%</td>
                 <td>{size_pct:.1f}%</td>
-                <td style="color: #f59e0b;">{reason}</td>
+                <td style="color: #f59e0b;">{reason_html}</td>
             </tr>
             """
 
@@ -394,6 +410,46 @@ class AlertManager:
                 <td>{signal.confidence:.0f}%</td>
                 <td>${signal.entry_price:.2f}</td>
             </tr>
+            """
+
+        # Build strategy insights section
+        strategy_insights_html = ""
+        if near_misses or strategy_status:
+            all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
+                            "momentum_breakout", "week52_low_bounce", "sector_rotation"]
+
+            strat_rows = ""
+            for strat in all_strategies:
+                status = strategy_status.get(strat, {}) if strategy_status else {}
+                nm = near_misses.get(strat, []) if near_misses else []
+
+                exposure = status.get("current_exposure_pct", 0)
+                max_pct = status.get("max_allowed_pct", 70)
+                can_open = status.get("can_open_more", True)
+
+                # Near-miss info
+                nm_info = ""
+                if nm:
+                    nm_tickers = ", ".join([f"{n['ticker']} ({n['indicator']})" for n in nm[:2]])
+                    nm_info = f"<br/><small style='color: #94a3b8;'>Near: {nm_tickers}</small>"
+
+                status_icon = "✓" if can_open else "⏸"
+                status_color = "#4ade80" if can_open else "#f59e0b"
+
+                strat_rows += f"""
+                <tr>
+                    <td>{strat}</td>
+                    <td>{exposure:.1f}%/{max_pct:.0f}%</td>
+                    <td style="color: {status_color}">{status_icon}{nm_info}</td>
+                </tr>
+                """
+
+            strategy_insights_html = f"""
+            <h2 class='section-title' style='border-left-color: #6366f1;'>📊 Strategy Status</h2>
+            <table>
+                <tr><th>Strategy</th><th>Exposure</th><th>Status / Near-Misses</th></tr>
+                {strat_rows}
+            </table>
             """
 
         body_html = f"""
@@ -432,6 +488,8 @@ class AlertManager:
                 {"<h2 class='section-title blocked-title'>⏸️ Signals Blocked (" + str(len(blocked_signals)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Would Be</th><th>Reason</th></tr>" + blocked_rows + "</table>" if blocked_rows else ""}
 
                 {"<h2 class='section-title sell-title'>📉 Sell Signals (" + str(len(sell_signals)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Price</th></tr>" + sell_rows + "</table>" if sell_rows else ""}
+
+                {strategy_insights_html}
 
                 <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
                     <strong>Allocation Rules:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br>
@@ -484,7 +542,7 @@ class AlertManager:
 
     def send_daily_digest(self) -> bool:
         """
-        Send daily digest email with full portfolio status.
+        Send daily digest email with full portfolio status and strategy insights.
 
         Returns:
             True if sent successfully
@@ -571,6 +629,9 @@ class AlertManager:
             "todays_closed": len(todays_closed) if not todays_closed.empty else 0,
         }
 
+        # Get strategy insights for digest
+        strategy_insights = self._get_strategy_insights_for_digest(signals_df, positions_df)
+
         success = self.email_sender.send_daily_digest(
             signals=signals,
             positions=positions,
@@ -578,7 +639,8 @@ class AlertManager:
             portfolio_summary=portfolio_summary,
             todays_opened=todays_opened.to_dict("records") if not todays_opened.empty else [],
             todays_closed=todays_closed.to_dict("records") if not todays_closed.empty else [],
-            recent_closed=recent_closed.to_dict("records") if not recent_closed.empty else []
+            recent_closed=recent_closed.to_dict("records") if not recent_closed.empty else [],
+            strategy_insights=strategy_insights
         )
 
         self._log_alert(
@@ -590,6 +652,77 @@ class AlertManager:
         )
 
         return success
+
+    def _get_strategy_insights_for_digest(
+        self,
+        signals_df: pd.DataFrame,
+        positions_df: pd.DataFrame
+    ) -> dict[str, Any]:
+        """
+        Get strategy-level insights for the daily digest.
+
+        Returns:
+            Dict with strategy breakdowns, capacity info, and blocked tickers
+        """
+        from stockpulse.strategies.signal_insights import SignalInsights
+
+        all_strategies = [
+            "rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
+            "momentum_breakout", "week52_low_bounce", "sector_rotation"
+        ]
+
+        insights = {
+            "by_strategy": {},
+            "blocked_tickers": [],
+            "capacity_warnings": [],
+        }
+
+        try:
+            signal_insights = SignalInsights()
+            strategy_status = signal_insights.get_strategy_status(self.position_manager)
+
+            for strategy in all_strategies:
+                status = strategy_status.get(strategy, {})
+                current_exp = status.get("current_exposure_pct", 0)
+                max_allowed = status.get("max_allowed_pct", 70)
+                position_count = status.get("position_count", 0)
+                can_open = status.get("can_open_more", True)
+
+                # Get today's signals for this strategy
+                if not signals_df.empty and "strategy" in signals_df.columns:
+                    strategy_signals = signals_df[signals_df["strategy"] == strategy]
+                    signal_count = len(strategy_signals)
+                    top_signals = strategy_signals.head(3).to_dict("records") if not strategy_signals.empty else []
+                else:
+                    signal_count = 0
+                    top_signals = []
+
+                insights["by_strategy"][strategy] = {
+                    "signal_count": signal_count,
+                    "top_signals": top_signals,
+                    "position_count": position_count,
+                    "exposure_pct": current_exp,
+                    "max_pct": max_allowed,
+                    "utilization_pct": (current_exp / max_allowed * 100) if max_allowed > 0 else 0,
+                    "can_open_more": can_open,
+                }
+
+                # Track capacity warnings
+                if not can_open:
+                    insights["capacity_warnings"].append({
+                        "strategy": strategy,
+                        "exposure_pct": current_exp,
+                        "max_pct": max_allowed,
+                    })
+
+            # Get blocked tickers
+            blocked = self.position_manager.get_blocked_tickers()
+            insights["blocked_tickers"] = blocked[:10]  # Top 10 blocked
+
+        except Exception as e:
+            logger.warning(f"Error getting strategy insights: {e}")
+
+        return insights
 
     def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
         """Get current prices for a list of tickers."""

@@ -288,10 +288,11 @@ class EmailSender:
         portfolio_summary: dict[str, Any] | None = None,
         todays_opened: list[dict] | None = None,
         todays_closed: list[dict] | None = None,
-        recent_closed: list[dict] | None = None
+        recent_closed: list[dict] | None = None,
+        strategy_insights: dict[str, Any] | None = None
     ) -> bool:
         """
-        Send daily digest email with full portfolio status.
+        Send daily digest email with full portfolio status and strategy insights.
 
         Args:
             signals: Today's signals
@@ -301,6 +302,7 @@ class EmailSender:
             todays_opened: Positions opened today
             todays_closed: Positions closed today
             recent_closed: Recently closed positions
+            strategy_insights: Per-strategy breakdown with capacity and blocked tickers
 
         Returns:
             True if sent successfully
@@ -436,6 +438,65 @@ class EmailSender:
         total_trades = performance.get("total_trades", 0)
         profit_factor = performance.get("profit_factor", 0)
 
+        # Strategy insights section
+        strategy_html = ""
+        if strategy_insights:
+            by_strategy = strategy_insights.get("by_strategy", {})
+            blocked_tickers = strategy_insights.get("blocked_tickers", [])
+            capacity_warnings = strategy_insights.get("capacity_warnings", [])
+
+            strategy_rows = ""
+            for strat_name, strat_info in by_strategy.items():
+                exposure = strat_info.get("exposure_pct", 0)
+                max_pct = strat_info.get("max_pct", 70)
+                util_pct = strat_info.get("utilization_pct", 0)
+                signal_count = strat_info.get("signal_count", 0)
+                pos_count = strat_info.get("position_count", 0)
+                can_open = strat_info.get("can_open_more", True)
+
+                # Color based on capacity
+                if util_pct >= 100:
+                    util_color = "#ef4444"  # Red - at limit
+                elif util_pct >= 80:
+                    util_color = "#f59e0b"  # Yellow - near limit
+                else:
+                    util_color = "#4ade80"  # Green - good capacity
+
+                status_icon = "✓" if can_open else "⏸"
+
+                strategy_rows += f"""
+                <tr>
+                    <td>{strat_name}</td>
+                    <td>{pos_count}</td>
+                    <td>{signal_count}</td>
+                    <td style="color: {util_color}">{exposure:.1f}%/{max_pct:.0f}%</td>
+                    <td>{status_icon}</td>
+                </tr>
+                """
+
+            blocked_html = ""
+            if blocked_tickers:
+                blocked_items = ""
+                for bt in blocked_tickers[:5]:
+                    blocked_items += f"<li>{bt.get('ticker', 'N/A')}: {bt.get('reason', 'Unknown')}</li>"
+                blocked_html = f"""
+                <div style="margin-top: 15px; padding: 10px; background: #1e293b; border-radius: 8px;">
+                    <strong style="color: #f59e0b;">⏱️ Blocked Tickers ({len(blocked_tickers)}):</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px; color: #94a3b8;">
+                        {blocked_items}
+                    </ul>
+                </div>
+                """
+
+            strategy_html = f"""
+            <h2>Strategy Breakdown</h2>
+            <table>
+                <tr><th>Strategy</th><th>Positions</th><th>Signals Today</th><th>Exposure</th><th>Status</th></tr>
+                {strategy_rows}
+            </table>
+            {blocked_html}
+            """
+
         body_html = f"""
         <html>
         <head>
@@ -493,6 +554,7 @@ class EmailSender:
                 {positions_html}
                 {recent_html}
                 {signals_html}
+                {strategy_html}
 
                 <div class="footer">
                     StockPulse Paper Trading System<br>
