@@ -356,6 +356,29 @@ def run_scheduler():
         print(f"  Found: {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
         logger.info(f"Generated {len(buy_signals)} BUY signals, {len(sell_signals)} SELL signals")
 
+        # Per-strategy breakdown
+        all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
+                         "momentum_breakout", "week52_low_bounce", "sector_rotation"]
+        strategy_signals = {s: [] for s in all_strategies}
+        for sig in buy_signals:
+            if sig.strategy in strategy_signals:
+                strategy_signals[sig.strategy].append(sig)
+
+        print("\n  Per-Strategy Breakdown:")
+        print("-" * 60)
+        for strat in all_strategies:
+            sigs = strategy_signals.get(strat, [])
+            if sigs:
+                # Sort by confidence and show top 3
+                top_sigs = sorted(sigs, key=lambda s: s.confidence, reverse=True)[:3]
+                print(f"  {strat}: {len(sigs)} signals")
+                for sig in top_sigs:
+                    upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
+                    print(f"    • {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
+            else:
+                print(f"  {strat}: 0 signals (no stocks met criteria)")
+        print("-" * 60)
+
         # Get current portfolio state
         open_positions_df = position_manager.get_open_positions()
         portfolio_tickers = set(open_positions_df["ticker"].tolist()) if not open_positions_df.empty else set()
