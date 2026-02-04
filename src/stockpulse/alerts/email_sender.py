@@ -439,6 +439,7 @@ class EmailSender:
         profit_factor = performance.get("profit_factor", 0)
 
         # Strategy insights section with per-strategy signal breakdown
+        from stockpulse.strategies.signal_insights import STRATEGY_DESCRIPTIONS
         strategy_html = ""
         if strategy_insights:
             by_strategy = strategy_insights.get("by_strategy", {})
@@ -452,11 +453,23 @@ class EmailSender:
                 signal_count = strat_info.get("signal_count", 0)
                 pos_count = strat_info.get("position_count", 0)
                 signal_details = strat_info.get("signal_details", [])
+                strat_desc = STRATEGY_DESCRIPTIONS.get(strat_name, {}).get("short", strat_name)
 
                 if signal_details:
-                    # Build signal rows for this strategy
+                    # De-duplicate: one signal per ticker, keep highest confidence
+                    seen_tickers = set()
+                    deduped_signals = []
+                    for sig in sorted(signal_details, key=lambda s: s.get("confidence", 0), reverse=True):
+                        ticker = sig.get("ticker", "N/A")
+                        if ticker not in seen_tickers:
+                            seen_tickers.add(ticker)
+                            deduped_signals.append(sig)
+                        if len(deduped_signals) >= 10:
+                            break
+
+                    # Build signal rows for this strategy (top 10 de-duped)
                     signal_rows = ""
-                    for sig in signal_details[:10]:
+                    for sig in deduped_signals:
                         ticker = sig.get("ticker", "N/A")
                         conf = sig.get("confidence", 0)
                         entry = sig.get("entry_price", 0)
@@ -473,7 +486,7 @@ class EmailSender:
                             reason_short = reason[:35] + "..." if len(reason) > 35 else reason
                             status_html = f"<span style='color: #f59e0b;'>⏸ {reason_short}</span>"
                         else:
-                            status_html = f"<span style='color: #64748b;'>— {reason[:25]}</span>"
+                            status_html = f"<span style='color: #64748b;'>— {reason[:25] if reason else 'Not traded'}</span>"
 
                         signal_rows += f"""
                         <tr>
@@ -488,11 +501,11 @@ class EmailSender:
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
                         <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #334155; padding-bottom: 5px;">
-                            {strat_name}
-                            <span style="color: #64748b; font-weight: normal;">
-                                — {signal_count} signals, {pos_count} positions, {exposure:.0f}%/{max_pct:.0f}% used
-                            </span>
+                            {strat_desc}
                         </h3>
+                        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px 0;">
+                            Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | Top {len(deduped_signals)} of {signal_count} signals:
+                        </p>
                         <table style="font-size: 12px;">
                             <tr><th>Ticker</th><th>Conf</th><th>Entry</th><th>Upside</th><th>Action</th></tr>
                             {signal_rows}
@@ -504,11 +517,11 @@ class EmailSender:
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 15px;">
                         <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
-                            {strat_name}
-                            <span style="font-weight: normal;">
-                                — 0 signals, {pos_count} positions, {exposure:.0f}%/{max_pct:.0f}% used
-                            </span>
+                            {strat_desc}
                         </h3>
+                        <p style="color: #475569; font-size: 11px; margin: 0;">
+                            Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | No signals today
+                        </p>
                     </div>
                     """
 
@@ -591,9 +604,69 @@ class EmailSender:
                 {signals_html}
                 {strategy_html}
 
-                <div class="footer">
-                    StockPulse Paper Trading System<br>
-                    This is not financial advice. Trade at your own risk.
+                <div style="margin-top: 40px; padding: 20px; background: #0f3460; border-radius: 8px; border-top: 2px solid #667eea;">
+                    <h2 style="color: #94a3b8; font-size: 16px; margin-top: 0;">📚 Strategy Guide</h2>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            RSI (Relative Strength Index) measures how "oversold" or "overbought" a stock is on a scale of 0-100.
+                            When RSI drops below 30, the stock has fallen sharply and is considered oversold - historically, these stocks tend to bounce back.
+                            <br/><strong>Settings:</strong> Buy when RSI &lt; 30, Sell when RSI &gt; 70, using 14-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            MACD (Moving Average Convergence Divergence) tracks momentum by comparing short-term vs long-term price trends.
+                            When the fast trend crosses above the slow trend with strong volume, it signals the stock is gaining momentum.
+                            <br/><strong>Settings:</strong> Buy on MACD crossover with 1.5x average volume. Uses 12/26 day EMAs and 9-day signal line.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Z-score measures how far a stock's price is from its recent average, in standard deviations.
+                            A Z-score of -2.0 means the price is unusually low - like a rubber band stretched too far, it tends to snap back.
+                            <br/><strong>Settings:</strong> Buy when Z-score &lt; -2.0, Sell when Z-score &gt; 1.0, using 20-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            This strategy catches stocks "breaking out" to new highs. When a stock breaks above its recent 20-day high with volume,
+                            it often signals the start of an uptrend - like a stock breaking free from a ceiling.
+                            <br/><strong>Settings:</strong> Buy on new 20-day high with 1.2x average volume. Target +8% gain.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Stocks near their yearly low can be bargains if fundamentally sound. This buys quality S&amp;P 500 stocks
+                            near their 52-week low, betting on a rebound - like buying a brand-name product at clearance prices.
+                            <br/><strong>Settings:</strong> Buy when within 10% of 52-week low.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Different market sectors take turns leading. This identifies stocks outperforming the overall market,
+                            betting on continued momentum - like backing the winning horse mid-race.
+                            <br/><strong>Settings:</strong> Buy when relative strength &gt; 1.1 (10% better than market), 20-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #334155;">
+                        <p style="color: #64748b; font-size: 11px; margin: 0;">
+                            <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
+                            <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
+                        </p>
+                    </div>
                 </div>
             </div>
         </body>

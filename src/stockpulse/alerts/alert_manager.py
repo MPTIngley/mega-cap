@@ -416,22 +416,24 @@ class AlertManager:
             """
 
         # Build strategy insights section with per-strategy signal breakdown
+        from stockpulse.strategies.signal_insights import STRATEGY_DESCRIPTIONS
         strategy_insights_html = ""
         all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
                         "momentum_breakout", "week52_low_bounce", "sector_rotation"]
 
         if strategy_signal_summary:
-            # Build per-strategy signal tables
+            # Build per-strategy signal tables (top 3 for scan email)
             strategy_tables_html = ""
             for strat in all_strategies:
                 signals_for_strat = strategy_signal_summary.get(strat, [])
                 status = strategy_status.get(strat, {}) if strategy_status else {}
                 exposure = status.get("current_exposure_pct", 0)
                 max_pct = status.get("max_allowed_pct", 70)
+                strat_desc = STRATEGY_DESCRIPTIONS.get(strat, {}).get("short", strat)
 
                 if signals_for_strat:
                     signal_rows = ""
-                    for sig in signals_for_strat[:10]:
+                    for sig in signals_for_strat[:3]:  # Top 3 for scan email
                         ticker = sig.get("ticker", "N/A")
                         conf = sig.get("confidence", 0)
                         entry = sig.get("entry_price", 0)
@@ -463,8 +465,11 @@ class AlertManager:
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
                         <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
-                            {strat} <span style="color: #64748b;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
+                            {strat_desc}
                         </h3>
+                        <p style="color: #64748b; font-size: 11px; margin: 0 0 8px 0;">
+                            Capacity: {exposure:.0f}%/{max_pct:.0f}% used | Top {len(signals_for_strat[:3])} of {len(signals_for_strat)} signals:
+                        </p>
                         <table style="font-size: 13px;">
                             <tr><th>Ticker</th><th>Conf</th><th>Entry</th><th>Upside</th><th>Status</th></tr>
                             {signal_rows}
@@ -475,24 +480,31 @@ class AlertManager:
                     # Show near-misses for strategies with no signals
                     nm = near_misses.get(strat, []) if near_misses else []
                     if nm:
-                        nm_info = ", ".join([f"{n['ticker']} ({n['indicator']})" for n in nm[:3]])
+                        nm_rows = ""
+                        for n in nm[:3]:
+                            nm_rows += f"<li>{n['ticker']}: {n['indicator']} ({n['distance']})</li>"
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 15px;">
                             <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
-                                {strat} <span style="color: #64748b;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
+                                {strat_desc}
                             </h3>
-                            <p style="color: #64748b; font-size: 12px; margin: 5px 0;">
-                                No signals. Near-misses: {nm_info}
+                            <p style="color: #64748b; font-size: 11px; margin: 0 0 5px 0;">
+                                Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals, but close:
                             </p>
+                            <ul style="color: #64748b; font-size: 12px; margin: 5px 0; padding-left: 20px;">
+                                {nm_rows}
+                            </ul>
                         </div>
                         """
                     else:
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 10px;">
                             <h3 style="color: #64748b; font-size: 14px; margin: 10px 0 5px 0;">
-                                {strat} <span style="color: #475569;">({exposure:.0f}%/{max_pct:.0f}% used)</span>
-                                — No signals
+                                {strat_desc}
                             </h3>
+                            <p style="color: #475569; font-size: 11px; margin: 0;">
+                                Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals
+                            </p>
                         </div>
                         """
 
@@ -576,10 +588,70 @@ class AlertManager:
 
                 {strategy_insights_html}
 
-                <p style="color: #64748b; font-size: 12px; margin-top: 30px;">
-                    <strong>Allocation Rules:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br>
-                    <strong>Disclaimer:</strong> Paper trading only. Not financial advice.
-                </p>
+                <div style="margin-top: 40px; padding: 20px; background: #1e293b; border-radius: 8px; border-top: 2px solid #3b82f6;">
+                    <h2 style="color: #94a3b8; font-size: 16px; margin-top: 0;">📚 Strategy Guide</h2>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            RSI (Relative Strength Index) measures how "oversold" or "overbought" a stock is on a scale of 0-100.
+                            When RSI drops below 30, the stock has fallen sharply and is considered oversold - historically, these stocks tend to bounce back.
+                            <br/><strong>Settings:</strong> Buy when RSI &lt; 30, Sell when RSI &gt; 70, using 14-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            MACD (Moving Average Convergence Divergence) tracks momentum by comparing short-term vs long-term price trends.
+                            When the fast trend crosses above the slow trend with strong volume, it signals the stock is gaining momentum.
+                            <br/><strong>Settings:</strong> Buy on MACD crossover with 1.5x average volume. Uses 12/26 day EMAs and 9-day signal line.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Z-score measures how far a stock's price is from its recent average, in standard deviations.
+                            A Z-score of -2.0 means the price is unusually low - like a rubber band stretched too far, it tends to snap back.
+                            <br/><strong>Settings:</strong> Buy when Z-score &lt; -2.0, Sell when Z-score &gt; 1.0, using 20-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            This strategy catches stocks "breaking out" to new highs. When a stock breaks above its recent 20-day high with volume,
+                            it often signals the start of an uptrend - like a stock breaking free from a ceiling.
+                            <br/><strong>Settings:</strong> Buy on new 20-day high with 1.2x average volume. Target +8% gain.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Stocks near their yearly low can be bargains if fundamentally sound. This buys quality S&amp;P 500 stocks
+                            near their 52-week low, betting on a rebound - like buying a brand-name product at clearance prices.
+                            <br/><strong>Settings:</strong> Buy when within 10% of 52-week low.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                            Different market sectors take turns leading. This identifies stocks outperforming the overall market,
+                            betting on continued momentum - like backing the winning horse mid-race.
+                            <br/><strong>Settings:</strong> Buy when relative strength &gt; 1.1 (10% better than market), 20-day lookback.
+                        </p>
+                    </div>
+
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #334155;">
+                        <p style="color: #64748b; font-size: 11px; margin: 0;">
+                            <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
+                            <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
+                        </p>
+                    </div>
+                </div>
             </div>
         </body>
         </html>

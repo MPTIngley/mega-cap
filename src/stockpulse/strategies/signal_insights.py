@@ -18,6 +18,66 @@ from stockpulse.data.ingestion import DataIngestion
 logger = get_logger(__name__)
 
 
+# Human-readable strategy descriptions with intuition
+STRATEGY_DESCRIPTIONS = {
+    "rsi_mean_reversion": {
+        "short": "RSI Mean Reversion: Buy oversold stocks (RSI below 30) expecting a bounce back",
+        "long": """**RSI Mean Reversion** - Relative Strength Index (RSI) measures how "oversold" or
+"overbought" a stock is on a scale of 0-100. When RSI drops below 30, the stock has fallen sharply
+and is considered oversold - historically, these stocks tend to bounce back. We buy when RSI < 30
+and sell when it recovers above 70. Think of it like buying a stock that's "on sale" after a big drop.
+
+Our settings: Buy trigger = RSI < 30, Sell trigger = RSI > 70, Lookback = 14 days"""
+    },
+    "macd_volume": {
+        "short": "MACD Volume: Buy when momentum shifts positive with strong trading volume",
+        "long": """**MACD Volume** - MACD (Moving Average Convergence Divergence) tracks momentum by
+comparing short-term vs long-term price trends. When the fast trend crosses above the slow trend,
+it signals the stock is gaining momentum. We add a volume filter - only buying when trading volume
+is above average, confirming real interest in the stock. Think of it like waiting for a car to
+accelerate before getting in.
+
+Our settings: MACD crossover = 12/26 day EMAs, Signal line = 9 days, Volume filter = 1.5x average"""
+    },
+    "zscore_mean_reversion": {
+        "short": "Z-Score Mean Reversion: Buy stocks that dropped 2+ standard deviations below normal",
+        "long": """**Z-Score Mean Reversion** - Z-score measures how far a stock's price is from its
+recent average, in units of standard deviation. A Z-score of -2.0 means the price is 2 standard
+deviations below its average - a statistically unusual drop. These extreme moves often reverse.
+Think of it like a rubber band stretched too far - it tends to snap back.
+
+Our settings: Buy trigger = Z-score < -2.0, Sell trigger = Z-score > 1.0, Lookback = 20 days"""
+    },
+    "momentum_breakout": {
+        "short": "Momentum Breakout: Buy stocks breaking above their 20-day high with volume",
+        "long": """**Momentum Breakout** - This strategy catches stocks making new highs. When a stock
+breaks above its recent 20-day high price, it often signals the start of an uptrend. We confirm with
+above-average volume to ensure the breakout has real buying interest behind it. Think of it like
+a stock "breaking free" from a ceiling that was holding it back.
+
+Our settings: Breakout trigger = New 20-day high, Volume filter = 1.2x average, Target = +8% gain"""
+    },
+    "week52_low_bounce": {
+        "short": "52-Week Low Bounce: Buy quality stocks near their yearly lows",
+        "long": """**52-Week Low Bounce** - Stocks trading near their 52-week (yearly) low can be
+bargains if the company is fundamentally sound. This strategy buys when a stock is within 10% of
+its yearly low, betting on a rebound. We focus on S&P 500 companies to ensure quality. Think of it
+like buying a brand-name product at a clearance sale.
+
+Our settings: Buy trigger = Within 10% of 52-week low, Max distance = 20% above low"""
+    },
+    "sector_rotation": {
+        "short": "Sector Rotation: Buy stocks in sectors showing relative strength vs the market",
+        "long": """**Sector Rotation** - Different sectors (tech, healthcare, energy, etc.) take turns
+leading the market. This strategy identifies stocks in sectors outperforming the S&P 500 index.
+We measure "relative strength" - if a stock is rising faster than the market, it has positive
+momentum. Think of it like betting on the winning horse mid-race.
+
+Our settings: Relative strength trigger > 1.1 (10% better than market), Lookback = 20 days"""
+    }
+}
+
+
 class SignalInsights:
     """
     Analyzes stocks for near-miss conditions and blocking reasons.
@@ -95,9 +155,9 @@ class SignalInsights:
                 near_misses["rsi_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"RSI={rsi:.1f}",
+                    "indicator": f"RSI {rsi:.1f}",
                     "criteria": "RSI < 30 (oversold)",
-                    "distance": f"{distance:.1f} pts away",
+                    "distance": f"{distance:.1f} pts above 30 trigger",
                     "score": 100 - (distance * 10),  # Score for sorting
                 })
 
@@ -111,9 +171,9 @@ class SignalInsights:
                 near_misses["macd_volume"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"MACD gap={macd_diff:.2f}",
+                    "indicator": f"MACD {abs(macd_diff):.2f} below signal",
                     "criteria": "MACD crosses above signal",
-                    "distance": f"{abs(macd_diff):.2f} to crossover",
+                    "distance": f"converging, {abs(macd_diff):.2f} to crossover",
                     "score": 100 - (abs(macd_diff) * 100),
                 })
 
@@ -124,9 +184,9 @@ class SignalInsights:
                 near_misses["zscore_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"Z={zscore:.2f}",
+                    "indicator": f"Z-score {zscore:.2f}",
                     "criteria": "Z-score < -2.0",
-                    "distance": f"{distance:.2f} to trigger",
+                    "distance": f"needs {distance:.2f} more drop to hit −2.0",
                     "score": 100 - (distance * 50),
                 })
 
@@ -138,9 +198,9 @@ class SignalInsights:
                     near_misses["momentum_breakout"].append({
                         "ticker": ticker,
                         "price": current_price,
-                        "indicator": f"20d high=${high_20d:.2f}",
+                        "indicator": f"${current_price:.2f} vs 20d high ${high_20d:.2f}",
                         "criteria": "Break above 20-day high",
-                        "distance": f"{pct_from_high:.1f}% below",
+                        "distance": f"only {pct_from_high:.1f}% below breakout",
                         "score": 100 - (pct_from_high * 20),
                     })
 
@@ -152,9 +212,9 @@ class SignalInsights:
                     near_misses["week52_low_bounce"].append({
                         "ticker": ticker,
                         "price": current_price,
-                        "indicator": f"52w low=${low_52w:.2f}",
+                        "indicator": f"${current_price:.2f} vs 52w low ${low_52w:.2f}",
                         "criteria": "Within 10% of 52-week low",
-                        "distance": f"{pct_above_low:.1f}% above (need <10%)",
+                        "distance": f"{pct_above_low:.1f}% above low (need ≤10%)",
                         "score": 100 - ((pct_above_low - 10) * 10),
                     })
 
@@ -164,9 +224,9 @@ class SignalInsights:
                 near_misses["sector_rotation"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"RelStr={rel_strength:.2f}",
+                    "indicator": f"Rel strength {rel_strength:.2f}",
                     "criteria": "Relative strength > 1.1",
-                    "distance": f"{(1.1 - rel_strength):.2f} to trigger",
+                    "distance": f"needs +{(1.1 - rel_strength):.2f} to reach 1.1 trigger",
                     "score": 100 - ((1.1 - rel_strength) * 100),
                 })
 

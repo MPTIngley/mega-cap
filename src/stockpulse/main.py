@@ -847,33 +847,12 @@ def run_scan():
     near_misses = signal_insights.get_near_misses(tickers, top_n=3)
     strategy_status = signal_insights.get_strategy_status(position_manager)
 
+    # Import strategy descriptions
+    from stockpulse.strategies.signal_insights import STRATEGY_DESCRIPTIONS
+
     print("\n" + "=" * 80)
     print("  STOCKPULSE SCAN RESULTS")
     print("=" * 80)
-
-    # === PER-STRATEGY BREAKDOWN ===
-    print("\n  📊 PER-STRATEGY BREAKDOWN:")
-    print("-" * 80)
-    for strat in all_strategies:
-        sigs = strategy_signals.get(strat, [])
-        status = strategy_status.get(strat, {})
-        capacity_info = f"[{status.get('current_exposure_pct', 0):.0f}%/{status.get('max_allowed_pct', 70):.0f}% used]"
-
-        if sigs:
-            top_sigs = sorted(sigs, key=lambda s: s.confidence, reverse=True)[:3]
-            print(f"  {strat}: {len(sigs)} signals {capacity_info}")
-            for sig in top_sigs:
-                upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
-                print(f"    ✓ {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
-        else:
-            nm = near_misses.get(strat, [])
-            if nm:
-                print(f"  {strat}: 0 signals (near-misses below) {capacity_info}")
-                for stock in nm:
-                    print(f"    ○ {stock['ticker']}: {stock['indicator']} - {stock['distance']}")
-            else:
-                print(f"  {strat}: 0 signals {capacity_info}")
-    print("-" * 80)
 
     # === BUY SIGNALS ===
     print(f"\n  📈 BUY SIGNALS: {len(buy_signals)}")
@@ -896,6 +875,35 @@ def run_scan():
             print()
     else:
         print("  No buy signals\n")
+
+    # === PER-STRATEGY BREAKDOWN (after buy signals for easier reference) ===
+    print(f"\n  📊 PER-STRATEGY BREAKDOWN:")
+    print("-" * 80)
+    for strat in all_strategies:
+        sigs = strategy_signals.get(strat, [])
+        status = strategy_status.get(strat, {})
+        capacity_info = f"[{status.get('current_exposure_pct', 0):.0f}%/{status.get('max_allowed_pct', 70):.0f}% used]"
+        strat_desc = STRATEGY_DESCRIPTIONS.get(strat, {}).get("short", strat)
+
+        # Print strategy header with description
+        print(f"\n  {strat_desc}")
+        print(f"    Capacity: {capacity_info}")
+
+        if sigs:
+            top_sigs = sorted(sigs, key=lambda s: s.confidence, reverse=True)[:3]
+            print(f"    {len(sigs)} signal(s):")
+            for sig in top_sigs:
+                upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
+                print(f"      ✓ {sig.ticker}: {sig.confidence:.0f}% confidence, +{upside:.1f}% potential upside")
+        else:
+            nm = near_misses.get(strat, [])
+            if nm:
+                print(f"    0 signals, but {len(nm)} stock(s) close to triggering:")
+                for stock in nm:
+                    print(f"      ○ {stock['ticker']}: {stock['indicator']} ({stock['distance']})")
+            else:
+                print(f"    0 signals (no stocks near criteria)")
+    print("\n" + "-" * 80)
 
     # === ACTIONABLE SELL SIGNALS (stocks we own) ===
     print(f"\n  📉 SELL SIGNALS (Portfolio): {len(actionable_sells)}")
