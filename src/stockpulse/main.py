@@ -831,9 +831,49 @@ def run_scan():
     actionable_sells = [s for s in sell_signals if s.ticker in portfolio_tickers]
     informational_sells = [s for s in sell_signals if s.ticker not in portfolio_tickers]
 
+    # Get signal insights for per-strategy breakdown
+    from stockpulse.strategies.signal_insights import SignalInsights
+    signal_insights = SignalInsights()
+
+    # Group buy signals by strategy
+    all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
+                     "momentum_breakout", "week52_low_bounce", "sector_rotation"]
+    strategy_signals = {s: [] for s in all_strategies}
+    for sig in buy_signals:
+        if sig.strategy in strategy_signals:
+            strategy_signals[sig.strategy].append(sig)
+
+    # Get near-misses and strategy capacity
+    near_misses = signal_insights.get_near_misses(tickers, top_n=3)
+    strategy_status = signal_insights.get_strategy_status(position_manager)
+
     print("\n" + "=" * 80)
     print("  STOCKPULSE SCAN RESULTS")
     print("=" * 80)
+
+    # === PER-STRATEGY BREAKDOWN ===
+    print("\n  📊 PER-STRATEGY BREAKDOWN:")
+    print("-" * 80)
+    for strat in all_strategies:
+        sigs = strategy_signals.get(strat, [])
+        status = strategy_status.get(strat, {})
+        capacity_info = f"[{status.get('current_exposure_pct', 0):.0f}%/{status.get('max_allowed_pct', 70):.0f}% used]"
+
+        if sigs:
+            top_sigs = sorted(sigs, key=lambda s: s.confidence, reverse=True)[:3]
+            print(f"  {strat}: {len(sigs)} signals {capacity_info}")
+            for sig in top_sigs:
+                upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
+                print(f"    ✓ {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
+        else:
+            nm = near_misses.get(strat, [])
+            if nm:
+                print(f"  {strat}: 0 signals (near-misses below) {capacity_info}")
+                for stock in nm:
+                    print(f"    ○ {stock['ticker']}: {stock['indicator']} - {stock['distance']}")
+            else:
+                print(f"  {strat}: 0 signals {capacity_info}")
+    print("-" * 80)
 
     # === BUY SIGNALS ===
     print(f"\n  📈 BUY SIGNALS: {len(buy_signals)}")
@@ -1042,6 +1082,35 @@ def run_scan():
 
     print(f"\n  Summary: {len(opened_positions)} opened, {len(blocked_signals)} blocked, {running_exposure_pct:.1f}% exposure")
 
+    # Build per-strategy signal summary with action status
+    strategy_signal_summary = {}
+    for strat in all_strategies:
+        strat_signals = strategy_signals.get(strat, [])
+        strat_summary = []
+        for sig in sorted(strat_signals, key=lambda s: s.confidence, reverse=True)[:10]:
+            was_opened = any(op[0].ticker == sig.ticker for op in opened_positions)
+            blocked_entry = next((b for b in blocked_signals if b[0].ticker == sig.ticker), None)
+
+            if was_opened:
+                status = "OPENED"
+                reason = ""
+            elif blocked_entry:
+                status = "BLOCKED"
+                reason = blocked_entry[1]
+            else:
+                status = "NOT_ACTED"
+                reason = "Unknown"
+
+            strat_summary.append({
+                "ticker": sig.ticker,
+                "confidence": sig.confidence,
+                "entry_price": sig.entry_price,
+                "target_price": sig.target_price,
+                "status": status,
+                "reason": reason,
+            })
+        strategy_signal_summary[strat] = strat_summary
+
     # === SEND RESULTS EMAIL ===
     if opened_positions or blocked_signals or actionable_sells:
         alert_manager.send_scan_results_email(
@@ -1049,7 +1118,10 @@ def run_scan():
             blocked_signals=blocked_signals[:10],
             sell_signals=actionable_sells,
             portfolio_exposure_pct=running_exposure_pct,
-            initial_capital=initial_capital
+            initial_capital=initial_capital,
+            near_misses=near_misses,
+            strategy_status=strategy_status,
+            strategy_signal_summary=strategy_signal_summary
         )
 
 
