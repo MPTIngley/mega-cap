@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-03
+## Last Session: 2026-02-04
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -214,6 +214,19 @@ stockpulse reset        # Clear trading data (keeps prices)
 - [ ] Paid data source integration (Polygon.io, Alpaca)
 - [ ] Docker containerization for deployment
 - [ ] Cloud deployment (EC2 / GCP / Railway)
+
+### Long-Term Backtester Future Enhancements
+- [ ] Tax-loss harvesting simulation
+- [ ] Dividend reinvestment (DRIP)
+- [ ] **Options overlay (covered calls/cash-secured puts)** - generate income on holdings
+- [ ] Multi-factor momentum (6mo + 12mo lookback)
+- [ ] Earnings surprise momentum (EPS beat streak)
+- [ ] **Put/Call Wheel Strategy** for dividend income and buying dips:
+  - Sell cash-secured puts on stocks we want to own at lower prices
+  - If assigned, collect premium + buy at discount
+  - Sell covered calls on holdings for additional income
+  - If called away, collect premium + profit
+  - Wheel back into puts, repeat
 
 ---
 

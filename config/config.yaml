@@ -184,23 +184,36 @@ backtest:
 # Long-term investment scanner (3-year hold strategy)
 # Scores stocks on 8 components for value investing opportunities
 # Run: stockpulse longterm-scan or stockpulse longterm-backtest
+# Optimized 2026-02-04 via backtester (35% stop-loss = best alpha +84.8%)
 long_term_scanner:
   enabled: true
   run_time: "17:30"
   pe_percentile_threshold: 30
   price_near_52w_low_pct: 15
   min_dividend_yield: 0.0
-  min_score: 60
+  min_score: 50
   send_digest: true
+
+  # Backtest parameters (optimized for 35% stop-loss risk profile)
+  # Alpha: +84.8%, Sharpe: 0.73, Win Rate: 82.1%, Max DD: 20.3%
+  params:
+    stop_loss_pct: 35.0
+    vix_threshold: 35.0
+    min_score: 50.0
+    use_trailing_stop: false
+    use_momentum: true
+    momentum_weight: 0.15
+    use_dynamic_sizing: true
+    skip_earnings: true
 
   # Scoring weights (should sum to 1.0)
   # NOTE: Optimize via 'stockpulse longterm-backtest'
   weights:
-    valuation: 0.15           # P/E, P/B, PEG ratios
-    technical: 0.15           # 52-week position, RSI, accumulation
-    dividend: 0.10            # Dividend yield
-    quality: 0.15             # Profit margin, ROE, debt ratios
-    insider: 0.15             # Insider buying (very predictive!)
-    fcf_yield: 0.12           # Free cash flow yield (better than P/E)
-    earnings_momentum: 0.10   # EPS beat streak
-    peer_valuation: 0.08      # Valuation vs sector peers
+    valuation: 0.19
+    technical: 0.24
+    dividend: 0.05
+    quality: 0.10
+    insider: 0.14
+    fcf_yield: 0.14
+    earnings_momentum: 0.10
+    peer_valuation: 0.05
