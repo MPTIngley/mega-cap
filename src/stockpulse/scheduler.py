@@ -150,7 +150,10 @@ class StockPulseScheduler:
             ),
             id="intraday_open",
             name="Opening scan (market open +2 min)",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=300,  # Allow up to 5 min late
+            coalesce=True,           # Combine missed runs
+            max_instances=1          # No overlapping
         )
 
         # First 15-min scan at 09:45 (after open scan at 09:32)
@@ -164,7 +167,10 @@ class StockPulseScheduler:
             ),
             id="intraday_first",
             name="First 15-min scan (09:45)",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=300,
+            coalesce=True,
+            max_instances=1
         )
 
         # Regular intraday scans - every 15 minutes at :00, :15, :30, :45
@@ -179,7 +185,10 @@ class StockPulseScheduler:
             ),
             id="intraday_scan",
             name="15-min scans (10:00-15:45)",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=300,
+            coalesce=True,
+            max_instances=1
         )
 
         # Closing scan - 2 minutes before market close (e.g., 3:58 PM)
@@ -193,7 +202,10 @@ class StockPulseScheduler:
             ),
             id="intraday_close",
             name="Closing scan (market close -2 min)",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=300,
+            coalesce=True,
+            max_instances=1
         )
 
         # Daily job - 30 minutes after market close
@@ -207,7 +219,10 @@ class StockPulseScheduler:
             ),
             id="daily_scan",
             name="Daily data ingestion and scan",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=600,  # 10 min grace for daily job
+            coalesce=True,
+            max_instances=1
         )
 
         # Long-term scanner - 17:30 ET on weekdays
@@ -224,7 +239,10 @@ class StockPulseScheduler:
                 ),
                 id="long_term_scan",
                 name="Long-term investment scanner",
-                replace_existing=True
+                replace_existing=True,
+                misfire_grace_time=600,
+                coalesce=True,
+                max_instances=1
             )
 
         # Daily digest email - configured time (default 17:00 ET)
@@ -241,7 +259,10 @@ class StockPulseScheduler:
                 ),
                 id="daily_digest",
                 name="Daily portfolio digest email",
-                replace_existing=True
+                replace_existing=True,
+                misfire_grace_time=600,
+                coalesce=True,
+                max_instances=1
             )
 
         self.scheduler.start()
