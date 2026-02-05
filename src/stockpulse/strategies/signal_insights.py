@@ -73,7 +73,7 @@ leading the market. This strategy identifies stocks in sectors outperforming the
 We measure "relative strength" - if a stock is rising faster than the market, it has positive
 momentum. Think of it like betting on the winning horse mid-race.
 
-Our settings: Relative strength trigger > 1.1 (10% better than market), Lookback = 20 days"""
+Our settings: Relative strength trigger > 1.2 (20% better than market), Lookback = 10 days"""
     }
 }
 
@@ -130,6 +130,19 @@ class SignalInsights:
             "sector_rotation": [],
         }
 
+        # Get actual thresholds from config
+        rsi_config = self.strategy_configs.get("rsi_mean_reversion", {})
+        rsi_threshold = rsi_config.get("rsi_oversold", 25)
+
+        zscore_config = self.strategy_configs.get("zscore_mean_reversion", {})
+        zscore_threshold = zscore_config.get("zscore_entry", -2.25)
+
+        week52_config = self.strategy_configs.get("week52_low_bounce", {})
+        low_threshold_pct = week52_config.get("low_threshold_pct", 12.0)
+
+        sector_config = self.strategy_configs.get("sector_rotation", {})
+        rs_threshold = sector_config.get("relative_strength_threshold", 1.2)
+
         # Process each ticker
         for ticker in tickers:
             ticker_data = price_data[price_data["ticker"] == ticker].copy()
@@ -148,16 +161,16 @@ class SignalInsights:
             latest = indicators.iloc[-1]
             current_price = latest["close"]
 
-            # RSI Near-Miss: RSI between 30-40 (close to oversold <30)
+            # RSI Near-Miss: RSI between threshold and threshold+15
             rsi = latest.get("rsi", 50)
-            if 30 <= rsi <= 40:
-                distance = rsi - 30  # How far from trigger
+            if rsi_threshold <= rsi <= rsi_threshold + 15:
+                distance = rsi - rsi_threshold
                 near_misses["rsi_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
                     "indicator": f"RSI {rsi:.1f}",
-                    "criteria": "RSI < 30 (oversold)",
-                    "distance": f"{distance:.1f} pts above 30 trigger",
+                    "criteria": f"RSI < {rsi_threshold} (oversold)",
+                    "distance": f"{distance:.1f} pts above {rsi_threshold} trigger",
                     "score": 100 - (distance * 10),  # Score for sorting
                 })
 
@@ -177,16 +190,17 @@ class SignalInsights:
                     "score": 100 - (abs(macd_diff) * 100),
                 })
 
-            # Z-Score Near-Miss: Z-score between -1.5 and -2.0
+            # Z-Score Near-Miss: Z-score close to threshold
             zscore = latest.get("zscore", 0)
-            if -2.0 < zscore <= -1.5:
-                distance = abs(zscore - (-2.0))
+            near_miss_upper = zscore_threshold + 0.75  # e.g., -2.25 + 0.75 = -1.5
+            if zscore_threshold < zscore <= near_miss_upper:
+                distance = abs(zscore - zscore_threshold)
                 near_misses["zscore_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
                     "indicator": f"Z-score {zscore:.2f}",
-                    "criteria": "Z-score < -2.0",
-                    "distance": f"needs {distance:.2f} more drop to hit −2.0",
+                    "criteria": f"Z-score < {zscore_threshold}",
+                    "distance": f"needs {distance:.2f} more drop to hit {zscore_threshold}",
                     "score": 100 - (distance * 50),
                 })
 
@@ -204,30 +218,31 @@ class SignalInsights:
                         "score": 100 - (pct_from_high * 20),
                     })
 
-            # Week52 Low Bounce Near-Miss: 10-20% above 52-week low
+            # Week52 Low Bounce Near-Miss: Between threshold and threshold+10%
             low_52w = latest.get("low_52w", current_price)
             if low_52w > 0:
                 pct_above_low = (current_price - low_52w) / low_52w * 100
-                if 10 < pct_above_low <= 20:  # Strategy triggers at <10%
+                if low_threshold_pct < pct_above_low <= low_threshold_pct + 10:
                     near_misses["week52_low_bounce"].append({
                         "ticker": ticker,
                         "price": current_price,
                         "indicator": f"${current_price:.2f} vs 52w low ${low_52w:.2f}",
-                        "criteria": "Within 10% of 52-week low",
-                        "distance": f"{pct_above_low:.1f}% above low (need ≤10%)",
-                        "score": 100 - ((pct_above_low - 10) * 10),
+                        "criteria": f"Within {low_threshold_pct:.0f}% of 52-week low",
+                        "distance": f"{pct_above_low:.1f}% above low (need ≤{low_threshold_pct:.0f}%)",
+                        "score": 100 - ((pct_above_low - low_threshold_pct) * 10),
                     })
 
             # Sector Rotation Near-Miss: Relative strength close to threshold
             rel_strength = latest.get("relative_strength", 0)
-            if 0.9 <= rel_strength < 1.1:  # Close to positive relative strength
+            near_miss_lower = rs_threshold - 0.3  # e.g., 1.2 - 0.3 = 0.9
+            if near_miss_lower <= rel_strength < rs_threshold:
                 near_misses["sector_rotation"].append({
                     "ticker": ticker,
                     "price": current_price,
                     "indicator": f"Rel strength {rel_strength:.2f}",
-                    "criteria": "Relative strength > 1.1",
-                    "distance": f"needs +{(1.1 - rel_strength):.2f} to reach 1.1 trigger",
-                    "score": 100 - ((1.1 - rel_strength) * 100),
+                    "criteria": f"Relative strength > {rs_threshold}",
+                    "distance": f"needs +{(rs_threshold - rel_strength):.2f} to reach {rs_threshold} trigger",
+                    "score": 100 - ((rs_threshold - rel_strength) * 100),
                 })
 
         # Sort each strategy's near-misses by score and take top N
