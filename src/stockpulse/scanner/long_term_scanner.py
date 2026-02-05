@@ -187,6 +187,15 @@ class LongTermScanner:
 
         # Calculate supporting metrics
         current_price = price_data["close"].iloc[-1]
+
+        # Get company info
+        try:
+            info = yf_ticker.info
+            company_name = info.get("shortName", info.get("longName", ticker))
+            sector = info.get("sector", "Unknown")
+        except Exception:
+            company_name = ticker
+            sector = "Unknown"
         fifty_two_week_low = price_data["low"].min()
         fifty_two_week_high = price_data["high"].max()
 
@@ -215,6 +224,8 @@ class LongTermScanner:
 
         return {
             "ticker": ticker,
+            "company_name": company_name,
+            "sector": sector,
             "scan_date": date.today(),
             "composite_score": composite_score,
             "valuation_score": valuation_score,
@@ -222,6 +233,9 @@ class LongTermScanner:
             "dividend_score": dividend_score,
             "quality_score": quality_score,
             "insider_score": insider_score,
+            "fcf_score": fcf_yield_score,  # Alias for email compatibility
+            "earnings_score": earnings_momentum_score,  # Alias for email compatibility
+            "peer_score": peer_valuation_score,  # Alias for email compatibility
             "fcf_yield_score": fcf_yield_score,
             "earnings_momentum_score": earnings_momentum_score,
             "peer_valuation_score": peer_valuation_score,

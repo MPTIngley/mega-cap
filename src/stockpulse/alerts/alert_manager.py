@@ -961,6 +961,8 @@ class AlertManager:
             strong_rows = ""
             for opp in strong_buys[:5]:
                 ticker = opp.get('ticker', 'N/A')
+                company = opp.get('company_name', ticker)
+                sector = opp.get('sector', 'Unknown')
                 score = opp.get('composite_score', 0)
                 days = opp.get('consecutive_days', 0)
                 trend = opp.get('trend_symbol', '➡️')
@@ -971,7 +973,11 @@ class AlertManager:
 
                 strong_rows += f"""
                 <tr style="background: #ecfdf5;">
-                    <td><strong style="color: #059669; font-size: 18px;">{ticker}</strong></td>
+                    <td>
+                        <strong style="color: #059669; font-size: 18px;">{ticker}</strong>
+                        <br/><span style="color: #047857; font-size: 12px;">{company}</span>
+                        <br/><span style="color: #6b7280; font-size: 11px;">{sector}</span>
+                    </td>
                     <td style="text-align: center; font-size: 18px;"><strong>{score:.0f}</strong></td>
                     <td style="text-align: center;">{trend} {days}d</td>
                 </tr>
@@ -991,7 +997,7 @@ class AlertManager:
                 </p>
                 <table style="width: 100%;">
                     <tr>
-                        <th style="text-align: left; color: #047857;">Ticker</th>
+                        <th style="text-align: left; color: #047857;">Company</th>
                         <th style="text-align: center; color: #047857;">Score</th>
                         <th style="text-align: center; color: #047857;">Trend</th>
                     </tr>
@@ -1004,6 +1010,8 @@ class AlertManager:
         rows = ""
         for opp in opportunities[:15]:
             ticker = opp.get('ticker', 'N/A')
+            company = opp.get('company_name', ticker)
+            sector = opp.get('sector', 'Unknown')
             score = opp.get('composite_score', 0)
             reasoning = opp.get('reasoning', '')
             trend = opp.get('trend_symbol', '➡️')
@@ -1020,7 +1028,11 @@ class AlertManager:
 
             rows += f"""
             <tr>
-                <td><strong style="color: #059669; font-size: 16px;">{ticker}</strong></td>
+                <td>
+                    <strong style="color: #059669; font-size: 16px;">{ticker}</strong>
+                    <span style="color: #6b7280; font-size: 12px;"> - {company}</span>
+                    <br/><span style="color: #9ca3af; font-size: 11px;">{sector}</span>
+                </td>
                 <td style="text-align: center;"><strong>{score:.0f}</strong></td>
                 <td style="text-align: center;">{trend_info}</td>
                 <td>{opp.get('price_vs_52w_low_pct', 0):.1f}%</td>
@@ -1037,9 +1049,13 @@ class AlertManager:
         for opp in opportunities[:10]:
             trend = opp.get('trend_symbol', '➡️')
             days = opp.get('consecutive_days', 0)
+            ticker = opp.get('ticker', 'N/A')
+            company = opp.get('company_name', ticker)
+            # Truncate company name if too long
+            company_short = company[:20] + "..." if len(company) > 20 else company
             breakdown_rows += f"""
             <tr>
-                <td><strong>{opp.get('ticker', 'N/A')}</strong></td>
+                <td><strong>{ticker}</strong><br/><span style="color: #6b7280; font-size: 10px;">{company_short}</span></td>
                 <td style="text-align: center;">{opp.get('composite_score', 0):.0f}</td>
                 <td style="text-align: center;">{trend}{days}d</td>
                 <td style="text-align: center;">{opp.get('valuation_score', 0):.0f}</td>
