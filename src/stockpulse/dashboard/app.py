@@ -1388,19 +1388,80 @@ def render_signals_page(services: dict):
             st.warning(f"Could not load near-misses: {str(e)[:50]}")
 
     else:
-        st.warning("No active signals matching your filters.")
+        st.info("📊 **No signals from latest scan** - Market conditions don't currently meet any strategy thresholds.")
 
-        # Show helpful message if no data at all
+        # Show near-misses for each strategy
+        st.markdown("---")
+        st.subheader("🎯 Near Misses by Strategy")
+        st.caption("Stocks closest to triggering each strategy and what's needed")
+
+        try:
+            from stockpulse.strategies.signal_insights import SignalInsights, STRATEGY_DESCRIPTIONS
+            signal_insights = SignalInsights()
+            tickers = services["universe"].get_active_tickers() if services.get("universe") else []
+
+            if tickers:
+                near_misses = signal_insights.get_near_misses(tickers, top_n=5)
+
+                # Get strategy configs for threshold info
+                config = get_config()
+                strategy_configs = config.get("strategies", {})
+
+                # All strategies to show
+                all_strategies = [
+                    "rsi_mean_reversion",
+                    "macd_volume",
+                    "zscore_mean_reversion",
+                    "momentum_breakout",
+                    "week52_low_bounce",
+                    "sector_rotation"
+                ]
+
+                for strat_name in all_strategies:
+                    strat_near_misses = near_misses.get(strat_name, [])
+                    strat_desc = STRATEGY_DESCRIPTIONS.get(strat_name, {}).get("short", strat_name.replace("_", " ").title())
+                    strat_config = strategy_configs.get(strat_name, {})
+
+                    # Get threshold info for this strategy
+                    threshold_info = ""
+                    if strat_name == "rsi_mean_reversion":
+                        threshold_info = f"Threshold: RSI < {strat_config.get('rsi_oversold', 25)}"
+                    elif strat_name == "zscore_mean_reversion":
+                        threshold_info = f"Threshold: Z-score < {strat_config.get('zscore_entry', -2.25)}"
+                    elif strat_name == "sector_rotation":
+                        threshold_info = f"Threshold: Relative Strength > {strat_config.get('relative_strength_threshold', 1.2)}"
+                    elif strat_name == "week52_low_bounce":
+                        threshold_info = f"Threshold: Within {strat_config.get('low_threshold_pct', 12)}% of 52-week low"
+                    elif strat_name == "momentum_breakout":
+                        threshold_info = "Threshold: Break above 20-day high with volume"
+                    elif strat_name == "macd_volume":
+                        threshold_info = "Threshold: MACD crosses above signal line"
+
+                    with st.expander(f"**{strat_desc}** ({len(strat_near_misses)} close)", expanded=len(strat_near_misses) > 0):
+                        if threshold_info:
+                            st.caption(threshold_info)
+
+                        if strat_near_misses:
+                            near_miss_data = []
+                            for nm in strat_near_misses:
+                                near_miss_data.append({
+                                    "Ticker": nm.get("ticker", ""),
+                                    "Price": f"${nm.get('price', 0):.2f}",
+                                    "Current": nm.get("indicator", ""),
+                                    "Needed": nm.get("distance", "")
+                                })
+                            st.dataframe(pd.DataFrame(near_miss_data), use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("No stocks close to this threshold")
+            else:
+                st.warning("Load universe to see near-misses.")
+        except Exception as e:
+            st.warning(f"Could not load near-misses: {str(e)[:100]}")
+
+        # Show Initialize Data button only if truly no data
         if signals_df.empty:
-            st.markdown("""
-            **No signals yet?** This is expected on first launch. To generate signals:
-
-            1. **Load stock universe**: Click "Initialize Data" below
-            2. **Wait for data ingestion**: This fetches price history for 100 stocks
-            3. **Generate signals**: Strategies will analyze the data
-
-            Signals are generated automatically when the scheduler runs, or you can trigger manually.
-            """)
+            st.markdown("---")
+            st.markdown("**First time setup?** Initialize data below:")
 
             col1, col2 = st.columns(2)
             with col1:
