@@ -519,6 +519,125 @@ class PositionManager:
 
         return True
 
+    def get_signal_blocking_reasons(self, ticker: str, strategy: str) -> dict:
+        """
+        Get comprehensive blocking reasons for a signal.
+
+        Args:
+            ticker: The ticker symbol
+            strategy: The strategy name
+
+        Returns:
+            Dict with:
+                - can_trade: bool
+                - status: str (emoji + status)
+                - reason: str (human readable)
+                - details: list of all checks and their results
+        """
+        details = []
+        blocking_reasons = []
+
+        # 1. Check max concurrent positions
+        open_count = self.db.fetchone(
+            "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
+        )[0] or 0
+        at_max_positions = open_count >= self.max_positions
+        details.append({
+            "check": "Max positions",
+            "passed": not at_max_positions,
+            "info": f"{open_count}/{self.max_positions} open"
+        })
+        if at_max_positions:
+            blocking_reasons.append(f"Max positions ({self.max_positions}) reached")
+
+        # 2. Check if already have position
+        existing = self.db.fetchone(
+            "SELECT COUNT(*) FROM positions_paper WHERE ticker = ? AND status = 'open'",
+            (ticker,)
+        )[0] or 0
+        already_held = existing > 0
+        details.append({
+            "check": "Already held",
+            "passed": not already_held,
+            "info": "Yes" if already_held else "No"
+        })
+        if already_held:
+            blocking_reasons.append("Already in portfolio")
+
+        # 3. Check cooldown
+        cooldown_ok, cooldown_reason = self._check_cooldown(ticker)
+        details.append({
+            "check": "Cooldown",
+            "passed": cooldown_ok,
+            "info": cooldown_reason if not cooldown_ok else "Clear"
+        })
+        if not cooldown_ok:
+            blocking_reasons.append(cooldown_reason)
+
+        # 4. Check loss limit
+        loss_ok, loss_reason = self._check_loss_limit(ticker)
+        details.append({
+            "check": "Loss limit",
+            "passed": loss_ok,
+            "info": loss_reason if not loss_ok else "Clear"
+        })
+        if not loss_ok:
+            blocking_reasons.append(loss_reason)
+
+        # 5. Check sector concentration
+        sector_ok, sector_reason = self._check_sector_concentration(ticker)
+        details.append({
+            "check": "Sector limit",
+            "passed": sector_ok,
+            "info": sector_reason if not sector_ok else "Clear"
+        })
+        if not sector_ok:
+            blocking_reasons.append(sector_reason)
+
+        # 6. Check strategy concentration
+        # Create a dummy signal for the check (Signal/SignalDirection imported at top of file)
+        dummy_signal = Signal(
+            ticker=ticker,
+            strategy=strategy,
+            direction=SignalDirection.BUY,
+            confidence=70,
+            entry_price=100,
+            target_price=110,
+            stop_price=95
+        )
+        strategy_ok, strategy_reason = self._check_strategy_concentration(dummy_signal)
+        details.append({
+            "check": "Strategy limit",
+            "passed": strategy_ok,
+            "info": strategy_reason if not strategy_ok else "Clear"
+        })
+        if not strategy_ok:
+            blocking_reasons.append(strategy_reason)
+
+        # Determine overall status
+        can_trade = len(blocking_reasons) == 0
+
+        if can_trade:
+            status = "✅ ACTIONABLE"
+            reason = "Ready to trade"
+        elif already_held:
+            status = "📌 HELD"
+            reason = "Already in portfolio"
+        elif not cooldown_ok:
+            status = "⏱️ COOLDOWN"
+            reason = cooldown_reason
+        else:
+            status = "🚫 BLOCKED"
+            reason = blocking_reasons[0] if blocking_reasons else "Unknown"
+
+        return {
+            "can_trade": can_trade,
+            "status": status,
+            "reason": reason,
+            "details": details,
+            "all_reasons": blocking_reasons
+        }
+
     def update_positions(self, current_prices: dict[str, float]) -> list[dict]:
         """
         Update all open positions and check for exit conditions.

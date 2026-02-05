@@ -737,14 +737,16 @@ def main():
     else:
         st.sidebar.warning("📈 Universe: Not loaded")
 
-    # Data status
+    # Data status - check for actual price data
     try:
-        staleness = services["ingestion"].check_data_staleness()
-        if staleness.get("last_daily"):
-            st.sidebar.success("📊 Data: Loaded")
+        db = services.get("db") or get_db()
+        price_count = db.fetchone("SELECT COUNT(*) FROM prices_daily")[0] or 0
+        if price_count > 0:
+            last_date = db.fetchone("SELECT MAX(date) FROM prices_daily")[0]
+            st.sidebar.success(f"📊 Data: {price_count:,} prices (to {last_date})")
         else:
             st.sidebar.warning("📊 Data: No data yet")
-    except:
+    except Exception:
         st.sidebar.warning("📊 Data: Unknown")
 
     st.sidebar.markdown("---")
@@ -1141,7 +1143,7 @@ def render_signals_page(services: dict):
 
     # Get portfolio tickers and cooldown tickers to mark in signals
     try:
-        positions_df = services["positions"].get_open_positions(is_paper=True)
+        positions_df = services["positions"].get_open_positions()
         portfolio_tickers = set(positions_df["ticker"].tolist()) if not positions_df.empty else set()
     except Exception:
         portfolio_tickers = set()
@@ -1225,36 +1227,29 @@ def render_signals_page(services: dict):
         st.subheader("📋 Signal Action Analysis")
         st.caption("Why we are/aren't acting on each BUY signal")
 
-        # Get blocking reasons for each signal
+        # Get comprehensive blocking reasons for each signal
         action_analysis = []
         for _, sig in buy_signals.iterrows():
             ticker = sig["ticker"]
-            status = "✅ ACTIONABLE"
-            reason = "Ready to trade"
+            strategy = sig["strategy"]
 
-            if ticker in portfolio_tickers:
-                status = "📌 HELD"
-                reason = "Already in portfolio"
-            elif ticker in cooldown_tickers:
-                # Get specific cooldown reason
-                for b in blocked_list:
-                    if b["ticker"] == ticker:
-                        status = "⏱️ BLOCKED"
-                        reason = b.get("reason", "In cooldown")
-                        break
-            else:
-                # Check if we have capacity
-                try:
-                    can_trade, block_reason = services["positions"]._check_sector_concentration(ticker)
-                    if not can_trade:
-                        status = "🚫 BLOCKED"
-                        reason = block_reason
-                except:
-                    pass
+            try:
+                # Get all blocking reasons from position manager
+                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy)
+                status = block_info.get("status", "❓ UNKNOWN")
+                reason = block_info.get("reason", "Unknown")
+
+                # If there are multiple reasons, show them
+                all_reasons = block_info.get("all_reasons", [])
+                if len(all_reasons) > 1:
+                    reason = "; ".join(all_reasons[:2])  # Show up to 2 reasons
+            except Exception as e:
+                status = "❓ UNKNOWN"
+                reason = f"Error: {str(e)[:40]}"
 
             action_analysis.append({
                 "Ticker": ticker,
-                "Signal": f"{sig['confidence']:.0f}% {sig['strategy']}",
+                "Signal": f"{sig['confidence']:.0f}% {strategy}",
                 "Status": status,
                 "Reason": reason
             })
@@ -1277,13 +1272,17 @@ def render_signals_page(services: dict):
                         display_data = []
                         for _, sig in strategy_signals.iterrows():
                             ticker = sig["ticker"]
-                            # Determine status
-                            if ticker in portfolio_tickers:
-                                status = "📌 Held"
-                            elif ticker in cooldown_tickers:
-                                status = "⏱️ Cooldown"
-                            else:
-                                status = "✅ Ready"
+
+                            # Get comprehensive status from position manager
+                            try:
+                                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy)
+                                status_str = block_info.get("status", "❓")
+                                status = status_str.split()[0] if status_str else "❓"  # Just the emoji
+                                reason_str = block_info.get("reason", "Unknown")
+                                reason = reason_str[:25] + "..." if len(reason_str) > 25 else reason_str
+                            except Exception:
+                                status = "❓"
+                                reason = "Unknown"
 
                             display_data.append({
                                 "Status": status,
@@ -1291,8 +1290,7 @@ def render_signals_page(services: dict):
                                 "Conf": f"{sig['confidence']:.0f}%",
                                 "Entry": f"${sig['entry_price']:.2f}",
                                 "Target": f"${sig['target_price']:.2f}",
-                                "Stop": f"${sig['stop_price']:.2f}",
-                                "Notes": sig.get("notes", "")[:50] + "..." if len(str(sig.get("notes", ""))) > 50 else sig.get("notes", "")
+                                "Reason": reason
                             })
                         st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
         else:
@@ -1642,7 +1640,7 @@ def render_performance_page(services: dict):
         """)
 
         # Get current prices for open positions
-        positions_df = services["positions"].get_open_positions(is_paper=True)
+        positions_df = services["positions"].get_open_positions()
         tickers = positions_df["ticker"].tolist() if not positions_df.empty else []
 
         ingestion = services.get("ingestion")
@@ -1809,22 +1807,23 @@ def render_performance_page(services: dict):
 
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Key metrics
-                latest_value = ts_df["portfolio_value"].iloc[-1]
-                total_return = ((latest_value / initial_capital) - 1) * 100
-                latest_cash = ts_df["cash"].iloc[-1]
-                latest_invested = ts_df["invested"].iloc[-1]
+                # Key metrics (with empty check)
+                if not ts_df.empty:
+                    latest_value = ts_df["portfolio_value"].iloc[-1]
+                    total_return = ((latest_value / initial_capital) - 1) * 100
+                    latest_cash = ts_df["cash"].iloc[-1]
+                    latest_invested = ts_df["invested"].iloc[-1]
 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Portfolio Value", f"${latest_value:,.2f}", delta=f"{total_return:+.2f}%")
-                with col2:
-                    st.metric("Cash Available", f"${latest_cash:,.2f}")
-                with col3:
-                    st.metric("Invested", f"${latest_invested:,.2f}")
-                with col4:
-                    pct_invested = (latest_invested / latest_value * 100) if latest_value > 0 else 0
-                    st.metric("% Invested", f"{pct_invested:.1f}%")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Portfolio Value", f"${latest_value:,.2f}", delta=f"{total_return:+.2f}%")
+                    with col2:
+                        st.metric("Cash Available", f"${latest_cash:,.2f}")
+                    with col3:
+                        st.metric("Invested", f"${latest_invested:,.2f}")
+                    with col4:
+                        pct_invested = (latest_invested / latest_value * 100) if latest_value > 0 else 0
+                        st.metric("% Invested", f"{pct_invested:.1f}%")
             else:
                 st.info("No trading history yet. Start trading to see performance charts!")
         else:
@@ -1874,7 +1873,9 @@ def render_performance_page(services: dict):
             x=strategy_perf["strategy"],
             y=strategy_perf["total_pnl"],
             name="Total P&L",
-            marker_color=strategy_perf["total_pnl"].apply(lambda x: "#22c55e" if x >= 0 else "#ef4444")
+            marker_color=strategy_perf["total_pnl"].apply(
+                lambda x: "#22c55e" if pd.notna(x) and x >= 0 else "#ef4444"
+            ).tolist()
         ))
 
         fig.update_layout(

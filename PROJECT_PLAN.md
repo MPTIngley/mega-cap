@@ -31,11 +31,18 @@ Before writing any code, do the following:
 - ✅ Long-term email: trend tracking, Strong Buy categories
 - ✅ Compact scheduler countdown bar
 - ✅ Live Signals: BUY/SELL split with portfolio/cooldown markers
-- ✅ Signal Action Analysis: why signals are/aren't being acted on
-- ✅ Top Signals by Strategy breakdown
+- ✅ Signal Action Analysis: comprehensive blocking reasons for each signal
+  - Already in portfolio (📌 HELD)
+  - Cooldown period (⏱️ COOLDOWN)
+  - Max positions limit
+  - Sector concentration limit
+  - Strategy concentration limit
+  - Loss limit reached
+- ✅ Top Signals by Strategy breakdown with status and reason
 - ✅ Performance page: Portfolio value and cash time series
 - ✅ Cooldown tracking for winning trades (not just losses)
 - ✅ Historical P/E backfill via FMP API or calculated method
+- ✅ Dashboard data status shows actual price count
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
