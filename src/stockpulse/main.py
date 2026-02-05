@@ -483,6 +483,36 @@ def run_scheduler():
                     ))
                     continue
 
+            # Check cooldown (churn prevention and loss cooldown)
+            cooldown_ok, cooldown_reason = position_manager._check_cooldown(signal.ticker)
+            if not cooldown_ok:
+                blocked_signals.append((
+                    signal,
+                    cooldown_reason,
+                    [{"icon": "⏱️", "reason": cooldown_reason}]
+                ))
+                continue
+
+            # Check loss limit (too many consecutive losses on this ticker)
+            loss_ok, loss_reason = position_manager._check_loss_limit(signal.ticker)
+            if not loss_ok:
+                blocked_signals.append((
+                    signal,
+                    loss_reason,
+                    [{"icon": "🚫", "reason": loss_reason}]
+                ))
+                continue
+
+            # Check sector concentration
+            sector_ok, sector_reason = position_manager._check_sector_concentration(signal.ticker)
+            if not sector_ok:
+                blocked_signals.append((
+                    signal,
+                    sector_reason,
+                    [{"icon": "📊", "reason": sector_reason}]
+                ))
+                continue
+
             # Try to open the position with the (potentially reduced) size
             try:
                 pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
@@ -1145,6 +1175,39 @@ def run_scan():
                     [{"icon": "📊", "reason": f"Strategy at {current_strat_pct:.1f}%"}]
                 ))
                 continue
+
+        # Check cooldown (churn prevention and loss cooldown)
+        cooldown_ok, cooldown_reason = position_manager._check_cooldown(signal.ticker)
+        if not cooldown_ok:
+            blocked_signals.append((
+                signal,
+                cooldown_reason,
+                [{"icon": "⏱️", "reason": cooldown_reason}]
+            ))
+            print(f"  ⏱️ {signal.ticker}: {cooldown_reason}")
+            continue
+
+        # Check loss limit (too many consecutive losses on this ticker)
+        loss_ok, loss_reason = position_manager._check_loss_limit(signal.ticker)
+        if not loss_ok:
+            blocked_signals.append((
+                signal,
+                loss_reason,
+                [{"icon": "🚫", "reason": loss_reason}]
+            ))
+            print(f"  🚫 {signal.ticker}: {loss_reason}")
+            continue
+
+        # Check sector concentration
+        sector_ok, sector_reason = position_manager._check_sector_concentration(signal.ticker)
+        if not sector_ok:
+            blocked_signals.append((
+                signal,
+                sector_reason,
+                [{"icon": "📊", "reason": sector_reason}]
+            ))
+            print(f"  📊 {signal.ticker}: {sector_reason}")
+            continue
 
         try:
             pos_id = position_manager.open_position_from_signal(signal, override_size_pct=size_pct)
