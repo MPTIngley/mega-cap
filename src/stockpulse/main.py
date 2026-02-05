@@ -709,18 +709,16 @@ def run_scheduler():
                     next_job_name = job_names.get(next_job, next_job)
                     next_time_str = next_job_time.strftime('%H:%M ET')
 
-                    # Build compact status line
+                    # Build compact status line (include seconds for clarity)
                     status = (
-                        f"\r  ⏱ {now.strftime('%H:%M ET')} | "
+                        f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
                         f"Market: {'OPEN' if market_open else 'CLOSED'} | "
                         f"Next: {next_job_name} @ {next_time_str} ({hours}h {minutes}m) "
                         f"[{bar}]  "
                     )
 
-                    # Only print if status changed or every minute
-                    if status != last_status:
-                        print(status, end="", flush=True)
-                        last_status = status
+                    # Always print (seconds ensure it changes each cycle)
+                    print(status, end="", flush=True)
 
             time.sleep(10)  # Update every 10 seconds
     except KeyboardInterrupt:

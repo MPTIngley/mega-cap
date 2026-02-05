@@ -1284,19 +1284,28 @@ def render_portfolio_page(services: dict):
     if not positions_df.empty:
         invested_amount = (positions_df["entry_price"] * positions_df["shares"]).sum()
 
-    # Get current prices for unrealized P&L
+    # Get current prices for unrealized P&L (use LIVE prices, not stale daily)
     unrealized_pnl = 0.0
     positions_with_pnl = []
     if not positions_df.empty:
         try:
-            db = services.get("db") or get_db()
             tickers = positions_df["ticker"].tolist()
-            prices_df = db.fetchdf(f"""
-                SELECT ticker, close FROM prices_daily
-                WHERE ticker IN ({','.join(['?']*len(tickers))})
-                AND date = (SELECT MAX(date) FROM prices_daily)
-            """, tuple(tickers))
-            current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
+            # Fetch live prices from yfinance
+            ingestion = services.get("ingestion")
+            if ingestion:
+                current_prices = ingestion.fetch_current_prices(tickers)
+            else:
+                current_prices = {}
+
+            # Fallback to daily prices if live fetch failed
+            if not current_prices:
+                db = services.get("db") or get_db()
+                prices_df = db.fetchdf(f"""
+                    SELECT ticker, close FROM prices_daily
+                    WHERE ticker IN ({','.join(['?']*len(tickers))})
+                    AND date = (SELECT MAX(date) FROM prices_daily)
+                """, tuple(tickers))
+                current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
 
             for _, pos in positions_df.iterrows():
                 ticker = pos["ticker"]
@@ -1450,14 +1459,27 @@ def render_performance_page(services: dict):
     st.markdown("---")
     st.subheader("Portfolio Equity Curve")
 
-    # Get current prices for mark-to-market
+    # Get current prices for mark-to-market (use LIVE prices)
     try:
-        db = services.get("db") or get_db()
-        prices_df = db.fetchdf("""
-            SELECT ticker, close FROM prices_daily
-            WHERE date = (SELECT MAX(date) FROM prices_daily)
-        """)
-        current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
+        # Get list of open position tickers
+        positions_df = services["positions"].get_open_positions(is_paper=True)
+        tickers = positions_df["ticker"].tolist() if not positions_df.empty else []
+
+        # Fetch live prices
+        ingestion = services.get("ingestion")
+        if ingestion and tickers:
+            current_prices = ingestion.fetch_current_prices(tickers)
+        else:
+            current_prices = {}
+
+        # Fallback to daily prices if needed
+        if not current_prices:
+            db = services.get("db") or get_db()
+            prices_df = db.fetchdf("""
+                SELECT ticker, close FROM prices_daily
+                WHERE date = (SELECT MAX(date) FROM prices_daily)
+            """)
+            current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
     except Exception:
         current_prices = {}
 
