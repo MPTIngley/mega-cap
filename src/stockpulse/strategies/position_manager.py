@@ -894,6 +894,9 @@ class PositionManager:
         Returns:
             List of dicts with ticker, reason, and days_remaining
         """
+        # Always refresh cache from DB to get latest closed positions
+        self._rebuild_trade_history_cache()
+
         blocked = []
 
         # Iterate over ALL recent exits, not just losers
