@@ -1894,6 +1894,31 @@ def render_watchlist_page(services: dict):
     """Render Long-Term Watchlist page."""
     st.title("📋 Long-Term Watchlist")
 
+    # Scoring Methodology Section
+    with st.expander("📊 Scoring Methodology (click to expand)"):
+        st.markdown("""
+        ### How Stocks Are Scored
+
+        Each stock receives a **Composite Score (0-100)** based on weighted factors:
+
+        | Factor | Weight | Description |
+        |--------|--------|-------------|
+        | **Valuation** | 18% | P/E and P/B percentile vs history |
+        | **Technical** | 10% | RSI, price vs moving averages |
+        | **Dividend** | 10% | Yield and payout sustainability |
+        | **Quality** | 15% | ROE, debt ratios, margins |
+        | **Insider Activity** | 15% | Recent insider buying/selling |
+        | **FCF Yield** | 12% | Free cash flow yield vs market |
+        | **Earnings Momentum** | 10% | EPS beat streak |
+        | **Peer Valuation** | 10% | Valuation vs sector peers |
+
+        **Score Interpretation:**
+        - 🔥 **70+** = Strong Buy candidate
+        - ✅ **60-69** = Good opportunity
+        - ➡️ **50-59** = Neutral / watchlist
+        - ⚠️ **<50** = Needs improvement
+        """)
+
     try:
         watchlist_df = services["db"].fetchdf("""
             SELECT * FROM long_term_watchlist
@@ -1908,13 +1933,25 @@ def render_watchlist_page(services: dict):
         st.markdown("---")
         st.subheader("Top Long-Term Opportunities")
 
+        # Better display with company name and sector
         display_cols = [
-            "ticker", "composite_score", "valuation_score",
-            "technical_score", "pe_percentile", "price_vs_52w_low_pct",
-            "reasoning", "scan_date"
+            "ticker", "company_name", "sector", "composite_score",
+            "price_vs_52w_low_pct", "pe_percentile", "scan_date"
         ]
         available_cols = [c for c in display_cols if c in watchlist_df.columns]
         display_df = watchlist_df[available_cols].copy()
+
+        # Rename columns for display
+        col_rename = {
+            "ticker": "Ticker",
+            "company_name": "Company",
+            "sector": "Sector",
+            "composite_score": "Score",
+            "price_vs_52w_low_pct": "vs 52W Low",
+            "pe_percentile": "P/E %ile",
+            "scan_date": "Date"
+        }
+        display_df = display_df.rename(columns={k: v for k, v in col_rename.items() if k in display_df.columns})
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -1924,17 +1961,50 @@ def render_watchlist_page(services: dict):
         if selected_ticker:
             ticker_data = watchlist_df[watchlist_df["ticker"] == selected_ticker].iloc[0]
 
-            col1, col2, col3 = st.columns(3)
+            # Company header
+            company_name = ticker_data.get('company_name', selected_ticker)
+            sector = ticker_data.get('sector', 'Unknown')
+            st.subheader(f"{selected_ticker} - {company_name}")
+            st.caption(f"Sector: {sector}")
 
+            # Top-level metrics
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Composite Score", f"{ticker_data.get('composite_score', 0):.0f}")
+                score = ticker_data.get('composite_score', 0)
+                emoji = "🔥" if score >= 70 else "✅" if score >= 60 else "➡️"
+                st.metric("Composite Score", f"{emoji} {score:.0f}")
             with col2:
                 st.metric("P/E Percentile", f"{ticker_data.get('pe_percentile', 0):.0f}%")
             with col3:
                 st.metric("vs 52W Low", f"{ticker_data.get('price_vs_52w_low_pct', 0):.1f}%")
+            with col4:
+                st.metric("Scan Date", str(ticker_data.get('scan_date', 'N/A'))[:10])
 
-            st.markdown(f"**Reasoning:** {ticker_data.get('reasoning', 'N/A')}")
+            # Score breakdown table
+            st.markdown("#### Score Breakdown")
+            score_data = {
+                "Factor": ["Valuation", "Technical", "Dividend", "Quality", "Insider", "FCF Yield", "Earnings", "Peer Val"],
+                "Weight": ["18%", "10%", "10%", "15%", "15%", "12%", "10%", "10%"],
+                "Score": [
+                    f"{ticker_data.get('valuation_score', 0):.0f}",
+                    f"{ticker_data.get('technical_score', 0):.0f}",
+                    f"{ticker_data.get('dividend_score', 0):.0f}",
+                    f"{ticker_data.get('quality_score', 0):.0f}",
+                    f"{ticker_data.get('insider_score', 0):.0f}",
+                    f"{ticker_data.get('fcf_score', 0):.0f}",
+                    f"{ticker_data.get('earnings_score', 0):.0f}",
+                    f"{ticker_data.get('peer_score', 0):.0f}",
+                ]
+            }
+            score_df = pd.DataFrame(score_data)
+            st.dataframe(score_df, use_container_width=True, hide_index=True)
 
+            # Reasoning
+            st.markdown("#### Analysis")
+            st.info(ticker_data.get('reasoning', 'N/A'))
+
+            # Price chart
+            st.markdown("#### Price History (1 Year)")
             price_data = services["ingestion"].get_daily_prices(
                 [selected_ticker],
                 start_date=date.today() - timedelta(days=365)

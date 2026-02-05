@@ -240,22 +240,19 @@ class Database:
         """)
 
         # Add missing columns if table already exists (migration)
-        try:
-            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN insider_score REAL")
-        except Exception:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN fcf_score REAL")
-        except Exception:
-            pass
-        try:
-            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN earnings_score REAL")
-        except Exception:
-            pass
-        try:
-            cursor.execute("ALTER TABLE long_term_watchlist ADD COLUMN peer_score REAL")
-        except Exception:
-            pass
+        migration_columns = [
+            ("insider_score", "REAL"),
+            ("fcf_score", "REAL"),
+            ("earnings_score", "REAL"),
+            ("peer_score", "REAL"),
+            ("company_name", "TEXT"),
+            ("sector", "TEXT"),
+        ]
+        for col_name, col_type in migration_columns:
+            try:
+                cursor.execute(f"ALTER TABLE long_term_watchlist ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass  # Column already exists
 
         # Backtest results
         cursor.execute("""

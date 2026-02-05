@@ -850,8 +850,9 @@ class LongTermScanner:
                         ticker, scan_date, composite_score, valuation_score,
                         technical_score, dividend_score, quality_score,
                         insider_score, fcf_score, earnings_score, peer_score,
-                        pe_percentile, price_vs_52w_low_pct, reasoning
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        pe_percentile, price_vs_52w_low_pct, reasoning,
+                        company_name, sector
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (ticker, scan_date) DO UPDATE SET
                         composite_score = excluded.composite_score,
                         valuation_score = excluded.valuation_score,
@@ -864,7 +865,9 @@ class LongTermScanner:
                         peer_score = excluded.peer_score,
                         pe_percentile = excluded.pe_percentile,
                         price_vs_52w_low_pct = excluded.price_vs_52w_low_pct,
-                        reasoning = excluded.reasoning
+                        reasoning = excluded.reasoning,
+                        company_name = excluded.company_name,
+                        sector = excluded.sector
                 """, (
                     opp["ticker"],
                     opp["scan_date"],
@@ -879,7 +882,9 @@ class LongTermScanner:
                     opp.get("peer_score", 50),
                     opp["pe_percentile"],
                     opp["price_vs_52w_low_pct"],
-                    opp["reasoning"]
+                    opp["reasoning"],
+                    opp.get("company_name", opp["ticker"]),
+                    opp.get("sector", "Unknown")
                 ))
             except Exception as e:
                 logger.error(f"Error storing opportunity for {opp['ticker']}: {e}")
