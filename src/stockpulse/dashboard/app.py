@@ -1920,10 +1920,16 @@ def render_watchlist_page(services: dict):
         """)
 
     try:
+        # Get only the latest entry per ticker (dedupe)
         watchlist_df = services["db"].fetchdf("""
-            SELECT * FROM long_term_watchlist
-            WHERE scan_date >= date('now', '-7 days')
-            ORDER BY composite_score DESC
+            SELECT w.* FROM long_term_watchlist w
+            INNER JOIN (
+                SELECT ticker, MAX(scan_date) as max_date
+                FROM long_term_watchlist
+                WHERE scan_date >= date('now', '-7 days')
+                GROUP BY ticker
+            ) latest ON w.ticker = latest.ticker AND w.scan_date = latest.max_date
+            ORDER BY w.composite_score DESC
         """)
     except Exception as e:
         st.error(f"Error loading watchlist: {e}")
@@ -1940,6 +1946,14 @@ def render_watchlist_page(services: dict):
         ]
         available_cols = [c for c in display_cols if c in watchlist_df.columns]
         display_df = watchlist_df[available_cols].copy()
+
+        # Format numeric columns
+        if "composite_score" in display_df.columns:
+            display_df["composite_score"] = display_df["composite_score"].round(0).astype(int)
+        if "price_vs_52w_low_pct" in display_df.columns:
+            display_df["price_vs_52w_low_pct"] = display_df["price_vs_52w_low_pct"].round(1).astype(str) + "%"
+        if "pe_percentile" in display_df.columns:
+            display_df["pe_percentile"] = display_df["pe_percentile"].round(0).astype(int).astype(str) + "%"
 
         # Rename columns for display
         col_rename = {

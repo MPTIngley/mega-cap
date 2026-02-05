@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "add-holding", "close-holding", "holdings"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "add-holding", "close-holding", "holdings"],
         help="Command to execute"
     )
 
@@ -183,6 +183,8 @@ def main():
         run_longterm_scan()
     elif args.command == "longterm-backfill":
         run_longterm_backfill()
+    elif args.command == "longterm-reset":
+        run_longterm_reset()
     elif args.command == "add-holding":
         run_add_holding(args)
     elif args.command == "close-holding":
@@ -1551,6 +1553,35 @@ def run_longterm_backfill():
     print("\n" + "=" * 70)
     print(f"  Backfill complete: {records} historical records created")
     print("  You can now run 'stockpulse longterm-scan' to see trends")
+    print("=" * 70 + "\n")
+
+
+def run_longterm_reset():
+    """Clear the long-term watchlist table for fresh data."""
+    from stockpulse.data.database import get_db
+
+    print("\n" + "=" * 70)
+    print("  LONG-TERM WATCHLIST RESET")
+    print("=" * 70)
+
+    db = get_db()
+
+    # Count existing records
+    result = db.fetchone("SELECT COUNT(*) FROM long_term_watchlist")
+    count = result[0] if result else 0
+
+    print(f"\n  Current records: {count}")
+    print("  This will delete all long-term watchlist data.")
+    print("  Run 'stockpulse longterm-scan' after to repopulate with fresh data.\n")
+
+    confirm = input("  Type 'yes' to confirm: ")
+    if confirm.lower() == 'yes':
+        db.execute("DELETE FROM long_term_watchlist")
+        print(f"\n  ✅ Deleted {count} records from long_term_watchlist")
+        print("  Run 'stockpulse longterm-scan' to populate fresh data")
+    else:
+        print("\n  ❌ Cancelled")
+
     print("=" * 70 + "\n")
 
 
