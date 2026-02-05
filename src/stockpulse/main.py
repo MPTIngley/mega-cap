@@ -612,40 +612,23 @@ def run_scheduler():
         """Callback for daily portfolio digest email."""
         alert_manager.send_daily_digest()
 
-    scheduler.on_intraday_scan = on_intraday_scan
-    scheduler.on_daily_scan = on_daily_scan
-    scheduler.on_long_term_scan = on_long_term_scan
-    scheduler.on_daily_digest = on_daily_digest
+    # Timezone and job names for schedule display
+    et = pytz.timezone("US/Eastern")
+    job_names = {
+        "intraday_open": "Opening scan",
+        "intraday_scan": "15-min scans",
+        "intraday_close": "Closing scan",
+        "daily_scan": "Daily scan",
+        "daily_digest": "Daily digest",
+        "long_term_scan": "Long-term scan",
+    }
 
-    scheduler.start()
-
-    logger.info("Scheduler started. Press Ctrl+C to stop.")
-
-    try:
-        et = pytz.timezone("US/Eastern")
-        last_status = ""
-
-        # Friendly names for job IDs
-        job_names = {
-            "intraday_open": "Opening scan",
-            "intraday_scan": "15-min scans",
-            "intraday_close": "Closing scan",
-            "daily_scan": "Daily scan",
-            "daily_digest": "Daily digest",
-            "long_term_scan": "Long-term scan",
-        }
-
-        # Show full schedule once at startup
+    def print_schedule():
+        """Print full schedule after scan completes."""
         next_runs = scheduler.get_next_run_times()
         now = datetime.now(et)
-        print("\n" + "=" * 60)
-        print("  STOCKPULSE SCHEDULER")
-        print("=" * 60)
-        print(f"  Current time: {now.strftime('%Y-%m-%d %H:%M ET')}")
-        print("\n  Today's Schedule:")
-        print("  " + "-" * 40)
-
-        # Sort by next run time
+        print("\n" + "-" * 50)
+        print(f"  Schedule (as of {now.strftime('%H:%M ET')}):")
         sorted_jobs = sorted(
             [(job_id, next_time) for job_id, next_time in next_runs.items() if next_time],
             key=lambda x: x[1]
@@ -653,10 +636,42 @@ def run_scheduler():
         for job_id, next_time in sorted_jobs:
             name = job_names.get(job_id, job_id)
             time_str = next_time.strftime('%H:%M ET')
-            print(f"  {time_str}  {name}")
+            # Mark the next job
+            marker = "→" if job_id == sorted_jobs[0][0] else " "
+            print(f"  {marker} {time_str}  {name}")
+        print("-" * 50 + "\n")
 
-        print("  " + "-" * 40)
-        print("\n  Waiting for next job...\n")
+    # Wrap callbacks to print schedule after completion
+    def on_intraday_scan_wrapper(tickers):
+        on_intraday_scan(tickers)
+        print_schedule()
+
+    def on_daily_scan_wrapper(tickers):
+        on_daily_scan(tickers)
+        print_schedule()
+
+    def on_long_term_scan_wrapper(tickers):
+        on_long_term_scan(tickers)
+        print_schedule()
+
+    def on_daily_digest_wrapper():
+        on_daily_digest()
+        print_schedule()
+
+    scheduler.on_intraday_scan = on_intraday_scan_wrapper
+    scheduler.on_daily_scan = on_daily_scan_wrapper
+    scheduler.on_long_term_scan = on_long_term_scan_wrapper
+    scheduler.on_daily_digest = on_daily_digest_wrapper
+
+    scheduler.start()
+
+    logger.info("Scheduler started. Press Ctrl+C to stop.")
+
+    try:
+        last_status = ""
+
+        # Show schedule at startup
+        print_schedule()
 
         while True:
             # Show countdown to next scan
