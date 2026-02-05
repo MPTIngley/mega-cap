@@ -1050,11 +1050,37 @@ def run_scan():
     print("\n  💼 PORTFOLIO STATUS")
     print("-" * 80)
     if not open_positions_df.empty:
+        # Fetch LIVE prices for portfolio positions
+        portfolio_tickers_list = open_positions_df["ticker"].tolist()
+        live_portfolio_prices = ingestion.fetch_current_prices(portfolio_tickers_list)
+
         print(f"  Open positions: {len(open_positions_df)}")
-        for _, pos in open_positions_df.head(5).iterrows():
-            print(f"    {pos['ticker']:5} | Entry: ${pos.get('entry_price', 0):.2f} | P&L: {pos.get('unrealized_pnl_pct', 0):.1f}%")
-        if len(open_positions_df) > 5:
-            print(f"    ... and {len(open_positions_df) - 5} more")
+        total_value = 0
+        total_cost = 0
+        for _, pos in open_positions_df.iterrows():
+            ticker = pos['ticker']
+            entry_price = pos.get('entry_price', 0)
+            shares = pos.get('shares', 0)
+            cost_basis = entry_price * shares
+
+            # Get live price and calculate P&L
+            current_price = live_portfolio_prices.get(ticker, entry_price)
+            current_value = current_price * shares
+            pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+            pnl_dollar = current_value - cost_basis
+
+            total_value += current_value
+            total_cost += cost_basis
+
+            # Color indicator for P&L
+            pnl_indicator = "📈" if pnl_pct >= 0 else "📉"
+            print(f"    {ticker:5} | Entry: ${entry_price:.2f} → Now: ${current_price:.2f} | {pnl_indicator} {pnl_pct:+.1f}% (${pnl_dollar:+,.0f})")
+
+        # Show portfolio totals
+        total_pnl_pct = ((total_value - total_cost) / total_cost * 100) if total_cost > 0 else 0
+        total_pnl_dollar = total_value - total_cost
+        print(f"  ─────────────────────────────────────────────────────────")
+        print(f"  Portfolio: ${total_value:,.0f} | Cost: ${total_cost:,.0f} | P&L: {total_pnl_pct:+.1f}% (${total_pnl_dollar:+,.0f})")
     else:
         print("  No open positions (paper portfolio empty)")
     print()
