@@ -745,52 +745,66 @@ def run_scheduler():
         print_schedule()
 
         while True:
-            # Show countdown to next scan
-            next_runs = scheduler.get_next_run_times()
-            now = datetime.now(et)
+            try:
+                # Show countdown to next scan
+                next_runs = scheduler.get_next_run_times()
+                now = datetime.now(et)
 
-            # Check market status
-            market_open, market_status = is_market_open()
+                # Check market status
+                market_open, market_status = is_market_open()
 
-            # Find the next job to run
-            next_job = None
-            next_job_time = None
-            for job_id, next_time in next_runs.items():
-                if next_time:
-                    if next_job_time is None or next_time < next_job_time:
-                        next_job_time = next_time
-                        next_job = job_id
+                # Find the next job to run
+                next_job = None
+                next_job_time = None
+                for job_id, next_time in next_runs.items():
+                    if next_time:
+                        if next_job_time is None or next_time < next_job_time:
+                            next_job_time = next_time
+                            next_job = job_id
 
-            # Calculate countdown
-            if next_job_time:
-                delta = next_job_time - now
-                total_seconds = int(delta.total_seconds())
-                if total_seconds > 0:
-                    hours, remainder = divmod(total_seconds, 3600)
-                    minutes, _ = divmod(remainder, 60)
+                # Calculate countdown
+                if next_job_time:
+                    delta = next_job_time - now
+                    total_seconds = int(delta.total_seconds())
+                    if total_seconds > 0:
+                        hours, remainder = divmod(total_seconds, 3600)
+                        minutes, _ = divmod(remainder, 60)
 
-                    # Build progress bar (24 chars = 24 hours max display)
-                    if hours < 24:
-                        filled = max(0, 24 - hours)
-                        bar = "█" * filled + "░" * (24 - filled)
+                        # Build progress bar (24 chars = 24 hours max display)
+                        if hours < 24:
+                            filled = max(0, 24 - hours)
+                            bar = "█" * filled + "░" * (24 - filled)
+                        else:
+                            bar = "░" * 24
+
+                        next_job_name = job_names.get(next_job, next_job)
+                        next_time_str = next_job_time.strftime('%H:%M ET')
+
+                        # Build compact status line (include seconds for clarity)
+                        status = (
+                            f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
+                            f"Market: {'OPEN' if market_open else 'CLOSED'} | "
+                            f"Next: {next_job_name} @ {next_time_str} ({hours}h {minutes}m) "
+                            f"[{bar}]  "
+                        )
+
+                        # Always print (seconds ensure it changes each cycle)
+                        print(status, end="", flush=True)
                     else:
-                        bar = "░" * 24
+                        # Job is running or overdue, show that
+                        next_job_name = job_names.get(next_job, next_job)
+                        status = (
+                            f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
+                            f"Market: {'OPEN' if market_open else 'CLOSED'} | "
+                            f"Running: {next_job_name}...  "
+                        )
+                        print(status, end="", flush=True)
 
-                    next_job_name = job_names.get(next_job, next_job)
-                    next_time_str = next_job_time.strftime('%H:%M ET')
+            except Exception as e:
+                # Don't let display errors freeze the loop
+                logger.debug(f"Display update error: {e}")
 
-                    # Build compact status line (include seconds for clarity)
-                    status = (
-                        f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
-                        f"Market: {'OPEN' if market_open else 'CLOSED'} | "
-                        f"Next: {next_job_name} @ {next_time_str} ({hours}h {minutes}m) "
-                        f"[{bar}]  "
-                    )
-
-                    # Always print (seconds ensure it changes each cycle)
-                    print(status, end="", flush=True)
-
-            time.sleep(10)  # Update every 10 seconds
+            time.sleep(5)  # Update every 5 seconds
     except KeyboardInterrupt:
         print()  # New line after countdown
         logger.info("Shutting down...")
