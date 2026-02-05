@@ -962,11 +962,25 @@ class LongTermScanner:
         for i in range(1, len(dates)):
             # Check if dates are consecutive trading days (within 3 calendar days to account for weekends)
             from datetime import datetime, timedelta
-            d1 = datetime.strptime(dates[i-1], "%Y-%m-%d")
-            d2 = datetime.strptime(dates[i], "%Y-%m-%d")
-            if (d1 - d2).days <= 3:
-                consecutive_days += 1
-            else:
+            # Handle various date formats from pandas/SQLite
+            try:
+                d1_raw = dates[i-1]
+                d2_raw = dates[i]
+                # Convert to datetime if needed
+                if hasattr(d1_raw, 'strftime'):
+                    d1 = d1_raw if isinstance(d1_raw, datetime) else datetime.combine(d1_raw, datetime.min.time())
+                else:
+                    d1 = datetime.strptime(str(d1_raw)[:10], "%Y-%m-%d")
+                if hasattr(d2_raw, 'strftime'):
+                    d2 = d2_raw if isinstance(d2_raw, datetime) else datetime.combine(d2_raw, datetime.min.time())
+                else:
+                    d2 = datetime.strptime(str(d2_raw)[:10], "%Y-%m-%d")
+                if (d1 - d2).days <= 3:
+                    consecutive_days += 1
+                else:
+                    break
+            except Exception as e:
+                logger.debug(f"Date parsing error: {e}, dates: {dates[i-1]}, {dates[i]}")
                 break
 
         # Calculate averages
@@ -1124,6 +1138,37 @@ class LongTermScanner:
 
         logger.info(f"Backfill complete: {records_created} records created")
         return records_created
+
+    def get_watchlist_stats(self) -> dict:
+        """Get statistics about the long-term watchlist data."""
+        stats = {}
+
+        # Total records
+        result = self.db.fetchone("SELECT COUNT(*) FROM long_term_watchlist")
+        stats["total_records"] = result[0] if result else 0
+
+        # Date range
+        result = self.db.fetchone("""
+            SELECT MIN(scan_date), MAX(scan_date), COUNT(DISTINCT scan_date)
+            FROM long_term_watchlist
+        """)
+        if result:
+            stats["earliest_date"] = result[0]
+            stats["latest_date"] = result[1]
+            stats["unique_dates"] = result[2]
+
+        # Unique tickers
+        result = self.db.fetchone("SELECT COUNT(DISTINCT ticker) FROM long_term_watchlist")
+        stats["unique_tickers"] = result[0] if result else 0
+
+        # Recent days (last 7)
+        result = self.db.fetchone("""
+            SELECT COUNT(*) FROM long_term_watchlist
+            WHERE scan_date >= date('now', '-7 days')
+        """)
+        stats["records_last_7_days"] = result[0] if result else 0
+
+        return stats
 
     def _score_ticker_historical(self, ticker: str, price_data: pd.DataFrame, as_of_date) -> dict | None:
         """Score a ticker using historical data up to a specific date."""

@@ -1599,9 +1599,20 @@ def run_longterm_scan():
         print("\n  No tickers in universe. Run 'stockpulse init' first.")
         return
 
-    print(f"\n  Scanning {len(tickers)} stocks...")
-
     scanner = LongTermScanner()
+
+    # Show database stats
+    stats = scanner.get_watchlist_stats()
+    print(f"\n  Historical Data: {stats['total_records']} records, "
+          f"{stats['unique_dates']} unique dates, {stats['unique_tickers']} tickers")
+    if stats['total_records'] == 0:
+        print("  ⚠️  No historical data! Run 'stockpulse longterm-backfill' to build history")
+    elif stats.get('records_last_7_days', 0) < 3:
+        print(f"  ⚠️  Only {stats.get('records_last_7_days', 0)} records in last 7 days")
+    else:
+        print(f"  Date range: {stats.get('earliest_date')} to {stats.get('latest_date')}")
+
+    print(f"\n  Scanning {len(tickers)} stocks...")
     opportunities = scanner.run_scan(tickers)
 
     if not opportunities:
