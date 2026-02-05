@@ -105,13 +105,15 @@ class PositionManager:
         """Rebuild loss count and last exit caches from database."""
         try:
             # Get recent closed positions to build loss tracking
+            # Use string date format for SQLite comparison
+            cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
             recent_closed = self.db.fetchdf("""
                 SELECT ticker, pnl, exit_date, exit_reason
                 FROM positions_paper
                 WHERE status = 'closed'
                 AND exit_date >= ?
                 ORDER BY ticker, exit_date DESC
-            """, (datetime.now() - timedelta(days=90),))
+            """, (cutoff_date,))
 
             self._loss_count_cache.clear()
             self._last_exit_cache.clear()
