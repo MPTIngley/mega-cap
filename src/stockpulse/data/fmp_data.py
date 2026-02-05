@@ -249,7 +249,7 @@ def calculate_pe_from_price_eps(ticker: str, as_of_date: date = None) -> Optiona
         return None
 
 
-def backfill_calculated_pe(tickers: list[str], days_back: int = 365) -> int:
+def backfill_calculated_pe(tickers: list[str], days_back: int = 365, verbose: bool = True) -> int:
     """
     Backfill P/E ratios by calculating from historical prices and current EPS.
 
@@ -259,6 +259,7 @@ def backfill_calculated_pe(tickers: list[str], days_back: int = 365) -> int:
     Args:
         tickers: List of ticker symbols
         days_back: Number of days to backfill
+        verbose: Print progress to console
 
     Returns:
         Number of records stored
@@ -267,21 +268,27 @@ def backfill_calculated_pe(tickers: list[str], days_back: int = 365) -> int:
 
     db = get_db()
     total_records = 0
+    skipped_no_eps = 0
+    skipped_no_prices = 0
+    errors = 0
     end_date = date.today()
     start_date = end_date - timedelta(days=days_back)
 
-    logger.info(f"Calculating historical P/E for {len(tickers)} tickers...")
+    if verbose:
+        print(f"  Processing {len(tickers)} tickers...")
 
     for i, ticker in enumerate(tickers):
         try:
-            # Get current EPS
+            # Get current EPS (with timeout handling)
             stock = yf.Ticker(ticker)
-            eps = stock.info.get("trailingEps")
+            info = stock.info
+            eps = info.get("trailingEps") if info else None
 
             if not eps or eps <= 0:
+                skipped_no_eps += 1
                 continue
 
-            # Get historical prices
+            # Get historical prices from local DB
             prices = db.fetchdf("""
                 SELECT date, close FROM prices_daily
                 WHERE ticker = ? AND date BETWEEN ? AND ?
@@ -289,8 +296,10 @@ def backfill_calculated_pe(tickers: list[str], days_back: int = 365) -> int:
             """, (ticker, str(start_date), str(end_date)))
 
             if prices.empty:
+                skipped_no_prices += 1
                 continue
 
+            ticker_records = 0
             # Calculate P/E for each date and store
             for _, row in prices.iterrows():
                 price = row["close"]
@@ -301,13 +310,21 @@ def backfill_calculated_pe(tickers: list[str], days_back: int = 365) -> int:
                         INSERT OR IGNORE INTO fundamentals (ticker, date, pe_ratio)
                         VALUES (?, ?, ?)
                     """, (ticker, str(row["date"]), pe_ratio))
-                    total_records += 1
+                    ticker_records += 1
 
-            if (i + 1) % 10 == 0:
-                logger.info(f"  Processed {i + 1}/{len(tickers)} tickers...")
+            total_records += ticker_records
+
+            if verbose and (i + 1) % 10 == 0:
+                print(f"    Processed {i + 1}/{len(tickers)} tickers ({total_records} records)...")
 
         except Exception as e:
+            errors += 1
             logger.debug(f"Error calculating P/E for {ticker}: {e}")
 
-    logger.info(f"Calculated and stored {total_records} P/E records")
+    if verbose:
+        print(f"  Summary: {total_records} records stored")
+        print(f"    Skipped (no EPS): {skipped_no_eps}")
+        print(f"    Skipped (no prices): {skipped_no_prices}")
+        print(f"    Errors: {errors}")
+
     return total_records

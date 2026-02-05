@@ -1649,9 +1649,9 @@ def run_pe_backfill():
 
     print("\n  📊 Method 2: Calculate P/E from Price / EPS")
     print("  Using historical prices and current trailing EPS...")
-    print("  (Works with existing data, no API needed)\n")
+    print("  (Note: yfinance API calls may be slow - be patient)\n")
 
-    calc_records = backfill_calculated_pe(tickers, days_back=365)
+    calc_records = backfill_calculated_pe(tickers, days_back=365, verbose=True)
     print(f"\n  ✅ Calculated: {calc_records} P/E records stored")
 
     # Show summary

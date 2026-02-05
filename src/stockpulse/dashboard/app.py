@@ -1136,16 +1136,40 @@ def render_signals_page(services: dict):
         avg_conf = filtered["confidence"].mean() if not filtered.empty else 0
         st.metric("Avg Confidence", f"{avg_conf:.1f}%")
 
-    # Signals table
-    st.markdown("---")
-    st.subheader("Active Signals")
+    # Get portfolio tickers and cooldown tickers to mark in signals
+    try:
+        positions_df = services["positions"].get_open_positions(is_paper=True)
+        portfolio_tickers = set(positions_df["ticker"].tolist()) if not positions_df.empty else set()
+    except Exception:
+        portfolio_tickers = set()
 
-    if not filtered.empty:
+    try:
+        blocked_list = services["positions"].get_blocked_tickers()
+        cooldown_tickers = {b["ticker"] for b in blocked_list}
+    except Exception:
+        cooldown_tickers = set()
+
+    # Helper to format signals dataframe
+    def format_signals_df(df, portfolio_tickers, cooldown_tickers):
+        """Format signals dataframe for display, marking portfolio and cooldown tickers."""
+        if df.empty:
+            return df
+
         # Only select columns that exist
-        desired_cols = ["ticker", "strategy", "direction", "confidence",
+        desired_cols = ["ticker", "strategy", "confidence",
                        "entry_price", "target_price", "stop_price", "created_at", "notes"]
-        available_cols = [c for c in desired_cols if c in filtered.columns]
-        display_df = filtered[available_cols].copy()
+        available_cols = [c for c in desired_cols if c in df.columns]
+        display_df = df[available_cols].copy()
+
+        # Mark portfolio and cooldown tickers
+        if "ticker" in display_df.columns:
+            def mark_ticker(x):
+                if x in portfolio_tickers:
+                    return f"📌 {x}"
+                elif x in cooldown_tickers:
+                    return f"⏱️ {x}"
+                return x
+            display_df["ticker"] = display_df["ticker"].apply(mark_ticker)
 
         if "confidence" in display_df.columns:
             display_df["confidence"] = display_df["confidence"].apply(lambda x: f"{x:.0f}%")
@@ -1156,7 +1180,41 @@ def render_signals_page(services: dict):
         if "stop_price" in display_df.columns:
             display_df["stop_price"] = display_df["stop_price"].apply(lambda x: f"${x:.2f}")
 
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        return display_df
+
+    # Split signals into BUY and SELL
+    st.markdown("---")
+
+    if not filtered.empty:
+        buy_signals = filtered[filtered["direction"] == "BUY"]
+        sell_signals = filtered[filtered["direction"] == "SELL"]
+
+        # BUY Signals section
+        st.subheader(f"🟢 BUY Signals ({len(buy_signals)})")
+        if not buy_signals.empty:
+            buy_display = format_signals_df(buy_signals, portfolio_tickers, cooldown_tickers)
+            st.dataframe(buy_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("No BUY signals matching filters.")
+
+        st.markdown("---")
+
+        # SELL Signals section
+        st.subheader(f"🔴 SELL Signals ({len(sell_signals)})")
+        if not sell_signals.empty:
+            sell_display = format_signals_df(sell_signals, portfolio_tickers, cooldown_tickers)
+            st.dataframe(sell_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("No SELL signals matching filters.")
+
+        # Legend
+        legends = []
+        if portfolio_tickers:
+            legends.append("📌 = in portfolio")
+        if cooldown_tickers:
+            legends.append("⏱️ = in cooldown (blocked)")
+        if legends:
+            st.caption(" | ".join(legends))
     else:
         st.warning("No active signals matching your filters.")
 
@@ -1385,9 +1443,15 @@ def render_portfolio_page(services: dict):
             with st.expander(f"**{strategy}** ({len(strategy_positions)} positions, ${strategy_unrealized:+,.2f})", expanded=True):
                 display_data = []
                 for p in strategy_positions:
+                    # Format entry date (just show date part)
+                    entry_date = p.get("entry_date", "")
+                    if entry_date:
+                        entry_date = str(entry_date)[:10]
+
                     display_data.append({
                         "Status": p["status"],
                         "Ticker": p["ticker"],
+                        "Bought": entry_date,
                         "Entry": f"${p['entry']:.2f}",
                         "Current": f"${p['current']:.2f}",
                         "Shares": f"{p['shares']:.2f}",
@@ -1418,10 +1482,15 @@ def render_portfolio_page(services: dict):
             losses = len(strategy_closed[strategy_closed["pnl"] <= 0]) if "pnl" in strategy_closed.columns else 0
 
             with st.expander(f"**{strategy}** ({wins}W/{losses}L, ${strategy_pnl:+,.2f})", expanded=False):
-                display_cols = ["status", "ticker", "entry_price", "exit_price", "pnl", "pnl_pct", "exit_reason"]
+                display_cols = ["status", "ticker", "entry_date", "exit_date", "entry_price", "exit_price", "pnl", "pnl_pct", "exit_reason"]
                 available_cols = [c for c in display_cols if c in strategy_closed.columns]
                 display_df = strategy_closed[available_cols].copy()
 
+                # Format dates (just show date part)
+                if "entry_date" in display_df.columns:
+                    display_df["entry_date"] = display_df["entry_date"].apply(lambda x: str(x)[:10] if x else "N/A")
+                if "exit_date" in display_df.columns:
+                    display_df["exit_date"] = display_df["exit_date"].apply(lambda x: str(x)[:10] if x else "N/A")
                 if "entry_price" in display_df.columns:
                     display_df["entry_price"] = display_df["entry_price"].apply(lambda x: f"${x:.2f}")
                 if "exit_price" in display_df.columns:
@@ -1431,7 +1500,11 @@ def render_portfolio_page(services: dict):
                 if "pnl_pct" in display_df.columns:
                     display_df["pnl_pct"] = display_df["pnl_pct"].apply(lambda x: f"{x:+.2f}%" if x else "N/A")
 
-                display_df = display_df.rename(columns={"status": "W/L", "entry_price": "Entry", "exit_price": "Exit", "pnl": "P&L", "pnl_pct": "P&L %", "exit_reason": "Reason"})
+                display_df = display_df.rename(columns={
+                    "status": "W/L", "entry_date": "Bought", "exit_date": "Sold",
+                    "entry_price": "Entry", "exit_price": "Exit",
+                    "pnl": "P&L", "pnl_pct": "P&L %", "exit_reason": "Reason"
+                })
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.info("No closed positions yet.")
