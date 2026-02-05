@@ -440,18 +440,21 @@ def run_scheduler():
         min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
 
         for signal in ranked_buys:
-            # Skip if already in portfolio
-            if signal.ticker in portfolio_tickers:
-                blocked_signals.append((signal, "Already in portfolio", []))
-                continue
-
-            # Check position limit
-            if current_positions >= max_positions:
-                blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
-                continue
-
-            # Calculate position size with details
+            # Calculate position size first (needed for add-to-position check)
             size_pct, sizing_details = position_manager.calculate_position_size_pct(signal, return_details=True)
+
+            # Check if already in portfolio - but allow adding if conditions met
+            if signal.ticker in portfolio_tickers:
+                can_add, add_reason = position_manager._can_add_to_position(signal.ticker, size_pct)
+                if not can_add:
+                    blocked_signals.append((signal, add_reason, [{"icon": "📌", "reason": add_reason}]))
+                    continue
+                # Can add to position - continue with other checks
+            else:
+                # New position - check position limit
+                if current_positions >= max_positions:
+                    blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
+                    continue
 
             # Check if this would exceed portfolio exposure limit
             if running_exposure_pct + size_pct > max_exposure_pct:
@@ -1183,16 +1186,22 @@ def run_scan():
     print("-" * 80)
 
     for signal in ranked_buys:
-        if signal.ticker in portfolio_tickers:
-            blocked_signals.append((signal, "Already in portfolio", []))
-            continue
-
-        if current_positions >= max_positions:
-            blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
-            continue
-
-        # Calculate position size with details for display
+        # Calculate position size first (needed for add-to-position check)
         size_pct, sizing_details = position_manager.calculate_position_size_pct(signal, return_details=True)
+
+        # Check if already in portfolio - but allow adding if conditions met
+        if signal.ticker in portfolio_tickers:
+            can_add, add_reason = position_manager._can_add_to_position(signal.ticker, size_pct)
+            if not can_add:
+                blocked_signals.append((signal, add_reason, [{"icon": "📌", "reason": add_reason}]))
+                print(f"  📌 {signal.ticker}: {add_reason}")
+                continue
+            print(f"  📈 {signal.ticker}: Adding to existing position")
+        else:
+            # New position - check position limit
+            if current_positions >= max_positions:
+                blocked_signals.append((signal, f"Max positions ({max_positions}) reached", []))
+                continue
 
         if running_exposure_pct + size_pct > max_exposure_pct:
             remaining_pct = max_exposure_pct - running_exposure_pct

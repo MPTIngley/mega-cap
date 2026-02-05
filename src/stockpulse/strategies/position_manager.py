@@ -82,6 +82,9 @@ class PositionManager:
         self._last_exit_cache: dict[str, datetime] = {}
         self._rebuild_trade_history_cache()
 
+        # Position add-on cooldown (days to wait before adding to existing position)
+        self.position_add_cooldown_days = self.risk_config.get("position_add_cooldown_days", 7)
+
     def calculate_transaction_cost(self, price: float, shares: float) -> float:
         """
         Calculate total transaction cost for a trade.
@@ -458,6 +461,60 @@ class PositionManager:
             logger.warning(f"Error checking strategy concentration: {e}")
             return True, ""  # Allow on error
 
+    def _can_add_to_position(self, ticker: str, new_size_pct: float) -> tuple[bool, str]:
+        """
+        Check if we can add to an existing position for this ticker.
+
+        Allows adding to positions if:
+        1. Current position + new size <= max_position_size_pct
+        2. At least position_add_cooldown_days (default 7) since last purchase
+
+        Args:
+            ticker: The ticker symbol
+            new_size_pct: The position size we want to add
+
+        Returns:
+            (can_add, reason) - True if we can add, reason if not
+        """
+        # Get current position info for this ticker
+        result = self.db.fetchone("""
+            SELECT SUM(entry_price * shares) as total_value,
+                   MAX(entry_date) as last_buy_date
+            FROM positions_paper
+            WHERE ticker = ? AND status = 'open'
+        """, (ticker,))
+
+        if not result or result[0] is None:
+            # No existing position - can add (this is a new position)
+            return True, ""
+
+        current_value = result[0]
+        last_buy_date_str = result[1]
+
+        # Check position size limit
+        current_pct = (current_value / self.initial_capital) * 100
+        new_total_pct = current_pct + new_size_pct
+
+        if new_total_pct > self.max_position_size_pct:
+            return False, f"Position would be {new_total_pct:.1f}% (max {self.max_position_size_pct:.0f}%)"
+
+        # Check cooldown since last purchase
+        try:
+            if last_buy_date_str:
+                if isinstance(last_buy_date_str, str):
+                    last_buy_date = datetime.fromisoformat(last_buy_date_str.replace('Z', '+00:00'))
+                else:
+                    last_buy_date = last_buy_date_str
+
+                days_since_buy = (datetime.now() - last_buy_date).days
+                if days_since_buy < self.position_add_cooldown_days:
+                    remaining = self.position_add_cooldown_days - days_since_buy
+                    return False, f"Add-on cooldown: {remaining} days remaining"
+        except Exception as e:
+            logger.warning(f"Error parsing last buy date for {ticker}: {e}")
+
+        return True, ""
+
     def _check_risk_limits(self, signal: Signal, override_size_pct: float | None = None) -> bool:
         """
         Check if opening a position would violate risk limits.
@@ -467,8 +524,8 @@ class PositionManager:
             override_size_pct: If provided, use this size for concentration checks
 
         Checks:
-        1. Max concurrent positions
-        2. No duplicate open positions
+        1. Max concurrent positions (for NEW positions only)
+        2. Per-stock position limit and add-on cooldown
         3. Cooldown periods (churn prevention)
         4. Loss limits per ticker
         5. Sector concentration limits
@@ -476,22 +533,33 @@ class PositionManager:
         """
         ticker = signal.ticker
 
-        # Check max concurrent positions
-        open_count = self.db.fetchone(
-            "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
-        )
-        if open_count and open_count[0] >= self.max_positions:
-            logger.warning(f"Max positions ({self.max_positions}) reached")
-            return False
+        # Calculate position size for this signal
+        if override_size_pct is not None:
+            new_size_pct = override_size_pct
+        else:
+            new_size_pct = self.calculate_position_size_pct(signal)
 
-        # Check if already have position in this ticker
+        # Check if we already have a position in this ticker
         existing = self.db.fetchone(
             "SELECT COUNT(*) FROM positions_paper WHERE ticker = ? AND status = 'open'",
             (ticker,)
         )
-        if existing and existing[0] > 0:
-            logger.info(f"Already have open position in {ticker}")
-            return False
+        has_existing_position = existing and existing[0] > 0
+
+        if has_existing_position:
+            # Check if we can add to the existing position
+            can_add, add_reason = self._can_add_to_position(ticker, new_size_pct)
+            if not can_add:
+                logger.info(f"Cannot add to {ticker}: {add_reason}")
+                return False
+        else:
+            # New position - check max concurrent positions
+            open_count = self.db.fetchone(
+                "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
+            )
+            if open_count and open_count[0] >= self.max_positions:
+                logger.warning(f"Max positions ({self.max_positions}) reached")
+                return False
 
         # Check cooldown periods (churn and loss cooldowns)
         cooldown_ok, cooldown_reason = self._check_cooldown(ticker)
@@ -538,32 +606,62 @@ class PositionManager:
         details = []
         blocking_reasons = []
 
-        # 1. Check max concurrent positions
-        open_count = self.db.fetchone(
-            "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
-        )[0] or 0
-        at_max_positions = open_count >= self.max_positions
-        details.append({
-            "check": "Max positions",
-            "passed": not at_max_positions,
-            "info": f"{open_count}/{self.max_positions} open"
-        })
-        if at_max_positions:
-            blocking_reasons.append(f"Max positions ({self.max_positions}) reached")
+        # Calculate position size for accurate checks
+        dummy_signal = Signal(
+            ticker=ticker,
+            strategy=strategy,
+            direction=SignalDirection.BUY,
+            confidence=confidence,
+            entry_price=100,
+            target_price=110,
+            stop_price=95
+        )
+        new_size_pct = self.calculate_position_size_pct(dummy_signal)
 
-        # 2. Check if already have position
+        # Check if already have position
         existing = self.db.fetchone(
             "SELECT COUNT(*) FROM positions_paper WHERE ticker = ? AND status = 'open'",
             (ticker,)
         )[0] or 0
         already_held = existing > 0
-        details.append({
-            "check": "Already held",
-            "passed": not already_held,
-            "info": "Yes" if already_held else "No"
-        })
+
+        # 1. Check max positions (only for NEW positions)
+        open_count = self.db.fetchone(
+            "SELECT COUNT(*) FROM positions_paper WHERE status = 'open'"
+        )[0] or 0
+
+        if not already_held:
+            at_max_positions = open_count >= self.max_positions
+            details.append({
+                "check": "Max positions",
+                "passed": not at_max_positions,
+                "info": f"{open_count}/{self.max_positions} open"
+            })
+            if at_max_positions:
+                blocking_reasons.append(f"Max positions ({self.max_positions}) reached")
+        else:
+            details.append({
+                "check": "Max positions",
+                "passed": True,
+                "info": f"{open_count}/{self.max_positions} (adding to existing)"
+            })
+
+        # 2. Check if can add to existing position or open new
         if already_held:
-            blocking_reasons.append("Already in portfolio")
+            can_add, add_reason = self._can_add_to_position(ticker, new_size_pct)
+            details.append({
+                "check": "Add to position",
+                "passed": can_add,
+                "info": add_reason if not can_add else "Can add more"
+            })
+            if not can_add:
+                blocking_reasons.append(add_reason)
+        else:
+            details.append({
+                "check": "Add to position",
+                "passed": True,
+                "info": "New position"
+            })
 
         # 3. Check cooldown
         cooldown_ok, cooldown_reason = self._check_cooldown(ticker)
@@ -644,12 +742,20 @@ class PositionManager:
         # Determine overall status
         can_trade = len(blocking_reasons) == 0
 
+        # Check if we can add to existing position
+        if already_held:
+            can_add, add_reason = self._can_add_to_position(ticker, new_size_pct)
+
         if can_trade:
-            status = "✅ ACTIONABLE"
-            reason = "Ready to trade"
-        elif already_held:
+            if already_held:
+                status = "✅ ADD MORE"
+                reason = "Can add to existing position"
+            else:
+                status = "✅ ACTIONABLE"
+                reason = "Ready to trade"
+        elif already_held and not can_add:
             status = "📌 HELD"
-            reason = "Already in portfolio"
+            reason = add_reason
         elif not cooldown_ok:
             status = "⏱️ COOLDOWN"
             reason = cooldown_reason
