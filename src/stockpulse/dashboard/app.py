@@ -751,7 +751,9 @@ def main():
     st.sidebar.caption(f"Refreshed: {datetime.now().strftime('%H:%M:%S')}")
 
     if st.sidebar.button("🔄 Refresh Data"):
+        # Clear both data and resource caches to get fresh data
         st.cache_data.clear()
+        st.cache_resource.clear()
         st.rerun()
 
     # Route to page
@@ -876,6 +878,7 @@ def render_universe_page(services: dict):
 
     # Filter options
     col1, col2 = st.columns(2)
+    selected_sector = "All"  # Initialize with default
     with col1:
         search = st.text_input("Search ticker or company", "")
     with col2:
@@ -1147,6 +1150,7 @@ def render_signals_page(services: dict):
         blocked_list = services["positions"].get_blocked_tickers()
         cooldown_tickers = {b["ticker"] for b in blocked_list}
     except Exception:
+        blocked_list = []
         cooldown_tickers = set()
 
     # Helper to format signals dataframe
@@ -1215,6 +1219,85 @@ def render_signals_page(services: dict):
             legends.append("⏱️ = in cooldown (blocked)")
         if legends:
             st.caption(" | ".join(legends))
+
+        # === SIGNAL ACTION ANALYSIS ===
+        st.markdown("---")
+        st.subheader("📋 Signal Action Analysis")
+        st.caption("Why we are/aren't acting on each BUY signal")
+
+        # Get blocking reasons for each signal
+        action_analysis = []
+        for _, sig in buy_signals.iterrows():
+            ticker = sig["ticker"]
+            status = "✅ ACTIONABLE"
+            reason = "Ready to trade"
+
+            if ticker in portfolio_tickers:
+                status = "📌 HELD"
+                reason = "Already in portfolio"
+            elif ticker in cooldown_tickers:
+                # Get specific cooldown reason
+                for b in blocked_list:
+                    if b["ticker"] == ticker:
+                        status = "⏱️ BLOCKED"
+                        reason = b.get("reason", "In cooldown")
+                        break
+            else:
+                # Check if we have capacity
+                try:
+                    can_trade, block_reason = services["positions"]._check_sector_concentration(ticker)
+                    if not can_trade:
+                        status = "🚫 BLOCKED"
+                        reason = block_reason
+                except:
+                    pass
+
+            action_analysis.append({
+                "Ticker": ticker,
+                "Signal": f"{sig['confidence']:.0f}% {sig['strategy']}",
+                "Status": status,
+                "Reason": reason
+            })
+
+        if action_analysis:
+            st.dataframe(pd.DataFrame(action_analysis), use_container_width=True, hide_index=True)
+
+        # === TOP SIGNALS BY STRATEGY ===
+        st.markdown("---")
+        st.subheader("🎯 Top Signals by Strategy")
+
+        # Group signals by strategy
+        all_strategies = filtered["strategy"].unique() if not filtered.empty else []
+
+        if len(all_strategies) > 0:
+            for strategy in sorted(all_strategies):
+                strategy_signals = filtered[filtered["strategy"] == strategy].head(5)
+                if not strategy_signals.empty:
+                    with st.expander(f"**{strategy}** ({len(strategy_signals)} signals)", expanded=False):
+                        display_data = []
+                        for _, sig in strategy_signals.iterrows():
+                            ticker = sig["ticker"]
+                            # Determine status
+                            if ticker in portfolio_tickers:
+                                status = "📌 Held"
+                            elif ticker in cooldown_tickers:
+                                status = "⏱️ Cooldown"
+                            else:
+                                status = "✅ Ready"
+
+                            display_data.append({
+                                "Status": status,
+                                "Ticker": ticker,
+                                "Conf": f"{sig['confidence']:.0f}%",
+                                "Entry": f"${sig['entry_price']:.2f}",
+                                "Target": f"${sig['target_price']:.2f}",
+                                "Stop": f"${sig['stop_price']:.2f}",
+                                "Notes": sig.get("notes", "")[:50] + "..." if len(str(sig.get("notes", ""))) > 50 else sig.get("notes", "")
+                            })
+                        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+        else:
+            st.info("No signals to group by strategy.")
+
     else:
         st.warning("No active signals matching your filters.")
 
@@ -1524,64 +1607,237 @@ def render_portfolio_page(services: dict):
 
 def render_performance_page(services: dict):
     """Render Performance Analytics page."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
     st.title("📊 Performance Analytics")
 
     performance = services["positions"].get_performance_summary()
+    config = get_config()
+    initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
 
-    # Equity Curve Section
+    # === PORTFOLIO VALUE TIME SERIES ===
     st.markdown("---")
-    st.subheader("Portfolio Equity Curve")
+    st.subheader("📈 Portfolio Value Over Time")
 
-    # Get current prices for mark-to-market (use LIVE prices)
+    # Build comprehensive time series from trade history
     try:
-        # Get list of open position tickers
+        db = services.get("db") or get_db()
+
+        # Get all closed trades with dates
+        closed_trades = db.fetchdf("""
+            SELECT
+                ticker, entry_date, exit_date, entry_price, exit_price,
+                shares, pnl, strategy
+            FROM positions_paper
+            WHERE status = 'closed'
+            ORDER BY exit_date
+        """)
+
+        # Get all open trades
+        open_trades = db.fetchdf("""
+            SELECT ticker, entry_date, entry_price, shares, strategy
+            FROM positions_paper
+            WHERE status = 'open'
+        """)
+
+        # Get current prices for open positions
         positions_df = services["positions"].get_open_positions(is_paper=True)
         tickers = positions_df["ticker"].tolist() if not positions_df.empty else []
 
-        # Fetch live prices
         ingestion = services.get("ingestion")
+        current_prices = {}
         if ingestion and tickers:
             current_prices = ingestion.fetch_current_prices(tickers)
-        else:
-            current_prices = {}
 
-        # Fallback to daily prices if needed
-        if not current_prices:
-            db = services.get("db") or get_db()
+        if not current_prices and tickers:
             prices_df = db.fetchdf("""
                 SELECT ticker, close FROM prices_daily
                 WHERE date = (SELECT MAX(date) FROM prices_daily)
             """)
             current_prices = dict(zip(prices_df["ticker"], prices_df["close"])) if not prices_df.empty else {}
-    except Exception:
-        current_prices = {}
 
-    # Get equity curve with open positions marked to market
-    equity_df = services["positions"].get_equity_curve_with_open_positions(current_prices, is_paper=True)
+        # Build daily time series
+        if not closed_trades.empty or not open_trades.empty:
+            # Determine date range
+            all_dates = []
+            if not closed_trades.empty:
+                all_dates.extend(pd.to_datetime(closed_trades["entry_date"]).tolist())
+                all_dates.extend(pd.to_datetime(closed_trades["exit_date"]).tolist())
+            if not open_trades.empty:
+                all_dates.extend(pd.to_datetime(open_trades["entry_date"]).tolist())
 
-    if len(equity_df) > 1:
-        fig = create_equity_curve(equity_df, title="Paper Portfolio Equity Curve", show_drawdown=True)
-        st.plotly_chart(fig, use_container_width=True)
+            if all_dates:
+                min_date = min(all_dates).date()
+                max_date = date.today()
 
-        # Show key equity metrics
-        if not equity_df.empty:
-            latest_equity = equity_df.iloc[-1]["equity"]
-            initial_equity = equity_df.iloc[0]["equity"]
-            total_return = ((latest_equity / initial_equity) - 1) * 100 if initial_equity > 0 else 0
-            max_dd = equity_df["drawdown"].min() * 100
+                # Create date range
+                date_range = pd.date_range(start=min_date, end=max_date, freq='D')
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Current Equity", f"${latest_equity:,.2f}")
-            with col2:
-                st.metric("Total Return", f"{total_return:+.2f}%")
-            with col3:
-                st.metric("Max Drawdown", f"{max_dd:.2f}%")
-    else:
-        st.info("No equity data yet. Start trading to see your equity curve!")
+                portfolio_values = []
+                cash_values = []
+                invested_values = []
 
+                for d in date_range:
+                    d_date = d.date()
+
+                    # Calculate realized P&L up to this date
+                    realized_pnl = 0.0
+                    if not closed_trades.empty:
+                        closed_by_date = closed_trades[pd.to_datetime(closed_trades["exit_date"]).dt.date <= d_date]
+                        realized_pnl = closed_by_date["pnl"].sum() if not closed_by_date.empty else 0.0
+
+                    # Calculate invested amount (positions open on this date)
+                    invested = 0.0
+
+                    # From closed trades: positions that were open on this date
+                    if not closed_trades.empty:
+                        for _, trade in closed_trades.iterrows():
+                            entry_d = pd.to_datetime(trade["entry_date"]).date()
+                            exit_d = pd.to_datetime(trade["exit_date"]).date()
+                            if entry_d <= d_date < exit_d:
+                                invested += trade["entry_price"] * trade["shares"]
+
+                    # From open trades: positions opened before this date
+                    if not open_trades.empty:
+                        for _, trade in open_trades.iterrows():
+                            entry_d = pd.to_datetime(trade["entry_date"]).date()
+                            if entry_d <= d_date:
+                                invested += trade["entry_price"] * trade["shares"]
+
+                    # Cash = initial + realized - invested
+                    cash = initial_capital + realized_pnl - invested
+
+                    # For current day, add unrealized P&L
+                    unrealized = 0.0
+                    if d_date == date.today() and not open_trades.empty:
+                        for _, trade in open_trades.iterrows():
+                            ticker = trade["ticker"]
+                            if ticker in current_prices:
+                                current_price = current_prices[ticker]
+                                entry_price = trade["entry_price"]
+                                shares = trade["shares"]
+                                unrealized += (current_price - entry_price) * shares
+
+                    portfolio_value = cash + invested + unrealized
+
+                    portfolio_values.append(portfolio_value)
+                    cash_values.append(cash)
+                    invested_values.append(invested)
+
+                # Create time series dataframe
+                ts_df = pd.DataFrame({
+                    "date": date_range,
+                    "portfolio_value": portfolio_values,
+                    "cash": cash_values,
+                    "invested": invested_values
+                })
+
+                # Plot portfolio value and cash
+                fig = make_subplots(
+                    rows=2, cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.08,
+                    row_heights=[0.6, 0.4],
+                    subplot_titles=("Total Portfolio Value", "Cash vs Invested")
+                )
+
+                # Portfolio Value line
+                fig.add_trace(
+                    go.Scatter(
+                        x=ts_df["date"],
+                        y=ts_df["portfolio_value"],
+                        mode="lines",
+                        name="Portfolio Value",
+                        line=dict(color="#3b82f6", width=3),
+                        fill="tozeroy",
+                        fillcolor="rgba(59, 130, 246, 0.1)"
+                    ),
+                    row=1, col=1
+                )
+
+                # Initial capital reference line
+                fig.add_hline(
+                    y=initial_capital,
+                    line_dash="dash",
+                    line_color="#64748b",
+                    annotation_text=f"Initial: ${initial_capital:,.0f}",
+                    row=1, col=1
+                )
+
+                # Cash line
+                fig.add_trace(
+                    go.Scatter(
+                        x=ts_df["date"],
+                        y=ts_df["cash"],
+                        mode="lines",
+                        name="Cash Available",
+                        line=dict(color="#22c55e", width=2)
+                    ),
+                    row=2, col=1
+                )
+
+                # Invested line
+                fig.add_trace(
+                    go.Scatter(
+                        x=ts_df["date"],
+                        y=ts_df["invested"],
+                        mode="lines",
+                        name="Invested",
+                        line=dict(color="#f59e0b", width=2)
+                    ),
+                    row=2, col=1
+                )
+
+                fig.update_layout(
+                    height=500,
+                    paper_bgcolor="#1e293b",
+                    plot_bgcolor="#0f172a",
+                    font=dict(color="#e2e8f0"),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ),
+                    margin=dict(l=60, r=40, t=80, b=40)
+                )
+
+                fig.update_xaxes(gridcolor="#334155", linecolor="#64748b")
+                fig.update_yaxes(gridcolor="#334155", linecolor="#64748b", tickformat="$,.0f")
+
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Key metrics
+                latest_value = ts_df["portfolio_value"].iloc[-1]
+                total_return = ((latest_value / initial_capital) - 1) * 100
+                latest_cash = ts_df["cash"].iloc[-1]
+                latest_invested = ts_df["invested"].iloc[-1]
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Portfolio Value", f"${latest_value:,.2f}", delta=f"{total_return:+.2f}%")
+                with col2:
+                    st.metric("Cash Available", f"${latest_cash:,.2f}")
+                with col3:
+                    st.metric("Invested", f"${latest_invested:,.2f}")
+                with col4:
+                    pct_invested = (latest_invested / latest_value * 100) if latest_value > 0 else 0
+                    st.metric("% Invested", f"{pct_invested:.1f}%")
+            else:
+                st.info("No trading history yet. Start trading to see performance charts!")
+        else:
+            st.info("No trading history yet. Start trading to see performance charts!")
+
+    except Exception as e:
+        st.error(f"Error generating charts: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+    # === PERFORMANCE SUMMARY ===
     st.markdown("---")
-    st.subheader("Performance Summary")
+    st.subheader("📊 Performance Summary")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -1604,28 +1860,54 @@ def render_performance_page(services: dict):
     with col4:
         st.metric("Avg Loss", f"${performance.get('avg_loss', 0):,.2f}")
 
+    # === STRATEGY PERFORMANCE ===
     st.markdown("---")
-    st.subheader("Strategy Performance")
+    st.subheader("🎯 Strategy Performance")
 
     strategy_perf = services["positions"].get_strategy_performance()
 
     if not strategy_perf.empty:
-        col1, col2 = st.columns(2)
+        # Create strategy comparison bar chart
+        fig = go.Figure()
 
-        with col1:
-            fig = create_performance_chart(strategy_perf, "total_pnl")
-            st.plotly_chart(fig, use_container_width=True)
+        fig.add_trace(go.Bar(
+            x=strategy_perf["strategy"],
+            y=strategy_perf["total_pnl"],
+            name="Total P&L",
+            marker_color=strategy_perf["total_pnl"].apply(lambda x: "#22c55e" if x >= 0 else "#ef4444")
+        ))
 
-        with col2:
-            fig = create_win_rate_chart(strategy_perf)
-            st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            title="P&L by Strategy",
+            height=350,
+            paper_bgcolor="#1e293b",
+            plot_bgcolor="#0f172a",
+            font=dict(color="#e2e8f0"),
+            yaxis=dict(tickformat="$,.0f", gridcolor="#334155"),
+            xaxis=dict(gridcolor="#334155")
+        )
 
-        st.dataframe(strategy_perf, use_container_width=True, hide_index=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Strategy table
+        display_cols = ["strategy", "total_trades", "wins", "losses", "win_rate", "total_pnl", "avg_pnl"]
+        available_cols = [c for c in display_cols if c in strategy_perf.columns]
+        display_df = strategy_perf[available_cols].copy()
+
+        if "total_pnl" in display_df.columns:
+            display_df["total_pnl"] = display_df["total_pnl"].apply(lambda x: f"${x:+,.2f}")
+        if "avg_pnl" in display_df.columns:
+            display_df["avg_pnl"] = display_df["avg_pnl"].apply(lambda x: f"${x:+,.2f}")
+        if "win_rate" in display_df.columns:
+            display_df["win_rate"] = display_df["win_rate"].apply(lambda x: f"{x:.1f}%")
+
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.info("No strategy performance data available yet.")
 
+    # === P&L DISTRIBUTION ===
     st.markdown("---")
-    st.subheader("P&L Distribution")
+    st.subheader("📉 P&L Distribution")
 
     closed_df = services["positions"].get_closed_positions()
 

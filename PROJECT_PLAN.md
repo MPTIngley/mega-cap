@@ -30,6 +30,12 @@ Before writing any code, do the following:
 - ✅ Human-readable strategy descriptions
 - ✅ Long-term email: trend tracking, Strong Buy categories
 - ✅ Compact scheduler countdown bar
+- ✅ Live Signals: BUY/SELL split with portfolio/cooldown markers
+- ✅ Signal Action Analysis: why signals are/aren't being acted on
+- ✅ Top Signals by Strategy breakdown
+- ✅ Performance page: Portfolio value and cash time series
+- ✅ Cooldown tracking for winning trades (not just losses)
+- ✅ Historical P/E backfill via FMP API or calculated method
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -54,7 +60,9 @@ Confidence multipliers:
 stockpulse run              # Start scheduler (continuous)
 stockpulse scan             # One-off scan
 stockpulse digest           # Send portfolio digest now
+stockpulse longterm-scan    # Run long-term scanner
 stockpulse longterm-backfill # Backfill 6 weeks trend data
+stockpulse pe-backfill      # Backfill historical P/E ratios
 stockpulse test-email       # Test email config
 stockpulse dashboard        # Launch Streamlit
 stockpulse reset            # Clear trading data (keeps prices)
@@ -196,6 +204,13 @@ stockpulse reset            # Clear trading data (keeps prices)
   - Scroll to "App passwords" > Generate for "Mail"
   - Set as `STOCKPULSE_EMAIL_PASSWORD` environment variable
   - Also set `STOCKPULSE_EMAIL_SENDER` and `STOCKPULSE_EMAIL_RECIPIENT`
+
+### Historical P/E Data (OPTIONAL)
+- **FMP API Key**: For historical P/E ratios from Financial Modeling Prep
+  - Get free key at: https://site.financialmodelingprep.com/developer/docs
+  - 250 requests/day free tier
+  - Set as `FMP_API_KEY` in `.env`
+  - If not set, P/E is calculated from price/EPS (works fine)
 
 ### Data Sources (NO API KEY NEEDED)
 - **yfinance**: Free, no API key required

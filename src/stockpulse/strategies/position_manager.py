@@ -273,6 +273,9 @@ class PositionManager:
 
         if confidence <= min_conf:
             confidence_mult = 1.0
+        elif min_conf >= 100:
+            # Edge case: prevent division by zero if min_conf >= 100
+            confidence_mult = max_mult
         else:
             # Linear interpolation: 1.0 at min_conf, max_mult at 100
             confidence_mult = 1.0 + (confidence - min_conf) / (100 - min_conf) * (max_mult - 1.0)
@@ -653,7 +656,8 @@ class PositionManager:
         total_costs = entry_cost + exit_cost
 
         net_pnl = gross_pnl - total_costs
-        pnl_pct = (net_pnl / (entry_price * shares)) * 100
+        cost_basis = entry_price * shares if entry_price and shares else 0
+        pnl_pct = (net_pnl / cost_basis) * 100 if cost_basis > 0 else 0
 
         # Update position
         self.db.execute("""
@@ -819,9 +823,12 @@ class PositionManager:
         daily_pnl["cumulative_pnl"] = daily_pnl["daily_pnl"].cumsum()
         daily_pnl["equity"] = self.initial_capital + daily_pnl["cumulative_pnl"]
 
-        # Calculate drawdown
+        # Calculate drawdown (with division by zero protection)
         daily_pnl["peak"] = daily_pnl["equity"].cummax()
-        daily_pnl["drawdown"] = (daily_pnl["equity"] - daily_pnl["peak"]) / daily_pnl["peak"]
+        daily_pnl["drawdown"] = daily_pnl.apply(
+            lambda row: (row["equity"] - row["peak"]) / row["peak"] if row["peak"] > 0 else 0,
+            axis=1
+        )
 
         # Add starting point
         start_row = pd.DataFrame({
