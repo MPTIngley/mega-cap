@@ -185,9 +185,9 @@ class SignalInsights:
                 near_misses["macd_volume"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"MACD {gap:.2f} below signal",
+                    "indicator": f"MACD-Signal {macd_diff:.2f}",
                     "criteria": "MACD crosses above signal",
-                    "distance": f"converging, {gap:.2f} to crossover",
+                    "distance": f"{gap:.2f} below 0 trigger (converging)",
                     "score": 100 - (gap * 100),
                 })
 
