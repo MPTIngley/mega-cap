@@ -357,3 +357,50 @@ stockpulse reset            # Clear trading data (keeps prices)
 - Martin prefers to talk through design before coding. Ask before building if requirements are ambiguous.
 - Use type hints. Write docstrings. Keep functions small and testable.
 - Config-driven everything. No magic numbers in strategy code.
+
+---
+
+## Git Hygiene (Claude Code must follow)
+
+### Branch Strategy
+- **Feature branch**: `claude/init-repo-setup-maaOL` — All Claude Code work happens here
+- **Main branch**: `main` — Production code, updated via merge from feature branch
+- Martin pulls from feature branch on his local machine, merges to main, pushes to origin
+
+### Workflow for Claude Code
+1. **Always work on feature branch**: `git checkout claude/init-repo-setup-maaOL`
+2. **Commit frequently** with clear messages describing what changed
+3. **Push to feature branch**: `git push -u origin claude/init-repo-setup-maaOL`
+4. **Never force push** or rewrite history
+5. **Update PROJECT_PLAN.md** at end of each session with work done
+
+### Workflow for Martin (local machine)
+```bash
+# Pull latest from feature branch
+git fetch origin claude/init-repo-setup-maaOL
+git checkout main
+git merge origin/claude/init-repo-setup-maaOL
+
+# Push to main (Martin has permission)
+git push origin main
+
+# Run the app
+stockpulse run
+```
+
+### Commit Message Format
+```
+Short summary of change (50 chars max)
+
+- Bullet point details if needed
+- What was added/changed/fixed
+
+https://claude.ai/code/session_ID
+```
+
+### Session Checklist (Claude Code)
+- [ ] Read PROJECT_PLAN.md at session start
+- [ ] Work on feature branch only
+- [ ] Commit and push changes
+- [ ] Update PROJECT_PLAN.md with session work
+- [ ] Give Martin pull/merge commands at session end
