@@ -623,6 +623,7 @@ def run_scheduler():
 
     try:
         et = pytz.timezone("US/Eastern")
+        last_status = ""
 
         while True:
             # Show countdown to next scan
@@ -632,58 +633,59 @@ def run_scheduler():
             # Check market status
             market_open, market_status = is_market_open()
 
-            print("\n" + "=" * 60)
-            print(f"  StockPulse Scheduler | {now.strftime('%Y-%m-%d %H:%M:%S ET')}")
-            print("=" * 60)
-
-            # Show market status prominently
-            if market_open:
-                print(f"  Market: {market_status}")
-                print("  Intraday scans: ACTIVE")
-            else:
-                print(f"  Market: {market_status}")
-                print("  Intraday scans: PAUSED (will resume when market opens)")
-
-            print("-" * 60)
-
+            # Find the next job to run
+            next_job = None
+            next_job_time = None
             for job_id, next_time in next_runs.items():
                 if next_time:
-                    delta = next_time - now
-                    total_seconds = int(delta.total_seconds())
-                    if total_seconds > 0:
-                        hours, remainder = divmod(total_seconds, 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        if hours > 0:
-                            countdown = f"{hours}h {minutes}m"
-                        else:
-                            countdown = f"{minutes}m {seconds}s"
+                    if next_job_time is None or next_time < next_job_time:
+                        next_job_time = next_time
+                        next_job = job_id
 
-                        # Add note if job will be skipped due to market hours
-                        skip_note = ""
-                        if job_id.startswith("intraday") and not market_open:
-                            skip_note = " [will skip - market closed]"
+            # Friendly names for job IDs
+            job_names = {
+                "intraday_open": "Scan (market open)",
+                "intraday_scan": "Scan (15m interval)",
+                "intraday_close": "Scan (market close)",
+                "daily_scan": "Daily scan",
+                "daily_digest": "Daily digest",
+                "long_term_scan": "Long-term scan",
+            }
 
-                        # Friendly names for job IDs
-                        job_names = {
-                            "intraday_open": "scan (open+2m)",
-                            "intraday_scan": "scan (15m interval)",
-                            "intraday_close": "scan (close-2m)",
-                            "daily_scan": "daily scan",
-                            "daily_digest": "daily digest",
-                            "long_term_scan": "long-term scan",
-                        }
-                        display_name = job_names.get(job_id, job_id)
+            # Calculate countdown
+            if next_job_time:
+                delta = next_job_time - now
+                total_seconds = int(delta.total_seconds())
+                if total_seconds > 0:
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, _ = divmod(remainder, 60)
 
-                        print(f"  {display_name}: {next_time.strftime('%H:%M:%S')} (in {countdown}){skip_note}")
+                    # Build progress bar (24 chars = 24 hours max display)
+                    if hours < 24:
+                        filled = max(0, 24 - hours)
+                        bar = "█" * filled + "░" * (24 - filled)
                     else:
-                        print(f"  {job_id}: running now...")
+                        bar = "░" * 24
 
-            print("=" * 60)
-            print("  Press Ctrl+C to stop")
-            print()
+                    next_job_name = job_names.get(next_job, next_job)
+                    next_time_str = next_job_time.strftime('%H:%M ET')
 
-            time.sleep(30)  # Update countdown every 30 seconds
+                    # Build compact status line
+                    status = (
+                        f"\r  ⏱ {now.strftime('%H:%M ET')} | "
+                        f"Market: {'OPEN' if market_open else 'CLOSED'} | "
+                        f"Next: {next_job_name} @ {next_time_str} ({hours}h {minutes}m) "
+                        f"[{bar}]  "
+                    )
+
+                    # Only print if status changed or every minute
+                    if status != last_status:
+                        print(status, end="", flush=True)
+                        last_status = status
+
+            time.sleep(10)  # Update every 10 seconds
     except KeyboardInterrupt:
+        print()  # New line after countdown
         logger.info("Shutting down...")
         scheduler.stop()
 
