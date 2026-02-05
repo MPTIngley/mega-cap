@@ -628,18 +628,49 @@ def run_scheduler():
         """Print full schedule after scan completes."""
         next_runs = scheduler.get_next_run_times()
         now = datetime.now(et)
+        market_open, market_status = is_market_open()
+
         print("\n" + "-" * 50)
-        print(f"  Schedule (as of {now.strftime('%H:%M ET')}):")
-        sorted_jobs = sorted(
-            [(job_id, next_time) for job_id, next_time in next_runs.items() if next_time],
-            key=lambda x: x[1]
-        )
-        for job_id, next_time in sorted_jobs:
-            name = job_names.get(job_id, job_id)
-            time_str = next_time.strftime('%H:%M ET')
-            # Mark the next job
-            marker = "→" if job_id == sorted_jobs[0][0] else " "
-            print(f"  {marker} {time_str}  {name}")
+        print(f"  Date: {now.strftime('%Y-%m-%d')}  Time: {now.strftime('%H:%M ET')}  Market: {'OPEN' if market_open else 'CLOSED'}")
+
+        # Check if weekend
+        if now.weekday() >= 5:
+            day_name = "Saturday" if now.weekday() == 5 else "Sunday"
+            print(f"\n  📅 {day_name} - Markets closed until Monday 9:30 AM ET")
+            print("-" * 50 + "\n")
+            return
+
+        print("\n  Daily Schedule:")
+
+        # Define the trading day order
+        day_order = [
+            "intraday_open",    # 09:32
+            "intraday_first",   # 09:45
+            "intraday_scan",    # 10:00-15:45
+            "intraday_close",   # 15:58
+            "daily_scan",       # 16:30
+            "daily_digest",     # 17:00
+            "long_term_scan",   # 17:30
+        ]
+
+        # Find the next job (soonest)
+        next_job_id = None
+        next_job_time = None
+        for job_id, next_time in next_runs.items():
+            if next_time:
+                if next_job_time is None or next_time < next_job_time:
+                    next_job_time = next_time
+                    next_job_id = job_id
+
+        # Print in trading day order
+        for job_id in day_order:
+            if job_id in next_runs and next_runs[job_id]:
+                next_time = next_runs[job_id]
+                name = job_names.get(job_id, job_id)
+                time_str = next_time.strftime('%H:%M ET')
+                marker = "→" if job_id == next_job_id else " "
+                print(f"  {marker} {time_str}  {name}")
+
         print("-" * 50 + "\n")
 
     # Wrap callbacks to print schedule after completion
