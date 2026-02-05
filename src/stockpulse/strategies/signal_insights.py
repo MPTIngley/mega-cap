@@ -164,44 +164,45 @@ class SignalInsights:
             # RSI Near-Miss: RSI between threshold and threshold+15
             rsi = latest.get("rsi", 50)
             if rsi_threshold <= rsi <= rsi_threshold + 15:
-                distance = rsi - rsi_threshold
+                gap = rsi - rsi_threshold
                 near_misses["rsi_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
                     "indicator": f"RSI {rsi:.1f}",
                     "criteria": f"RSI < {rsi_threshold} (oversold)",
-                    "distance": f"{distance:.1f} pts above {rsi_threshold} trigger",
-                    "score": 100 - (distance * 10),  # Score for sorting
+                    "distance": f"{gap:.1f} pts above {rsi_threshold} trigger",
+                    "score": 100 - (gap * 10),  # Score for sorting
                 })
 
-            # MACD Near-Miss: MACD close to signal line (within 0.3 and converging)
+            # MACD Near-Miss: MACD close to signal line (within 0.5 and converging)
             macd = latest.get("macd", 0)
             macd_signal = latest.get("macd_signal", 0)
             macd_diff = macd - macd_signal
             macd_prev_diff = indicators.iloc[-2].get("macd", 0) - indicators.iloc[-2].get("macd_signal", 0)
 
             if -0.5 < macd_diff < 0 and macd_diff > macd_prev_diff:  # Below signal but converging
+                gap = abs(macd_diff)
                 near_misses["macd_volume"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"MACD {abs(macd_diff):.2f} below signal",
+                    "indicator": f"MACD {gap:.2f} below signal",
                     "criteria": "MACD crosses above signal",
-                    "distance": f"converging, {abs(macd_diff):.2f} to crossover",
-                    "score": 100 - (abs(macd_diff) * 100),
+                    "distance": f"converging, {gap:.2f} to crossover",
+                    "score": 100 - (gap * 100),
                 })
 
             # Z-Score Near-Miss: Z-score close to threshold
             zscore = latest.get("zscore", 0)
             near_miss_upper = zscore_threshold + 0.75  # e.g., -2.25 + 0.75 = -1.5
             if zscore_threshold < zscore <= near_miss_upper:
-                distance = abs(zscore - zscore_threshold)
+                gap = zscore - zscore_threshold  # positive = above threshold
                 near_misses["zscore_mean_reversion"].append({
                     "ticker": ticker,
                     "price": current_price,
                     "indicator": f"Z-score {zscore:.2f}",
                     "criteria": f"Z-score < {zscore_threshold}",
-                    "distance": f"needs {distance:.2f} more drop to hit {zscore_threshold}",
-                    "score": 100 - (distance * 50),
+                    "distance": f"{gap:.2f} above {zscore_threshold} trigger",
+                    "score": 100 - (gap * 50),
                 })
 
             # Momentum Breakout Near-Miss: Price within 3% of 20-day high
@@ -212,9 +213,9 @@ class SignalInsights:
                     near_misses["momentum_breakout"].append({
                         "ticker": ticker,
                         "price": current_price,
-                        "indicator": f"${current_price:.2f} vs 20d high ${high_20d:.2f}",
+                        "indicator": f"20d high ${high_20d:.2f}",
                         "criteria": "Break above 20-day high",
-                        "distance": f"only {pct_from_high:.1f}% below breakout",
+                        "distance": f"{pct_from_high:.1f}% below ${high_20d:.2f} trigger",
                         "score": 100 - (pct_from_high * 20),
                     })
 
@@ -223,26 +224,28 @@ class SignalInsights:
             if low_52w > 0:
                 pct_above_low = (current_price - low_52w) / low_52w * 100
                 if low_threshold_pct < pct_above_low <= low_threshold_pct + 10:
+                    gap = pct_above_low - low_threshold_pct
                     near_misses["week52_low_bounce"].append({
                         "ticker": ticker,
                         "price": current_price,
-                        "indicator": f"${current_price:.2f} vs 52w low ${low_52w:.2f}",
+                        "indicator": f"{pct_above_low:.1f}% above 52w low",
                         "criteria": f"Within {low_threshold_pct:.0f}% of 52-week low",
-                        "distance": f"{pct_above_low:.1f}% above low (need ≤{low_threshold_pct:.0f}%)",
-                        "score": 100 - ((pct_above_low - low_threshold_pct) * 10),
+                        "distance": f"{gap:.1f}% above {low_threshold_pct:.0f}% trigger",
+                        "score": 100 - (gap * 10),
                     })
 
             # Sector Rotation Near-Miss: Relative strength close to threshold
             rel_strength = latest.get("relative_strength", 0)
             near_miss_lower = rs_threshold - 0.3  # e.g., 1.2 - 0.3 = 0.9
             if near_miss_lower <= rel_strength < rs_threshold:
+                gap = rs_threshold - rel_strength
                 near_misses["sector_rotation"].append({
                     "ticker": ticker,
                     "price": current_price,
-                    "indicator": f"Rel strength {rel_strength:.2f}",
+                    "indicator": f"RS {rel_strength:.2f}",
                     "criteria": f"Relative strength > {rs_threshold}",
-                    "distance": f"needs +{(rs_threshold - rel_strength):.2f} to reach {rs_threshold} trigger",
-                    "score": 100 - ((rs_threshold - rel_strength) * 100),
+                    "distance": f"{gap:.2f} below {rs_threshold} trigger",
+                    "score": 100 - (gap * 100),
                 })
 
         # Sort each strategy's near-misses by score and take top N
