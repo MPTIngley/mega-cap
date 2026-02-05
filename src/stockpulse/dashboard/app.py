@@ -1414,7 +1414,7 @@ def render_signals_page(services: dict):
                             # Fetch some initial data
                             tickers = services["universe"].get_active_tickers()[:10]  # Start with 10
                             if tickers:
-                                services["ingestion"].ingest_daily_data(tickers)
+                                services["ingestion"].run_daily_ingestion(tickers)
                                 st.success(f"Loaded data for {len(tickers)} stocks!")
 
                             st.rerun()
