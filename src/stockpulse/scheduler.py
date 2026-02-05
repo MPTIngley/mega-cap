@@ -153,9 +153,22 @@ class StockPulseScheduler:
             replace_existing=True
         )
 
+        # First 15-min scan at 09:45 (after open scan at 09:32)
+        self.scheduler.add_job(
+            self._run_intraday_job,
+            CronTrigger(
+                hour=open_hour,
+                minute=45,
+                day_of_week="mon-fri",
+                timezone=self.timezone
+            ),
+            id="intraday_first",
+            name="First 15-min scan (09:45)",
+            replace_existing=True
+        )
+
         # Regular intraday scans - every 15 minutes at :00, :15, :30, :45
-        # Start at 10:00 (open scan at 09:32 covers the first 30 min)
-        # Run through 15:45 (close scan at 15:58 covers the last few minutes)
+        # Start at 10:00, run through 15:45
         self.scheduler.add_job(
             self._run_intraday_job,
             CronTrigger(
@@ -165,7 +178,7 @@ class StockPulseScheduler:
                 timezone=self.timezone
             ),
             id="intraday_scan",
-            name="Intraday scan (every 15 min)",
+            name="15-min scans (10:00-15:45)",
             replace_existing=True
         )
 

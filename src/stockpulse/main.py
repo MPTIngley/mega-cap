@@ -615,9 +615,10 @@ def run_scheduler():
     # Timezone and job names for schedule display
     et = pytz.timezone("US/Eastern")
     job_names = {
-        "intraday_open": "Opening scan",
-        "intraday_scan": "15-min scans",
-        "intraday_close": "Closing scan",
+        "intraday_open": "Opening scan (09:32)",
+        "intraday_first": "First 15-min (09:45)",
+        "intraday_scan": "15-min scans (10:00-15:45)",
+        "intraday_close": "Closing scan (15:58)",
         "daily_scan": "Daily scan",
         "daily_digest": "Daily digest",
         "long_term_scan": "Long-term scan",
