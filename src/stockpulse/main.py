@@ -625,6 +625,39 @@ def run_scheduler():
         et = pytz.timezone("US/Eastern")
         last_status = ""
 
+        # Friendly names for job IDs
+        job_names = {
+            "intraday_open": "Opening scan",
+            "intraday_scan": "15-min scans",
+            "intraday_close": "Closing scan",
+            "daily_scan": "Daily scan",
+            "daily_digest": "Daily digest",
+            "long_term_scan": "Long-term scan",
+        }
+
+        # Show full schedule once at startup
+        next_runs = scheduler.get_next_run_times()
+        now = datetime.now(et)
+        print("\n" + "=" * 60)
+        print("  STOCKPULSE SCHEDULER")
+        print("=" * 60)
+        print(f"  Current time: {now.strftime('%Y-%m-%d %H:%M ET')}")
+        print("\n  Today's Schedule:")
+        print("  " + "-" * 40)
+
+        # Sort by next run time
+        sorted_jobs = sorted(
+            [(job_id, next_time) for job_id, next_time in next_runs.items() if next_time],
+            key=lambda x: x[1]
+        )
+        for job_id, next_time in sorted_jobs:
+            name = job_names.get(job_id, job_id)
+            time_str = next_time.strftime('%H:%M ET')
+            print(f"  {time_str}  {name}")
+
+        print("  " + "-" * 40)
+        print("\n  Waiting for next job...\n")
+
         while True:
             # Show countdown to next scan
             next_runs = scheduler.get_next_run_times()
@@ -641,16 +674,6 @@ def run_scheduler():
                     if next_job_time is None or next_time < next_job_time:
                         next_job_time = next_time
                         next_job = job_id
-
-            # Friendly names for job IDs
-            job_names = {
-                "intraday_open": "Scan (market open)",
-                "intraday_scan": "Scan (15m interval)",
-                "intraday_close": "Scan (market close)",
-                "daily_scan": "Daily scan",
-                "daily_digest": "Daily digest",
-                "long_term_scan": "Long-term scan",
-            }
 
             # Calculate countdown
             if next_job_time:

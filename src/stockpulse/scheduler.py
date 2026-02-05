@@ -154,11 +154,12 @@ class StockPulseScheduler:
         )
 
         # Regular intraday scans - every 15 minutes at :00, :15, :30, :45
-        # Only during market hours (handled by _is_market_hours check in the job)
+        # Start at 10:00 (open scan at 09:32 covers the first 30 min)
+        # Run through 15:45 (close scan at 15:58 covers the last few minutes)
         self.scheduler.add_job(
             self._run_intraday_job,
             CronTrigger(
-                hour=f"{open_hour}-{close_hour - 1}",
+                hour=f"{open_hour + 1}-{close_hour - 1}",
                 minute="0,15,30,45",
                 day_of_week="mon-fri",
                 timezone=self.timezone
