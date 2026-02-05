@@ -519,13 +519,14 @@ class PositionManager:
 
         return True
 
-    def get_signal_blocking_reasons(self, ticker: str, strategy: str) -> dict:
+    def get_signal_blocking_reasons(self, ticker: str, strategy: str, confidence: float = 70) -> dict:
         """
         Get comprehensive blocking reasons for a signal.
 
         Args:
             ticker: The ticker symbol
             strategy: The strategy name
+            confidence: Signal confidence (0-100) for accurate position size calculation
 
         Returns:
             Dict with:
@@ -594,25 +595,51 @@ class PositionManager:
         if not sector_ok:
             blocking_reasons.append(sector_reason)
 
-        # 6. Check strategy concentration
-        # Create a dummy signal for the check (Signal/SignalDirection imported at top of file)
+        # 6. Check portfolio exposure limit
+        max_exposure_pct = self.risk_config.get("max_portfolio_exposure_pct", 80.0)
+        total_invested = self.db.fetchone(
+            "SELECT COALESCE(SUM(entry_price * shares), 0) FROM positions_paper WHERE status = 'open'"
+        )[0] or 0
+        current_exposure_pct = (total_invested / self.initial_capital) * 100 if self.initial_capital > 0 else 0
+
+        # Calculate what this position would add
         dummy_signal = Signal(
             ticker=ticker,
             strategy=strategy,
             direction=SignalDirection.BUY,
-            confidence=70,
+            confidence=confidence,
             entry_price=100,
             target_price=110,
             stop_price=95
         )
-        strategy_ok, strategy_reason = self._check_strategy_concentration(dummy_signal)
+        new_position_pct = self.calculate_position_size_pct(dummy_signal)
+        new_exposure_pct = current_exposure_pct + new_position_pct
+
+        # Check if remaining capacity is below minimum position size
+        remaining_exposure_pct = max_exposure_pct - current_exposure_pct
+        exposure_ok = remaining_exposure_pct >= self.min_position_size_pct
+        details.append({
+            "check": "Portfolio exposure",
+            "passed": exposure_ok,
+            "info": f"{current_exposure_pct:.0f}%/{max_exposure_pct:.0f}% used" if exposure_ok else f"At {current_exposure_pct:.0f}% (max {max_exposure_pct:.0f}%)"
+        })
+        if not exposure_ok:
+            blocking_reasons.append(f"Portfolio exposure at {current_exposure_pct:.0f}% (max {max_exposure_pct:.0f}%)")
+
+        # 7. Check strategy concentration using actual confidence
+        current_strategy_pct = self.get_strategy_current_exposure_pct(strategy)
+        strategy_remaining = self.max_per_strategy_pct - current_strategy_pct
+
+        # Check if remaining capacity is below minimum position size
+        strategy_ok = strategy_remaining >= self.min_position_size_pct
+        strategy_info = f"{current_strategy_pct:.0f}%/{self.max_per_strategy_pct:.0f}% used" if strategy_ok else f"At {current_strategy_pct:.0f}% (max {self.max_per_strategy_pct:.0f}%)"
         details.append({
             "check": "Strategy limit",
             "passed": strategy_ok,
-            "info": strategy_reason if not strategy_ok else "Clear"
+            "info": strategy_info
         })
         if not strategy_ok:
-            blocking_reasons.append(strategy_reason)
+            blocking_reasons.append(f"Strategy {strategy} at {current_strategy_pct:.0f}% (max {self.max_per_strategy_pct:.0f}%)")
 
         # Determine overall status
         can_trade = len(blocking_reasons) == 0

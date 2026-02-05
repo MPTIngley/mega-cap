@@ -1234,8 +1234,9 @@ def render_signals_page(services: dict):
             strategy = sig["strategy"]
 
             try:
-                # Get all blocking reasons from position manager
-                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy)
+                # Get all blocking reasons from position manager (pass confidence for accurate sizing)
+                confidence = sig["confidence"] if "confidence" in sig else 70
+                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy, confidence)
                 status = block_info.get("status", "❓ UNKNOWN")
                 reason = block_info.get("reason", "Unknown")
 
@@ -1275,7 +1276,8 @@ def render_signals_page(services: dict):
 
                             # Get comprehensive status from position manager
                             try:
-                                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy)
+                                confidence = sig["confidence"] if "confidence" in sig else 70
+                                block_info = services["positions"].get_signal_blocking_reasons(ticker, strategy, confidence)
                                 status_str = block_info.get("status", "❓")
                                 status = status_str.split()[0] if status_str else "❓"  # Just the emoji
                                 reason_str = block_info.get("reason", "Unknown")
