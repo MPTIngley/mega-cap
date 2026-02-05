@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-04
+## Last Session: 2026-02-05
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -25,6 +25,11 @@ Before writing any code, do the following:
 - ✅ Long-term scanner digest at 17:30 ET
 - ✅ Auto-open/close paper positions
 - ✅ P&L tracking with transaction costs
+- ✅ Per-strategy signal breakdown in scan output
+- ✅ Near-miss detection (stocks close to triggering)
+- ✅ Human-readable strategy descriptions
+- ✅ Long-term email: trend tracking, Strong Buy categories
+- ✅ Compact scheduler countdown bar
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -46,12 +51,13 @@ Confidence multipliers:
 
 ### Commands:
 ```bash
-stockpulse run          # Start scheduler (continuous)
-stockpulse scan         # One-off scan
-stockpulse digest       # Send portfolio digest now
-stockpulse test-email   # Test email config
-stockpulse dashboard    # Launch Streamlit
-stockpulse reset        # Clear trading data (keeps prices)
+stockpulse run              # Start scheduler (continuous)
+stockpulse scan             # One-off scan
+stockpulse digest           # Send portfolio digest now
+stockpulse longterm-backfill # Backfill 6 weeks trend data
+stockpulse test-email       # Test email config
+stockpulse dashboard        # Launch Streamlit
+stockpulse reset            # Clear trading data (keeps prices)
 ```
 
 ---
@@ -266,6 +272,11 @@ stockpulse reset        # Clear trading data (keeps prices)
 | 2026-02-04 | Extended param ranges | stop_loss 20-45%, min_score 40-70 |
 | 2026-02-04 | Risk profiles | Optimal params by stop-loss level for risk tuning |
 | 2026-02-04 | Holdings tracker | Track actual purchases, CLI commands, dashboard page |
+| 2026-02-05 | Per-strategy insights | Near-miss detection, blocking reasons, signal breakdown in scan |
+| 2026-02-05 | Human-readable strategies | Wife-friendly descriptions with acronym definitions |
+| 2026-02-05 | Long-term trend tracking | Consecutive days on list, score trends, Strong Buy categories |
+| 2026-02-05 | Backfill command | `longterm-backfill` populates 6 weeks historical data |
+| 2026-02-05 | Compact scheduler output | Single-line status with countdown bar, ET times |
 
 ---
 
