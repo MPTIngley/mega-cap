@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "add-holding", "close-holding", "holdings"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings"],
         help="Command to execute"
     )
 
@@ -187,6 +187,8 @@ def main():
         run_longterm_reset()
     elif args.command == "fundamentals-refresh":
         run_fundamentals_refresh()
+    elif args.command == "pe-backfill":
+        run_pe_backfill()
     elif args.command == "add-holding":
         run_add_holding(args)
     elif args.command == "close-holding":
@@ -1612,6 +1614,57 @@ def run_fundamentals_refresh():
     else:
         print("\n  ❌ No fundamentals data retrieved")
 
+    print("=" * 70 + "\n")
+
+
+def run_pe_backfill():
+    """Backfill historical P/E ratios from FMP and/or calculated values."""
+    import os
+    from stockpulse.data.universe import UniverseManager
+    from stockpulse.data.fmp_data import FMPDataSource, backfill_calculated_pe
+
+    print("\n" + "=" * 70)
+    print("  P/E RATIO HISTORICAL BACKFILL")
+    print("=" * 70)
+
+    universe = UniverseManager()
+    tickers = universe.get_active_tickers()
+
+    print(f"\n  Tickers to process: {len(tickers)}")
+
+    # Check if FMP API key is available
+    fmp = FMPDataSource()
+    fmp_available = fmp.is_available()
+
+    if fmp_available:
+        print("\n  📊 Method 1: Financial Modeling Prep (FMP) API")
+        print("  Fetching 5 years of historical P/E ratios...")
+        print("  (250 requests/day free tier)\n")
+
+        fmp_records = fmp.backfill_historical_pe(tickers, years=5)
+        print(f"\n  ✅ FMP: {fmp_records} historical P/E records stored")
+    else:
+        print("\n  ⚠️  FMP_API_KEY not set - skipping FMP backfill")
+        print("  Get free key at: https://site.financialmodelingprep.com/developer/docs")
+
+    print("\n  📊 Method 2: Calculate P/E from Price / EPS")
+    print("  Using historical prices and current trailing EPS...")
+    print("  (Works with existing data, no API needed)\n")
+
+    calc_records = backfill_calculated_pe(tickers, days_back=365)
+    print(f"\n  ✅ Calculated: {calc_records} P/E records stored")
+
+    # Show summary
+    from stockpulse.data.database import get_db
+    db = get_db()
+    total = db.fetchone("SELECT COUNT(*) FROM fundamentals WHERE pe_ratio IS NOT NULL")
+    unique_dates = db.fetchone("SELECT COUNT(DISTINCT date) FROM fundamentals WHERE pe_ratio IS NOT NULL")
+
+    print("\n" + "-" * 50)
+    print(f"  Total P/E records in database: {total[0] if total else 0}")
+    print(f"  Unique dates with P/E data: {unique_dates[0] if unique_dates else 0}")
+    print("-" * 50)
+    print("\n  P/E percentile calculations will now be more accurate!")
     print("=" * 70 + "\n")
 
 

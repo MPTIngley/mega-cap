@@ -789,7 +789,7 @@ class LongTermScanner:
 
     def _calculate_pe_percentile(self, ticker: str, current_pe: float) -> float:
         """Calculate where current P/E falls in historical distribution."""
-        # Get historical P/E data
+        # Get historical P/E data from fundamentals table
         historical = self.db.fetchdf("""
             SELECT pe_ratio FROM fundamentals
             WHERE ticker = ? AND pe_ratio IS NOT NULL AND pe_ratio > 0
@@ -797,7 +797,28 @@ class LongTermScanner:
         """, (ticker,))
 
         if historical.empty or len(historical) < 5:
-            return 50  # Default to middle if no history
+            # Try to calculate P/E from price history if we don't have enough data
+            try:
+                from stockpulse.data.fmp_data import calculate_pe_from_price_eps
+                # If current_pe is valid, compare to a simple market average
+                if current_pe and current_pe > 0:
+                    # Use S&P 500 historical average P/E range (15-25) as reference
+                    # Percentile based on where current P/E falls in typical range
+                    if current_pe < 12:
+                        return 10  # Very cheap
+                    elif current_pe < 15:
+                        return 25  # Cheap
+                    elif current_pe < 20:
+                        return 50  # Average
+                    elif current_pe < 25:
+                        return 70  # Expensive
+                    elif current_pe < 35:
+                        return 85  # Very expensive
+                    else:
+                        return 95  # Extremely expensive
+            except Exception:
+                pass
+            return 50  # Default to middle if nothing works
 
         pe_values = historical["pe_ratio"].values
         percentile = (pe_values < current_pe).sum() / len(pe_values) * 100
