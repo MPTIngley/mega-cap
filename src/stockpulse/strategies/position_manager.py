@@ -894,14 +894,12 @@ class PositionManager:
         """
         blocked = []
 
-        for ticker, loss_count in self._loss_count_cache.items():
-            last_exit = self._last_exit_cache.get(ticker)
-            if last_exit is None:
-                continue
-
+        # Iterate over ALL recent exits, not just losers
+        for ticker, last_exit in self._last_exit_cache.items():
+            loss_count = self._loss_count_cache.get(ticker, 0)
             days_since = (datetime.now() - last_exit).days
 
-            # Check if blocked due to losses
+            # Check if blocked due to max losses
             if loss_count >= MAX_LOSSES_PER_TICKER:
                 blocked.append({
                     "ticker": ticker,
@@ -909,6 +907,7 @@ class PositionManager:
                     "loss_count": loss_count,
                     "days_since_exit": days_since
                 })
+            # Check if blocked due to loss cooldown
             elif loss_count > 0 and days_since < LOSS_COOLDOWN_DAYS:
                 blocked.append({
                     "ticker": ticker,
@@ -916,6 +915,7 @@ class PositionManager:
                     "loss_count": loss_count,
                     "days_since_exit": days_since
                 })
+            # Check if blocked due to churn cooldown (applies to ALL exits including wins)
             elif days_since < CHURN_COOLDOWN_DAYS:
                 blocked.append({
                     "ticker": ticker,
