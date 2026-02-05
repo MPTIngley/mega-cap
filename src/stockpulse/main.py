@@ -919,6 +919,15 @@ def run_scan():
         logger.warning("No tickers in universe")
         return
 
+    # Fetch fresh intraday data before scanning
+    print("  Fetching latest market data...")
+    try:
+        ingestion.run_intraday_ingestion(tickers)
+        print("  ✓ Data refreshed")
+    except Exception as e:
+        print(f"  ⚠ Data refresh failed: {e}")
+        logger.warning(f"Data ingestion failed, using cached data: {e}")
+
     # Get current portfolio positions
     open_positions_df = position_manager.get_open_positions()
     portfolio_tickers = set(open_positions_df["ticker"].tolist()) if not open_positions_df.empty else set()
@@ -1052,14 +1061,19 @@ def run_scan():
 
     # === MARKET SNAPSHOT ===
     print("-" * 80)
-    print("  MARKET SNAPSHOT - Stocks Near Threshold")
+    print("  MARKET SNAPSHOT - Stocks Near Threshold (Live Prices)")
     print("-" * 80)
 
     try:
         from datetime import timedelta
         end_date = date.today()
         start_date = end_date - timedelta(days=60)
+
+        # Get historical data for indicator calculation
         prices_df = ingestion.get_daily_prices(tickers[:30], start_date, end_date)
+
+        # Fetch LIVE current prices
+        live_prices = ingestion.fetch_current_prices(tickers[:30])
 
         if not prices_df.empty:
             near_triggers = []
@@ -1070,9 +1084,14 @@ def run_scan():
                     continue
 
                 ticker_data = ticker_data.sort_values("date")
-                latest = ticker_data.iloc[-1]
-                close = latest["close"]
 
+                # Use LIVE price if available, otherwise fall back to latest DB price
+                if ticker in live_prices and live_prices[ticker] > 0:
+                    close = live_prices[ticker]
+                else:
+                    close = ticker_data.iloc[-1]["close"]
+
+                # Calculate RSI from historical data
                 delta = ticker_data["close"].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -1080,6 +1099,7 @@ def run_scan():
                 rsi = 100 - (100 / (1 + rs))
                 current_rsi = rsi.iloc[-1] if not rsi.empty else 50
 
+                # Calculate Z-score using live price vs historical mean/std
                 mean_20 = ticker_data["close"].rolling(20).mean().iloc[-1]
                 std_20 = ticker_data["close"].rolling(20).std().iloc[-1]
                 zscore = (close - mean_20) / std_20 if std_20 > 0 else 0
