@@ -151,9 +151,9 @@ class StockPulseScheduler:
             id="intraday_open",
             name="Opening scan (market open +2 min)",
             replace_existing=True,
-            misfire_grace_time=300,  # Allow up to 5 min late
-            coalesce=True,           # Combine missed runs
-            max_instances=1          # No overlapping
+            misfire_grace_time=1800,  # Allow up to 30 min late (handles laptop sleep)
+            coalesce=True,            # Combine missed runs
+            max_instances=1           # No overlapping
         )
 
         # First 15-min scan at 09:45 (after open scan at 09:32)
@@ -168,7 +168,7 @@ class StockPulseScheduler:
             id="intraday_first",
             name="First 15-min scan (09:45)",
             replace_existing=True,
-            misfire_grace_time=300,
+            misfire_grace_time=1800,
             coalesce=True,
             max_instances=1
         )
@@ -186,7 +186,7 @@ class StockPulseScheduler:
             id="intraday_scan",
             name="15-min scans (10:00-15:45)",
             replace_existing=True,
-            misfire_grace_time=300,
+            misfire_grace_time=1800,
             coalesce=True,
             max_instances=1
         )
@@ -203,7 +203,7 @@ class StockPulseScheduler:
             id="intraday_close",
             name="Closing scan (market close -2 min)",
             replace_existing=True,
-            misfire_grace_time=300,
+            misfire_grace_time=1800,
             coalesce=True,
             max_instances=1
         )
@@ -220,7 +220,7 @@ class StockPulseScheduler:
             id="daily_scan",
             name="Daily data ingestion and scan",
             replace_existing=True,
-            misfire_grace_time=600,  # 10 min grace for daily job
+            misfire_grace_time=1800,  # 10 min grace for daily job
             coalesce=True,
             max_instances=1
         )
@@ -240,7 +240,7 @@ class StockPulseScheduler:
                 id="long_term_scan",
                 name="Long-term investment scanner",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=1800,
                 coalesce=True,
                 max_instances=1
             )
@@ -260,7 +260,7 @@ class StockPulseScheduler:
                 id="daily_digest",
                 name="Daily portfolio digest email",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=1800,
                 coalesce=True,
                 max_instances=1
             )
