@@ -749,6 +749,56 @@ def main():
     except Exception:
         st.sidebar.warning("📊 Data: Unknown")
 
+    # Portfolio status
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Portfolio Status**")
+    try:
+        position_mgr = services.get("positions")
+        config = get_config()
+        initial_capital = config.get("portfolio", {}).get("initial_capital", 100000.0)
+        max_positions = config.get("portfolio", {}).get("max_positions", 40)
+        max_exposure_pct = config.get("risk_management", {}).get("max_portfolio_exposure_pct", 80.0)
+        max_per_strategy_pct = config.get("risk_management", {}).get("max_per_strategy_pct", 70.0)
+
+        # Get open positions
+        open_positions = position_mgr.get_open_positions() if position_mgr else pd.DataFrame()
+        num_positions = len(open_positions) if not open_positions.empty else 0
+
+        # Calculate exposure
+        if not open_positions.empty:
+            total_invested = (open_positions["entry_price"] * open_positions["shares"]).sum()
+            exposure_pct = (total_invested / initial_capital) * 100
+            cash_remaining = initial_capital - total_invested
+        else:
+            total_invested = 0
+            exposure_pct = 0
+            cash_remaining = initial_capital
+
+        remaining_exposure = max_exposure_pct - exposure_pct
+
+        # Display portfolio metrics
+        st.sidebar.metric("Exposure", f"{exposure_pct:.0f}% / {max_exposure_pct:.0f}%",
+                         delta=f"{remaining_exposure:.0f}% available", delta_color="normal")
+        st.sidebar.metric("Positions", f"{num_positions} / {max_positions}",
+                         delta=f"{max_positions - num_positions} slots free", delta_color="normal")
+        st.sidebar.caption(f"💵 Cash: ${cash_remaining:,.0f}")
+
+        # Strategy capacity summary
+        if position_mgr and not open_positions.empty:
+            strategies_used = open_positions["strategy"].unique() if "strategy" in open_positions.columns else []
+            if len(strategies_used) > 0:
+                st.sidebar.markdown("**Strategy Capacity**")
+                for strat in sorted(strategies_used):
+                    strat_pct = position_mgr.get_strategy_current_exposure_pct(strat)
+                    remaining = max_per_strategy_pct - strat_pct
+                    short_name = strat.replace("_", " ").title()[:12]
+                    if remaining < 5:
+                        st.sidebar.warning(f"⚠️ {short_name}: {strat_pct:.0f}%/{max_per_strategy_pct:.0f}%")
+                    else:
+                        st.sidebar.caption(f"✓ {short_name}: {strat_pct:.0f}%/{max_per_strategy_pct:.0f}%")
+    except Exception as e:
+        st.sidebar.warning(f"📊 Portfolio: Error")
+
     st.sidebar.markdown("---")
     st.sidebar.caption(f"Refreshed: {datetime.now().strftime('%H:%M:%S')}")
 
@@ -1297,6 +1347,45 @@ def render_signals_page(services: dict):
                         st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
         else:
             st.info("No signals to group by strategy.")
+
+        # === NEAR MISSES - Stocks close to triggering ===
+        st.markdown("---")
+        st.subheader("🎯 Near Misses - Almost Triggering")
+        st.caption("Stocks close to meeting signal criteria but not quite there yet")
+
+        try:
+            from stockpulse.strategies.signal_insights import SignalInsights
+            signal_insights = SignalInsights()
+            tickers = services["universe"].get_active_tickers() if services.get("universe") else []
+
+            if tickers:
+                near_misses = signal_insights.get_near_misses(tickers, top_n=3)
+
+                # Display near misses for each strategy
+                strategies_with_near_misses = [s for s in near_misses if near_misses[s]]
+
+                if strategies_with_near_misses:
+                    for strat_name in strategies_with_near_misses:
+                        strat_near_misses = near_misses[strat_name]
+                        if strat_near_misses:
+                            strat_display = strat_name.replace("_", " ").title()
+                            with st.expander(f"**{strat_display}** - {len(strat_near_misses)} stocks close to trigger", expanded=False):
+                                near_miss_data = []
+                                for nm in strat_near_misses:
+                                    near_miss_data.append({
+                                        "Ticker": nm.get("ticker", ""),
+                                        "Price": f"${nm.get('price', 0):.2f}",
+                                        "Indicator": nm.get("indicator", ""),
+                                        "Distance": nm.get("distance", "")
+                                    })
+                                if near_miss_data:
+                                    st.dataframe(pd.DataFrame(near_miss_data), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No stocks currently close to triggering any strategy thresholds.")
+            else:
+                st.info("Load universe to see near-misses.")
+        except Exception as e:
+            st.warning(f"Could not load near-misses: {str(e)[:50]}")
 
     else:
         st.warning("No active signals matching your filters.")

@@ -574,10 +574,11 @@ class AlertManager:
             </div>
             <div class="content">
                 <div class="summary">
-                    <span class="stat"><span class="stat-value">{len(opened_positions)}</span> Positions Opened</span>
-                    <span class="stat"><span class="stat-value">{total_allocated:.1f}%</span> Allocated</span>
-                    <span class="stat"><span class="stat-value">{portfolio_exposure_pct:.1f}%</span> Total Exposure</span>
-                    <span class="stat"><span class="stat-value">${initial_capital:,.0f}</span> Capital</span>
+                    <span class="stat"><span class="stat-value">{len(opened_positions)}</span> Opened</span>
+                    <span class="stat"><span class="stat-value">{len(blocked_signals)}</span> Blocked</span>
+                    <span class="stat"><span class="stat-value">{portfolio_exposure_pct:.0f}%</span> Exposure</span>
+                    <span class="stat"><span class="stat-value">{80.0 - portfolio_exposure_pct:.0f}%</span> Remaining</span>
+                    <span class="stat"><span class="stat-value">${initial_capital * (1 - portfolio_exposure_pct/100):,.0f}</span> Cash</span>
                 </div>
 
                 {"<h2 class='section-title'>✅ Positions Opened (" + str(len(opened_positions)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + opened_rows + "</table>" if opened_rows else "<p style='color: #94a3b8;'>No positions opened this scan.</p>"}
