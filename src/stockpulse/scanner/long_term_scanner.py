@@ -241,6 +241,9 @@ class LongTermScanner:
             "peer_valuation_score": peer_valuation_score,
             "pe_percentile": pe_percentile,
             "price_vs_52w_low_pct": price_vs_52w_low,
+            "week52_high": fifty_two_week_high,
+            "week52_low": fifty_two_week_low,
+            "current_price": current_price,
             "reasoning": reasoning
         }
 
@@ -851,8 +854,8 @@ class LongTermScanner:
                         technical_score, dividend_score, quality_score,
                         insider_score, fcf_score, earnings_score, peer_score,
                         pe_percentile, price_vs_52w_low_pct, reasoning,
-                        company_name, sector
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        company_name, sector, week52_high, week52_low, current_price
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (ticker, scan_date) DO UPDATE SET
                         composite_score = excluded.composite_score,
                         valuation_score = excluded.valuation_score,
@@ -867,7 +870,10 @@ class LongTermScanner:
                         price_vs_52w_low_pct = excluded.price_vs_52w_low_pct,
                         reasoning = excluded.reasoning,
                         company_name = excluded.company_name,
-                        sector = excluded.sector
+                        sector = excluded.sector,
+                        week52_high = excluded.week52_high,
+                        week52_low = excluded.week52_low,
+                        current_price = excluded.current_price
                 """, (
                     opp["ticker"],
                     opp["scan_date"],
@@ -884,7 +890,10 @@ class LongTermScanner:
                     opp["price_vs_52w_low_pct"],
                     opp["reasoning"],
                     opp.get("company_name", opp["ticker"]),
-                    opp.get("sector", "Unknown")
+                    opp.get("sector", "Unknown"),
+                    opp.get("week52_high"),
+                    opp.get("week52_low"),
+                    opp.get("current_price")
                 ))
             except Exception as e:
                 logger.error(f"Error storing opportunity for {opp['ticker']}: {e}")

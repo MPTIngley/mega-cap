@@ -1939,10 +1939,19 @@ def render_watchlist_page(services: dict):
         st.markdown("---")
         st.subheader("Top Long-Term Opportunities")
 
-        # Better display with company name and sector
+        # Add trend symbols by getting trend data for each ticker
+        from stockpulse.scanner.long_term_scanner import LongTermScanner
+        scanner = LongTermScanner()
+
+        # Convert to list of dicts, enrich with trends, convert back
+        opps = watchlist_df.to_dict('records')
+        opps = scanner.enrich_with_trends(opps)
+        watchlist_df = pd.DataFrame(opps)
+
+        # Better display with trend, company name, sector, and price info
         display_cols = [
-            "ticker", "company_name", "sector", "composite_score",
-            "price_vs_52w_low_pct", "pe_percentile", "scan_date"
+            "trend_symbol", "ticker", "company_name", "sector", "composite_score",
+            "current_price", "week52_low", "week52_high", "price_vs_52w_low_pct"
         ]
         available_cols = [c for c in display_cols if c in watchlist_df.columns]
         display_df = watchlist_df[available_cols].copy()
@@ -1950,24 +1959,33 @@ def render_watchlist_page(services: dict):
         # Format numeric columns
         if "composite_score" in display_df.columns:
             display_df["composite_score"] = display_df["composite_score"].round(0).astype(int)
+        if "current_price" in display_df.columns:
+            display_df["current_price"] = display_df["current_price"].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "")
+        if "week52_low" in display_df.columns:
+            display_df["week52_low"] = display_df["week52_low"].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "")
+        if "week52_high" in display_df.columns:
+            display_df["week52_high"] = display_df["week52_high"].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "")
         if "price_vs_52w_low_pct" in display_df.columns:
             display_df["price_vs_52w_low_pct"] = display_df["price_vs_52w_low_pct"].round(1).astype(str) + "%"
-        if "pe_percentile" in display_df.columns:
-            display_df["pe_percentile"] = display_df["pe_percentile"].round(0).astype(int).astype(str) + "%"
 
         # Rename columns for display
         col_rename = {
+            "trend_symbol": "Trend",
             "ticker": "Ticker",
             "company_name": "Company",
             "sector": "Sector",
             "composite_score": "Score",
-            "price_vs_52w_low_pct": "vs 52W Low",
-            "pe_percentile": "P/E %ile",
-            "scan_date": "Date"
+            "current_price": "Price",
+            "week52_low": "52W Low",
+            "week52_high": "52W High",
+            "price_vs_52w_low_pct": "vs Low"
         }
         display_df = display_df.rename(columns={k: v for k, v in col_rename.items() if k in display_df.columns})
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+        # Trend legend
+        st.caption("**Trend:** 📈 Strengthening | 📉 Weakening | ➡️ Stable | 🆕 New")
 
         st.markdown("---")
         selected_ticker = st.selectbox("Select ticker for details", watchlist_df["ticker"].unique())

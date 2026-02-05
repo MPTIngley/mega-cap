@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "add-holding", "close-holding", "holdings"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "add-holding", "close-holding", "holdings"],
         help="Command to execute"
     )
 
@@ -185,6 +185,8 @@ def main():
         run_longterm_backfill()
     elif args.command == "longterm-reset":
         run_longterm_reset()
+    elif args.command == "fundamentals-refresh":
+        run_fundamentals_refresh()
     elif args.command == "add-holding":
         run_add_holding(args)
     elif args.command == "close-holding":
@@ -1581,6 +1583,34 @@ def run_longterm_reset():
         print("  Run 'stockpulse longterm-scan' to populate fresh data")
     else:
         print("\n  ❌ Cancelled")
+
+    print("=" * 70 + "\n")
+
+
+def run_fundamentals_refresh():
+    """Refresh fundamentals data for all tickers in universe."""
+    from stockpulse.data.ingestion import DataIngestion
+    from stockpulse.data.universe import UniverseManager
+
+    print("\n" + "=" * 70)
+    print("  FUNDAMENTALS REFRESH")
+    print("=" * 70)
+
+    universe = UniverseManager()
+    ingestion = DataIngestion()
+
+    tickers = universe.get_active_tickers()
+    print(f"\n  Fetching fundamentals for {len(tickers)} tickers...")
+    print("  This may take a few minutes due to API rate limits.\n")
+
+    fundamentals_df = ingestion.fetch_fundamentals(tickers)
+
+    if not fundamentals_df.empty:
+        count = ingestion.store_fundamentals(fundamentals_df)
+        print(f"\n  ✅ Stored fundamentals for {count} tickers")
+        print("  P/E percentile will improve as historical data accumulates.")
+    else:
+        print("\n  ❌ No fundamentals data retrieved")
 
     print("=" * 70 + "\n")
 

@@ -247,6 +247,9 @@ class Database:
             ("peer_score", "REAL"),
             ("company_name", "TEXT"),
             ("sector", "TEXT"),
+            ("week52_high", "REAL"),
+            ("week52_low", "REAL"),
+            ("current_price", "REAL"),
         ]
         for col_name, col_type in migration_columns:
             try:
