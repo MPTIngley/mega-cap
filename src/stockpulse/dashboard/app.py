@@ -1448,7 +1448,7 @@ def render_signals_page(services: dict):
                                     "Ticker": nm.get("ticker", ""),
                                     "Price": f"${nm.get('price', 0):.2f}",
                                     "Current": nm.get("indicator", ""),
-                                    "Needed": nm.get("distance", "")
+                                    "Gap": nm.get("distance", "")
                                 })
                             st.dataframe(pd.DataFrame(near_miss_data), use_container_width=True, hide_index=True)
                         else:
