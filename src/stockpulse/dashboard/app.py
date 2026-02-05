@@ -1948,9 +1948,21 @@ def render_watchlist_page(services: dict):
         opps = scanner.enrich_with_trends(opps)
         watchlist_df = pd.DataFrame(opps)
 
+        # Create formatted trend column matching email format: "📈 11d (+2.4)"
+        def format_trend(row):
+            if row.get('is_new', False):
+                return "🆕 New"
+            trend = row.get('trend_symbol', '➡️')
+            days = row.get('consecutive_days', 0)
+            change_5d = row.get('change_vs_5d_avg', 0)
+            sign = "+" if change_5d >= 0 else ""
+            return f"{trend} {days}d ({sign}{change_5d:.1f})"
+
+        watchlist_df['trend_formatted'] = watchlist_df.apply(format_trend, axis=1)
+
         # Better display with trend, company name, sector, and price info
         display_cols = [
-            "trend_symbol", "ticker", "company_name", "sector", "composite_score",
+            "trend_formatted", "ticker", "company_name", "sector", "composite_score",
             "current_price", "week52_low", "week52_high", "price_vs_52w_low_pct"
         ]
         available_cols = [c for c in display_cols if c in watchlist_df.columns]
@@ -1970,7 +1982,7 @@ def render_watchlist_page(services: dict):
 
         # Rename columns for display
         col_rename = {
-            "trend_symbol": "Trend",
+            "trend_formatted": "Trend",
             "ticker": "Ticker",
             "company_name": "Company",
             "sector": "Sector",
@@ -1985,7 +1997,7 @@ def render_watchlist_page(services: dict):
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         # Trend legend
-        st.caption("**Trend:** 📈 Strengthening | 📉 Weakening | ➡️ Stable | 🆕 New")
+        st.caption("**Trend:** 📈 Strengthening (vs 5d avg) | 📉 Weakening | ➡️ Stable | 🆕 New • **Xd** = days on list • **(+X.X)** = score vs 5-day average")
 
         st.markdown("---")
         selected_ticker = st.selectbox("Select ticker for details", watchlist_df["ticker"].unique())
