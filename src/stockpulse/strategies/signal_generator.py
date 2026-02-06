@@ -133,6 +133,17 @@ class SignalGenerator:
                         new_row["close"] = live_price
                         price_data = pd.concat([price_data, new_row], ignore_index=True)
 
+        # Get sector data for sector rotation strategy
+        universe_df = self.db.fetchdf("SELECT ticker, sector FROM universe WHERE is_active = true")
+        ticker_to_sector = dict(zip(universe_df["ticker"], universe_df["sector"]))
+
+        # Calculate sector returns for sector rotation
+        from .sector_rotation import SectorRotationStrategy
+        sector_returns = SectorRotationStrategy.calculate_sector_returns(
+            price_data, universe_df, lookback_days=10
+        )
+        logger.debug(f"Sector returns: {sector_returns}")
+
         # Process each ticker
         for ticker in tickers:
             ticker_data = price_data[price_data["ticker"] == ticker].copy()
@@ -145,7 +156,14 @@ class SignalGenerator:
             # Run each strategy
             for strategy in self.strategies:
                 try:
-                    signals = strategy.generate_signals(ticker_data, ticker)
+                    # Use sector-aware method for sector rotation strategy
+                    if strategy.name == "sector_rotation":
+                        sector = ticker_to_sector.get(ticker, "Unknown")
+                        signals = strategy.generate_signals_with_sector_context(
+                            ticker_data, ticker, sector, sector_returns
+                        )
+                    else:
+                        signals = strategy.generate_signals(ticker_data, ticker)
 
                     for signal in signals:
                         # Check for duplicate/recent signals
