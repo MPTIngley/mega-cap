@@ -637,6 +637,18 @@ def init_services():
         debug_print(f"    Last daily: {staleness.get('last_daily', 'Never')}")
         debug_print(f"    Last intraday: {staleness.get('last_intraday', 'Never')}")
         debug_print(f"    Data stale: {staleness.get('is_stale', 'Unknown')}")
+
+        # Auto-ingest if daily data is stale (older than 1 day)
+        if staleness.get('is_stale', False) or staleness.get('hours_since_daily', 0) > 24:
+            debug_print("  Auto-refreshing stale data...", "WARN")
+            try:
+                tickers = services.get("universe", UniverseManager()).get_active_tickers()
+                if tickers:
+                    # Fetch fresh daily prices
+                    services["ingestion"].run_daily_ingestion(tickers)
+                    debug_print(f"  Auto-ingest complete for {len(tickers)} tickers", "OK")
+            except Exception as ingest_err:
+                debug_print(f"  Auto-ingest failed: {ingest_err}", "WARN")
     except Exception as e:
         debug_print(f"  Ingestion: FAILED - {e}", "ERROR")
 
@@ -1132,6 +1144,28 @@ def render_debug_page(services: dict):
 def render_signals_page(services: dict):
     """Render Live Signals page."""
     st.title("📡 Live Signals")
+
+    # Auto-refresh control
+    col_refresh1, col_refresh2 = st.columns([3, 1])
+    with col_refresh1:
+        auto_refresh = st.checkbox("Auto-refresh every 5 minutes", value=False)
+    with col_refresh2:
+        if st.button("🔄 Refresh Now"):
+            st.rerun()
+
+    # Auto-refresh timer
+    if auto_refresh:
+        import time
+        if "last_refresh" not in st.session_state:
+            st.session_state.last_refresh = time.time()
+
+        elapsed = time.time() - st.session_state.last_refresh
+        if elapsed > 300:  # 5 minutes
+            st.session_state.last_refresh = time.time()
+            st.rerun()
+        else:
+            remaining = int(300 - elapsed)
+            st.caption(f"Next refresh in {remaining // 60}m {remaining % 60}s")
 
     # Get open signals
     try:

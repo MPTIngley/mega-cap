@@ -121,25 +121,13 @@ class SignalInsights:
         if price_data.empty:
             return {}
 
-        # Fetch live prices and update today's data for accurate indicators
+        # Fetch live prices upfront
+        live_prices = {}
         try:
             live_prices = self.data_ingestion.fetch_current_prices(tickers)
-            if live_prices:
-                # Update the latest row for each ticker with live price
-                today_str = end_date.isoformat()
-                for ticker, live_price in live_prices.items():
-                    mask = (price_data["ticker"] == ticker)
-                    if mask.any():
-                        # Get the last row index for this ticker
-                        ticker_indices = price_data[mask].index
-                        if len(ticker_indices) > 0:
-                            last_idx = ticker_indices[-1]
-                            price_data.loc[last_idx, "close"] = live_price
-                            price_data.loc[last_idx, "high"] = max(price_data.loc[last_idx, "high"], live_price)
-                            price_data.loc[last_idx, "low"] = min(price_data.loc[last_idx, "low"], live_price)
-                logger.debug(f"Updated {len(live_prices)} tickers with live prices")
+            logger.info(f"Fetched live prices for {len(live_prices)} tickers")
         except Exception as e:
-            logger.debug(f"Could not fetch live prices: {e}")
+            logger.warning(f"Could not fetch live prices: {e}")
 
         near_misses = {
             "rsi_mean_reversion": [],
@@ -172,7 +160,15 @@ class SignalInsights:
 
             # Ensure date column is consistent type for sorting
             ticker_data["date"] = pd.to_datetime(ticker_data["date"])
-            ticker_data = ticker_data.sort_values("date")
+            ticker_data = ticker_data.sort_values("date").reset_index(drop=True)
+
+            # Update the LAST row (most recent) with live price AFTER sorting
+            if ticker in live_prices and live_prices[ticker] > 0:
+                live_price = live_prices[ticker]
+                last_idx = len(ticker_data) - 1
+                ticker_data.loc[last_idx, "close"] = live_price
+                ticker_data.loc[last_idx, "high"] = max(ticker_data.loc[last_idx, "high"], live_price)
+                ticker_data.loc[last_idx, "low"] = min(ticker_data.loc[last_idx, "low"], live_price)
 
             # Calculate all indicators for near-miss detection
             indicators = self._calculate_all_indicators(ticker_data)
