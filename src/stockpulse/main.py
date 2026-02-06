@@ -1142,15 +1142,18 @@ def run_scan():
                 if len(ticker_data) < 20:
                     continue
 
+                # Ensure date column is consistent type for sorting
+                ticker_data["date"] = pd.to_datetime(ticker_data["date"])
                 ticker_data = ticker_data.sort_values("date")
 
-                # Use LIVE price if available, otherwise fall back to latest DB price
+                # Update last row with live price for accurate indicator calculation
                 if ticker in live_prices and live_prices[ticker] > 0:
                     close = live_prices[ticker]
+                    ticker_data.iloc[-1, ticker_data.columns.get_loc("close")] = close
                 else:
                     close = ticker_data.iloc[-1]["close"]
 
-                # Calculate RSI from historical data
+                # Calculate RSI with live-updated data
                 delta = ticker_data["close"].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -1158,7 +1161,7 @@ def run_scan():
                 rsi = 100 - (100 / (1 + rs))
                 current_rsi = rsi.iloc[-1] if not rsi.empty else 50
 
-                # Calculate Z-score using live price vs historical mean/std
+                # Calculate Z-score with live-updated data
                 mean_20 = ticker_data["close"].rolling(20).mean().iloc[-1]
                 std_20 = ticker_data["close"].rolling(20).std().iloc[-1]
                 zscore = (close - mean_20) / std_20 if std_20 > 0 else 0
