@@ -88,6 +88,54 @@ class LongTermScanner:
         # Cache for yfinance data to avoid repeated API calls
         self._yf_cache = {}
 
+    def _ensure_prices_current(self, tickers: list[str]) -> None:
+        """
+        Check if prices_daily is up to date and update if stale.
+
+        Considers data stale if the latest date is more than 1 trading day old.
+        """
+        # Check latest date in prices_daily
+        result = self.db.fetchone("""
+            SELECT MAX(date) FROM prices_daily
+        """)
+
+        if not result or not result[0]:
+            logger.warning("No price data in database - running full ingestion")
+            self._run_price_update(tickers)
+            return
+
+        latest_date_str = result[0]
+        try:
+            latest_date = datetime.strptime(str(latest_date_str)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning(f"Could not parse latest date: {latest_date_str}")
+            self._run_price_update(tickers)
+            return
+
+        today = date.today()
+        days_behind = (today - latest_date).days
+
+        # Allow 1 day grace for weekends/holidays, but if 2+ days behind, update
+        # Also check if it's a weekday and we're behind
+        is_weekday = today.weekday() < 5
+
+        if days_behind >= 2 or (days_behind >= 1 and is_weekday and today.weekday() != 0):
+            # More than 1 day behind (and not Monday checking Sunday)
+            logger.info(f"Price data is {days_behind} days old (latest: {latest_date}). Updating...")
+            self._run_price_update(tickers)
+        else:
+            logger.info(f"Price data is current (latest: {latest_date})")
+
+    def _run_price_update(self, tickers: list[str]) -> None:
+        """Run price ingestion to update database."""
+        try:
+            logger.info(f"Updating daily prices for {len(tickers)} tickers...")
+            results = self.data_ingestion.run_daily_ingestion(tickers)
+            logger.info(f"Price update complete: {results}")
+        except Exception as e:
+            logger.error(f"Failed to update prices: {e}")
+            # Continue with scan anyway - will use live prices from yfinance
+
     def run_scan(self, tickers: list[str]) -> list[dict]:
         """
         Run long-term scan on given tickers.
@@ -98,6 +146,9 @@ class LongTermScanner:
         Returns:
             List of opportunity dictionaries, sorted by score
         """
+        # Ensure price database is up to date before scanning
+        self._ensure_prices_current(tickers)
+
         logger.info(f"Running long-term scan on {len(tickers)} tickers")
 
         opportunities = []
