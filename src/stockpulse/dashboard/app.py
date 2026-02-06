@@ -1143,29 +1143,30 @@ def render_debug_page(services: dict):
 
 def render_signals_page(services: dict):
     """Render Live Signals page."""
+    import time
     st.title("📡 Live Signals")
 
-    # Auto-refresh control
+    # Auto-refresh (default ON, matches 15-min scan interval)
     col_refresh1, col_refresh2 = st.columns([3, 1])
     with col_refresh1:
-        auto_refresh = st.checkbox("Auto-refresh every 5 minutes", value=False)
+        auto_refresh = st.checkbox("Auto-refresh (every 15 min)", value=True)
     with col_refresh2:
         if st.button("🔄 Refresh Now"):
+            st.session_state.last_refresh = time.time()
             st.rerun()
 
-    # Auto-refresh timer
-    if auto_refresh:
-        import time
-        if "last_refresh" not in st.session_state:
-            st.session_state.last_refresh = time.time()
+    # Auto-refresh timer (15 minutes = 900 seconds)
+    if "last_refresh" not in st.session_state:
+        st.session_state.last_refresh = time.time()
 
+    if auto_refresh:
         elapsed = time.time() - st.session_state.last_refresh
-        if elapsed > 300:  # 5 minutes
+        if elapsed > 900:  # 15 minutes
             st.session_state.last_refresh = time.time()
             st.rerun()
         else:
-            remaining = int(300 - elapsed)
-            st.caption(f"Next refresh in {remaining // 60}m {remaining % 60}s")
+            remaining = int(900 - elapsed)
+            st.caption(f"⏱️ Next refresh in {remaining // 60}m {remaining % 60}s")
 
     # Get open signals
     try:
