@@ -708,11 +708,11 @@ def run_scheduler():
             "long_term_scan",   # 17:30
         ]
 
-        # Find the next job (soonest)
+        # Find the next job (soonest that is in the future)
         next_job_id = None
         next_job_time = None
         for job_id, next_time in next_runs.items():
-            if next_time:
+            if next_time and next_time > now:  # Only consider future jobs
                 if next_job_time is None or next_time < next_job_time:
                     next_job_time = next_time
                     next_job_id = job_id
@@ -769,11 +769,11 @@ def run_scheduler():
                 # Check market status
                 market_open, market_status = is_market_open()
 
-                # Find the next job to run
+                # Find the next job to run (must be in the future)
                 next_job = None
                 next_job_time = None
                 for job_id, next_time in next_runs.items():
-                    if next_time:
+                    if next_time and next_time > now:  # Only consider future jobs
                         if next_job_time is None or next_time < next_job_time:
                             next_job_time = next_time
                             next_job = job_id
