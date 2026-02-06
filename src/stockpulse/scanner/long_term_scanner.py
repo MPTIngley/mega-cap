@@ -136,6 +136,37 @@ class LongTermScanner:
             logger.error(f"Failed to update prices: {e}")
             # Continue with scan anyway - will use live prices from yfinance
 
+    def _ensure_watchlist_history(self, min_days: int = 7) -> None:
+        """
+        Check if long_term_watchlist has enough historical data for trend analysis.
+
+        If not enough history exists, runs backfill to populate it.
+
+        Args:
+            min_days: Minimum number of unique scan dates required (default 7)
+        """
+        # Check how many unique dates we have in the watchlist
+        result = self.db.fetchone("""
+            SELECT COUNT(DISTINCT scan_date) FROM long_term_watchlist
+            WHERE scan_date >= date('now', '-30 days')
+        """)
+
+        unique_dates = result[0] if result and result[0] else 0
+
+        if unique_dates < min_days:
+            logger.info(
+                f"Watchlist history insufficient ({unique_dates} days, need {min_days}). "
+                f"Running backfill..."
+            )
+            try:
+                # Backfill 3 weeks of history for trend analysis
+                records = self.backfill_history(days=21)
+                logger.info(f"Backfill complete: {records} records created")
+            except Exception as e:
+                logger.error(f"Failed to backfill watchlist history: {e}")
+        else:
+            logger.info(f"Watchlist history sufficient ({unique_dates} days)")
+
     def run_scan(self, tickers: list[str]) -> list[dict]:
         """
         Run long-term scan on given tickers.
@@ -148,6 +179,9 @@ class LongTermScanner:
         """
         # Ensure price database is up to date before scanning
         self._ensure_prices_current(tickers)
+
+        # Ensure watchlist has enough history for trend analysis
+        self._ensure_watchlist_history()
 
         logger.info(f"Running long-term scan on {len(tickers)} tickers")
 
