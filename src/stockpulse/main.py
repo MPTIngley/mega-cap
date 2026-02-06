@@ -440,6 +440,19 @@ def run_scheduler():
         current_positions = len(portfolio_tickers)
         min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
 
+        # === CIRCUIT BREAKER CHECK ===
+        # Block new entries if market drops > 3% intraday
+        from stockpulse.utils.market_health import check_circuit_breaker
+        circuit_breaker_ok, cb_message = check_circuit_breaker()
+        print(f"  {cb_message}")
+
+        if not circuit_breaker_ok:
+            # Circuit breaker triggered - block ALL new entries
+            for signal in ranked_buys:
+                blocked_signals.append((signal, "Circuit breaker active", [{"icon": "🚨", "reason": cb_message}]))
+            ranked_buys = []  # Clear all buys
+            logger.warning(f"Circuit breaker blocked {len(blocked_signals)} potential trades")
+
         for signal in ranked_buys:
             # Calculate position size first (needed for add-to-position check)
             size_pct, sizing_details = position_manager.calculate_position_size_pct(signal, return_details=True)
@@ -1199,8 +1212,21 @@ def run_scan():
     current_positions = len(portfolio_tickers)
     min_position_size_pct = risk_config.get("min_position_size_pct", 3.0)
 
+    # === CIRCUIT BREAKER CHECK ===
+    from stockpulse.utils.market_health import check_circuit_breaker
+    circuit_breaker_ok, cb_message = check_circuit_breaker()
+
     print(f"\n  🎯 OPENING POSITIONS (max {max_positions}, max {max_exposure_pct}% exposure)")
     print("-" * 80)
+    print(f"  {cb_message}")
+
+    if not circuit_breaker_ok:
+        # Circuit breaker triggered - block ALL new entries
+        for signal in ranked_buys:
+            blocked_signals.append((signal, "Circuit breaker active", [{"icon": "🚨", "reason": cb_message}]))
+        ranked_buys = []  # Clear all buys
+        logger.warning(f"Circuit breaker blocked {len(blocked_signals)} potential trades")
+        print(f"  🚨 Circuit breaker active - no new positions will be opened")
 
     for signal in ranked_buys:
         # Calculate position size first (needed for add-to-position check)
