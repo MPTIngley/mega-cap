@@ -151,6 +151,8 @@ class SignalGenerator:
             if len(ticker_data) < 60:  # Need minimum history
                 continue
 
+            # Ensure date column is consistent type for sorting
+            ticker_data["date"] = pd.to_datetime(ticker_data["date"])
             ticker_data = ticker_data.sort_values("date")
 
             # Run each strategy
