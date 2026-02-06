@@ -138,7 +138,7 @@ class LongTermScanner:
 
         Returns None if insufficient data.
         """
-        # Get price data
+        # Get price data from database (historical)
         price_data = self.data_ingestion.get_daily_prices(
             [ticker],
             start_date=date.today() - timedelta(days=365)
@@ -157,8 +157,24 @@ class LongTermScanner:
         if not fundamentals:
             return None
 
-        # Get yfinance ticker for additional data
+        # Get yfinance ticker for additional data AND live price
         yf_ticker = self._get_yf_ticker(ticker)
+
+        # Fetch live/current price from yfinance (not stale DB price)
+        # Initialize variables that may be set in try block
+        yf_info = None
+        live_price = None
+        try:
+            yf_info = yf_ticker.info
+            live_price = yf_info.get('regularMarketPrice') or yf_info.get('currentPrice')
+            if live_price and live_price > 0:
+                # Update the last row of price_data with live price for technical calcs
+                price_data = price_data.sort_values('date').reset_index(drop=True)
+                price_data.loc[price_data.index[-1], 'close'] = live_price
+            else:
+                live_price = None  # Ensure it's None if invalid
+        except Exception as e:
+            logger.debug(f"Could not fetch live price for {ticker}: {e}")
 
         # Calculate all individual scores
         valuation_score = self._calculate_valuation_score(ticker, fundamentals)
@@ -185,14 +201,16 @@ class LongTermScanner:
             peer_valuation_score * w.get("peer_valuation", 0.08)
         )
 
-        # Calculate supporting metrics
-        current_price = price_data["close"].iloc[-1]
+        # Calculate supporting metrics - use live price if available
+        # (live_price was set earlier when we fetched yf_ticker.info)
+        current_price = live_price if live_price else price_data["close"].iloc[-1]
 
-        # Get company info
+        # Get company info (reuse yf_info from live price fetch if available)
         try:
-            info = yf_ticker.info
-            company_name = info.get("shortName", info.get("longName", ticker))
-            sector = info.get("sector", "Unknown")
+            if yf_info is None:
+                yf_info = yf_ticker.info
+            company_name = yf_info.get("shortName", yf_info.get("longName", ticker))
+            sector = yf_info.get("sector", "Unknown")
         except Exception:
             company_name = ticker
             sector = "Unknown"
