@@ -83,9 +83,10 @@ class SignalGenerator:
         if not tickers:
             return []
 
-        # Expire old signals before generating new ones
+        # Clear ALL open signals before generating new ones
         # This ensures dashboard and console show consistent, current data
-        self.expire_old_signals(max_age_days=1)
+        # If market conditions changed, old signals are no longer valid
+        self.clear_all_open_signals()
 
         logger.info(f"Generating signals for {len(tickers)} tickers using {len(self.strategies)} strategies")
 
@@ -315,3 +316,25 @@ class SignalGenerator:
         if expired_count > 0:
             logger.info(f"Expired {expired_count} signals older than {max_age_days} day(s)")
         return expired_count
+
+    def clear_all_open_signals(self) -> int:
+        """
+        Clear all open signals before generating new ones.
+
+        This ensures the database always reflects the CURRENT market state.
+        Called at the start of each scan to prevent stale signals from
+        showing as actionable when market conditions have changed.
+
+        Returns:
+            Number of signals cleared
+        """
+        result = self.db.execute("""
+            UPDATE signals
+            SET status = 'expired'
+            WHERE status = 'open'
+        """)
+
+        cleared_count = result.rowcount if hasattr(result, 'rowcount') else 0
+        if cleared_count > 0:
+            logger.info(f"Cleared {cleared_count} open signals before new scan")
+        return cleared_count
