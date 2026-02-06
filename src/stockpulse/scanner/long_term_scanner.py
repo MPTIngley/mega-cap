@@ -140,66 +140,52 @@ class LongTermScanner:
         """
         Check if long_term_watchlist has enough historical data for trend analysis.
 
-        If not enough history exists OR there are recent gaps, runs backfill.
+        If not enough history exists OR there are gaps in recent data, runs backfill.
 
         Args:
             min_days: Minimum number of unique scan dates required (default 7)
         """
-        # Check how many unique dates we have in the watchlist
+        # Check how many unique dates we have in the watchlist (last 14 days)
         result = self.db.fetchone("""
             SELECT COUNT(DISTINCT scan_date) FROM long_term_watchlist
-            WHERE scan_date >= date('now', '-30 days')
+            WHERE scan_date >= date('now', '-14 days')
         """)
-        unique_dates = result[0] if result and result[0] else 0
+        watchlist_dates_14d = result[0] if result and result[0] else 0
 
-        # Also check for gaps: compare latest watchlist date to latest price date
+        # Check how many trading days exist in prices_daily (last 14 days)
         result = self.db.fetchone("""
-            SELECT MAX(scan_date) FROM long_term_watchlist
+            SELECT COUNT(DISTINCT date) FROM prices_daily
+            WHERE date >= date('now', '-14 days')
         """)
-        latest_watchlist = result[0] if result and result[0] else None
+        price_dates_14d = result[0] if result and result[0] else 0
 
-        result = self.db.fetchone("""
-            SELECT MAX(date) FROM prices_daily
-        """)
-        latest_prices = result[0] if result and result[0] else None
-
-        # Calculate gap between watchlist and prices
+        # If watchlist has fewer dates than prices, we have gaps to fill
         needs_backfill = False
-        gap_days = 0
+        missing_days = price_dates_14d - watchlist_dates_14d
 
-        if latest_watchlist and latest_prices:
-            try:
-                wl_date = datetime.strptime(str(latest_watchlist)[:10], "%Y-%m-%d").date()
-                pr_date = datetime.strptime(str(latest_prices)[:10], "%Y-%m-%d").date()
-                gap_days = (pr_date - wl_date).days
-
-                # If prices are ahead of watchlist by 2+ days, we have a gap to fill
-                if gap_days >= 2:
-                    needs_backfill = True
-                    logger.info(
-                        f"Watchlist has {gap_days}-day gap (watchlist: {wl_date}, prices: {pr_date}). "
-                        f"Running backfill..."
-                    )
-            except ValueError as e:
-                logger.debug(f"Could not parse dates: {e}")
-
-        if unique_dates < min_days:
+        if missing_days >= 2:
             needs_backfill = True
             logger.info(
-                f"Watchlist history insufficient ({unique_dates} days, need {min_days}). "
+                f"Watchlist missing {missing_days} days in last 14 days "
+                f"(watchlist: {watchlist_dates_14d}, prices: {price_dates_14d}). Running backfill..."
+            )
+
+        if watchlist_dates_14d < min_days:
+            needs_backfill = True
+            logger.info(
+                f"Watchlist history insufficient ({watchlist_dates_14d} days in last 14d, need {min_days}). "
                 f"Running backfill..."
             )
 
         if needs_backfill:
             try:
-                # Backfill enough days to cover the gap plus some buffer
-                backfill_days = max(21, gap_days + 7)
-                records = self.backfill_history(days=backfill_days)
+                # Backfill 3 weeks to cover gaps
+                records = self.backfill_history(days=21)
                 logger.info(f"Backfill complete: {records} records created")
             except Exception as e:
                 logger.error(f"Failed to backfill watchlist history: {e}")
         else:
-            logger.info(f"Watchlist history sufficient ({unique_dates} days, no gaps)")
+            logger.info(f"Watchlist history sufficient ({watchlist_dates_14d} days in last 14d, no gaps)")
 
     def run_scan(self, tickers: list[str]) -> list[dict]:
         """
