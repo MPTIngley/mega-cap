@@ -108,7 +108,7 @@ class SignalInsights:
         """
         from datetime import date
 
-        # Get price data
+        # Get historical price data
         end_date = date.today()
         start_date = end_date - timedelta(days=365)
 
@@ -120,6 +120,26 @@ class SignalInsights:
 
         if price_data.empty:
             return {}
+
+        # Fetch live prices and update today's data for accurate indicators
+        try:
+            live_prices = self.data_ingestion.fetch_current_prices(tickers)
+            if live_prices:
+                # Update the latest row for each ticker with live price
+                today_str = end_date.isoformat()
+                for ticker, live_price in live_prices.items():
+                    mask = (price_data["ticker"] == ticker)
+                    if mask.any():
+                        # Get the last row index for this ticker
+                        ticker_indices = price_data[mask].index
+                        if len(ticker_indices) > 0:
+                            last_idx = ticker_indices[-1]
+                            price_data.loc[last_idx, "close"] = live_price
+                            price_data.loc[last_idx, "high"] = max(price_data.loc[last_idx, "high"], live_price)
+                            price_data.loc[last_idx, "low"] = min(price_data.loc[last_idx, "low"], live_price)
+                logger.debug(f"Updated {len(live_prices)} tickers with live prices")
+        except Exception as e:
+            logger.debug(f"Could not fetch live prices: {e}")
 
         near_misses = {
             "rsi_mean_reversion": [],
@@ -257,23 +277,6 @@ class SignalInsights:
                 key=lambda x: x.get("score", 0),
                 reverse=True
             )[:top_n]
-
-        # Fetch live prices for all near-miss tickers to show current prices
-        all_near_miss_tickers = set()
-        for strategy in near_misses:
-            for nm in near_misses[strategy]:
-                all_near_miss_tickers.add(nm["ticker"])
-
-        if all_near_miss_tickers:
-            try:
-                live_prices = self.data_ingestion.fetch_current_prices(list(all_near_miss_tickers))
-                # Update prices in near-misses with live data
-                for strategy in near_misses:
-                    for nm in near_misses[strategy]:
-                        if nm["ticker"] in live_prices:
-                            nm["price"] = live_prices[nm["ticker"]]
-            except Exception as e:
-                logger.debug(f"Could not fetch live prices for near-misses: {e}")
 
         return near_misses
 
