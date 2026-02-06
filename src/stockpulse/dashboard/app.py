@@ -1433,11 +1433,12 @@ def render_signals_page(services: dict):
                             with st.expander(f"**{strat_display}** - {len(strat_near_misses)} stocks close to trigger", expanded=False):
                                 near_miss_data = []
                                 for nm in strat_near_misses:
-                                    near_miss_data.append({
+                                        near_miss_data.append({
                                         "Ticker": nm.get("ticker", ""),
                                         "Price": f"${nm.get('price', 0):.2f}",
                                         "Indicator": nm.get("indicator", ""),
-                                        "Distance": nm.get("distance", "")
+                                        "Distance": nm.get("distance", ""),
+                                        "Updated": nm.get("updated", "?"),
                                     })
                                 if near_miss_data:
                                     st.dataframe(pd.DataFrame(near_miss_data), use_container_width=True, hide_index=True)
@@ -1509,7 +1510,8 @@ def render_signals_page(services: dict):
                                     "Ticker": nm.get("ticker", ""),
                                     "Price": f"${nm.get('price', 0):.2f}",
                                     "Current": nm.get("indicator", ""),
-                                    "Gap": nm.get("distance", "")
+                                    "Gap": nm.get("distance", ""),
+                                    "Updated": nm.get("updated", "?"),
                                 })
                             st.dataframe(pd.DataFrame(near_miss_data), use_container_width=True, hide_index=True)
                         else:

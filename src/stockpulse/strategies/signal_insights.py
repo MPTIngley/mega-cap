@@ -123,9 +123,11 @@ class SignalInsights:
 
         # Fetch live prices upfront
         live_prices = {}
+        price_fetch_time = datetime.now()
         try:
             live_prices = self.data_ingestion.fetch_current_prices(tickers)
-            logger.info(f"Fetched live prices for {len(live_prices)} tickers")
+            price_fetch_time = datetime.now()
+            logger.info(f"Fetched live prices for {len(live_prices)} tickers at {price_fetch_time.strftime('%H:%M:%S')}")
         except Exception as e:
             logger.warning(f"Could not fetch live prices: {e}")
 
@@ -163,12 +165,16 @@ class SignalInsights:
             ticker_data = ticker_data.sort_values("date").reset_index(drop=True)
 
             # Update the LAST row (most recent) with live price AFTER sorting
-            if ticker in live_prices and live_prices[ticker] > 0:
+            is_live = ticker in live_prices and live_prices[ticker] > 0
+            if is_live:
                 live_price = live_prices[ticker]
                 last_idx = len(ticker_data) - 1
                 ticker_data.loc[last_idx, "close"] = live_price
                 ticker_data.loc[last_idx, "high"] = max(ticker_data.loc[last_idx, "high"], live_price)
                 ticker_data.loc[last_idx, "low"] = min(ticker_data.loc[last_idx, "low"], live_price)
+
+            # Price update info for this ticker
+            price_time = price_fetch_time.strftime("%H:%M") if is_live else "stale"
 
             # Calculate all indicators for near-miss detection
             indicators = self._calculate_all_indicators(ticker_data)
@@ -190,6 +196,7 @@ class SignalInsights:
                     "criteria": f"RSI < {rsi_threshold} (oversold)",
                     "distance": f"{gap:.1f} pts above {rsi_threshold} trigger",
                     "score": 100 - (gap * 10),  # Score for sorting
+                    "updated": price_time,
                 })
 
             # MACD Near-Miss: MACD close to signal line (within 0.5 and converging)
@@ -207,6 +214,7 @@ class SignalInsights:
                     "criteria": "MACD crosses above signal",
                     "distance": f"{gap:.2f} below 0 trigger (converging)",
                     "score": 100 - (gap * 100),
+                    "updated": price_time,
                 })
 
             # Z-Score Near-Miss: Z-score close to threshold
@@ -221,6 +229,7 @@ class SignalInsights:
                     "criteria": f"Z-score < {zscore_threshold}",
                     "distance": f"{gap:.2f} above {zscore_threshold} trigger",
                     "score": 100 - (gap * 50),
+                    "updated": price_time,
                 })
 
             # Momentum Breakout Near-Miss: Price within 3% of 20-day high
@@ -235,6 +244,7 @@ class SignalInsights:
                         "criteria": "Break above 20-day high",
                         "distance": f"{pct_from_high:.1f}% below ${high_20d:.2f} trigger",
                         "score": 100 - (pct_from_high * 20),
+                        "updated": price_time,
                     })
 
             # Week52 Low Bounce Near-Miss: Between threshold and threshold+10%
@@ -250,6 +260,7 @@ class SignalInsights:
                         "criteria": f"Within {low_threshold_pct:.0f}% of 52-week low",
                         "distance": f"{gap:.1f}% above {low_threshold_pct:.0f}% trigger",
                         "score": 100 - (gap * 10),
+                        "updated": price_time,
                     })
 
             # Sector Rotation Near-Miss: Relative strength close to threshold
@@ -264,6 +275,7 @@ class SignalInsights:
                     "criteria": f"Relative strength > {rs_threshold}",
                     "distance": f"{gap:.2f} below {rs_threshold} trigger",
                     "score": 100 - (gap * 100),
+                    "updated": price_time,
                 })
 
         # Sort each strategy's near-misses by score and take top N

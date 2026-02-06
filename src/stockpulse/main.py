@@ -1124,7 +1124,7 @@ def run_scan():
     print("-" * 80)
 
     try:
-        from datetime import timedelta
+        from datetime import timedelta, datetime
         end_date = date.today()
         start_date = end_date - timedelta(days=60)
 
@@ -1133,6 +1133,7 @@ def run_scan():
 
         # Fetch LIVE current prices
         live_prices = ingestion.fetch_current_prices(tickers[:30])
+        price_fetch_time = datetime.now().strftime("%H:%M:%S")
 
         if not prices_df.empty:
             near_triggers = []
@@ -1178,6 +1179,7 @@ def run_scan():
                     near_triggers.append((ticker, close, " | ".join(status)))
 
             if near_triggers:
+                print(f"  (prices updated at {price_fetch_time})")
                 for ticker, price, status in near_triggers[:10]:
                     print(f"  {ticker:5} @ ${price:>8.2f} | {status}")
             else:
