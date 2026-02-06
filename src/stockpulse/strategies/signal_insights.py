@@ -133,7 +133,7 @@ class SignalInsights:
         try:
             live_prices = self.data_ingestion.fetch_current_prices(tickers)
             price_fetch_time = datetime.now(et_tz)
-            logger.info(f"Fetched live prices for {len(live_prices)} tickers at {price_fetch_time.strftime('%m/%d %H:%M')} ET")
+            logger.info(f"Fetched live prices for {len(live_prices)} tickers at {price_fetch_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
         except Exception as e:
             logger.warning(f"Could not fetch live prices: {e}")
 
@@ -180,7 +180,7 @@ class SignalInsights:
                 ticker_data.loc[last_idx, "low"] = min(ticker_data.loc[last_idx, "low"], live_price)
 
             # Price update info for this ticker
-            price_time = price_fetch_time.strftime("%m/%d %H:%M ET") if is_live else "stale"
+            price_time = price_fetch_time.strftime("%Y-%m-%d %H:%M:%S ET") if is_live else "stale"
 
             # Calculate all indicators for near-miss detection
             indicators = self._calculate_all_indicators(ticker_data)

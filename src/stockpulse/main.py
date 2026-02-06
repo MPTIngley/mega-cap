@@ -1140,7 +1140,7 @@ def run_scan():
 
         # Fetch LIVE current prices
         live_prices = ingestion.fetch_current_prices(tickers[:30])
-        price_fetch_time = datetime.now(et_tz).strftime("%m/%d %H:%M:%S ET")
+        price_fetch_time = datetime.now(et_tz).strftime("%Y-%m-%d %H:%M:%S ET")
 
         if not prices_df.empty:
             near_triggers = []
