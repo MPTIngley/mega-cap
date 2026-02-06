@@ -313,6 +313,9 @@ class SectorRotationStrategy(BaseStrategy):
         # Merge price data with sector info
         merged = price_data.merge(universe_df[["ticker", "sector"]], on="ticker", how="left")
 
+        # Ensure date column is consistent type for sorting
+        merged["date"] = pd.to_datetime(merged["date"])
+
         # Calculate returns per ticker
         ticker_returns = {}
         for ticker in merged["ticker"].unique():
