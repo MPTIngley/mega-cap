@@ -238,21 +238,13 @@ class RealTradeTracker:
         if open_trades.empty:
             return open_trades
 
-        # Get current prices
+        # Get current LIVE prices (not stale database data!)
         tickers = open_trades["ticker"].unique().tolist()
+        current_prices = self.data_ingestion.fetch_current_prices(tickers)
 
-        # Get latest prices from database
-        prices_df = self.data_ingestion.get_daily_prices(tickers)
-
-        if prices_df.empty:
+        if not current_prices:
+            logger.warning("Could not fetch live prices for real trade P&L calculation")
             return open_trades
-
-        # Get most recent price for each ticker
-        current_prices = {}
-        for ticker in tickers:
-            ticker_prices = prices_df[prices_df["ticker"] == ticker]
-            if not ticker_prices.empty:
-                current_prices[ticker] = ticker_prices["close"].iloc[-1]
 
         # Calculate unrealized P&L
         unrealized_pnl = []
