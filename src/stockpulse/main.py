@@ -1125,6 +1125,13 @@ def run_scan():
 
     try:
         from datetime import timedelta, datetime
+        try:
+            from zoneinfo import ZoneInfo
+            et_tz = ZoneInfo("America/New_York")
+        except ImportError:
+            import pytz
+            et_tz = pytz.timezone("America/New_York")
+
         end_date = date.today()
         start_date = end_date - timedelta(days=60)
 
@@ -1133,7 +1140,7 @@ def run_scan():
 
         # Fetch LIVE current prices
         live_prices = ingestion.fetch_current_prices(tickers[:30])
-        price_fetch_time = datetime.now().strftime("%H:%M:%S")
+        price_fetch_time = datetime.now(et_tz).strftime("%m/%d %H:%M:%S ET")
 
         if not prices_df.empty:
             near_triggers = []
