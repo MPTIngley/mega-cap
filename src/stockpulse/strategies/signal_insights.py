@@ -256,6 +256,23 @@ class SignalInsights:
                 reverse=True
             )[:top_n]
 
+        # Fetch live prices for all near-miss tickers to show current prices
+        all_near_miss_tickers = set()
+        for strategy in near_misses:
+            for nm in near_misses[strategy]:
+                all_near_miss_tickers.add(nm["ticker"])
+
+        if all_near_miss_tickers:
+            try:
+                live_prices = self.data_ingestion.fetch_current_prices(list(all_near_miss_tickers))
+                # Update prices in near-misses with live data
+                for strategy in near_misses:
+                    for nm in near_misses[strategy]:
+                        if nm["ticker"] in live_prices:
+                            nm["price"] = live_prices[nm["ticker"]]
+            except Exception as e:
+                logger.debug(f"Could not fetch live prices for near-misses: {e}")
+
         return near_misses
 
     def _calculate_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame | None:
