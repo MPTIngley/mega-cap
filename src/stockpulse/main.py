@@ -1374,6 +1374,19 @@ def run_scan():
             strategy_signal_summary=strategy_signal_summary
         )
 
+    # Signal dashboard to refresh by updating last_scan_completed timestamp
+    from stockpulse.data.database import get_db
+    from datetime import datetime
+    db = get_db()
+    db.execute("""
+        INSERT INTO system_state (key, value, updated_at)
+        VALUES ('last_scan_completed', ?, current_timestamp)
+        ON CONFLICT (key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = current_timestamp
+    """, (datetime.now().isoformat(),))
+    logger.debug("Scan completion signal written to database")
+
 
 def run_init():
     """Initialize the database and fetch initial data with full historical preload."""

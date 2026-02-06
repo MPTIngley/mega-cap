@@ -1144,29 +1144,52 @@ def render_debug_page(services: dict):
 def render_signals_page(services: dict):
     """Render Live Signals page."""
     import time
+    from datetime import datetime
     st.title("📡 Live Signals")
 
-    # Auto-refresh (default ON, matches 15-min scan interval)
+    # Auto-refresh (default ON, triggers when scan completes)
     col_refresh1, col_refresh2 = st.columns([3, 1])
     with col_refresh1:
-        auto_refresh = st.checkbox("Auto-refresh (every 15 min)", value=True)
+        auto_refresh = st.checkbox("Auto-refresh on scan completion", value=True)
     with col_refresh2:
         if st.button("🔄 Refresh Now"):
-            st.session_state.last_refresh = time.time()
+            st.session_state.last_dash_refresh = datetime.now().isoformat()
+            st.session_state.last_poll_time = time.time()
             st.rerun()
 
-    # Auto-refresh timer (15 minutes = 900 seconds)
-    if "last_refresh" not in st.session_state:
-        st.session_state.last_refresh = time.time()
+    # Initialize session state
+    if "last_dash_refresh" not in st.session_state:
+        st.session_state.last_dash_refresh = datetime.now().isoformat()
+    if "last_poll_time" not in st.session_state:
+        st.session_state.last_poll_time = time.time()
 
+    # Check for scan completion (poll every 30 seconds)
     if auto_refresh:
-        elapsed = time.time() - st.session_state.last_refresh
-        if elapsed > 900:  # 15 minutes
-            st.session_state.last_refresh = time.time()
-            st.rerun()
-        else:
-            remaining = int(900 - elapsed)
-            st.caption(f"⏱️ Next refresh in {remaining // 60}m {remaining % 60}s")
+        poll_elapsed = time.time() - st.session_state.last_poll_time
+        if poll_elapsed > 30:  # Check every 30 seconds
+            st.session_state.last_poll_time = time.time()
+            try:
+                db = services.get("db")
+                if db:
+                    row = db.fetchone("SELECT value FROM system_state WHERE key = 'last_scan_completed'")
+                    if row and row[0]:
+                        last_scan = row[0]
+                        if last_scan > st.session_state.last_dash_refresh:
+                            st.session_state.last_dash_refresh = datetime.now().isoformat()
+                            st.rerun()
+            except Exception:
+                pass
+            st.rerun()  # Rerun to check again in 30s
+
+        # Show status
+        try:
+            db = services.get("db")
+            if db:
+                row = db.fetchone("SELECT value FROM system_state WHERE key = 'last_scan_completed'")
+                if row and row[0]:
+                    st.caption(f"🔗 Last scan: {row[0][:19]} | checking in {int(30 - poll_elapsed)}s")
+        except Exception:
+            st.caption("⚠️ Could not check scan status")
 
     # Get open signals
     try:
