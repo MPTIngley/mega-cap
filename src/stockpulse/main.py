@@ -786,12 +786,18 @@ def run_scheduler():
                         hours, remainder = divmod(total_seconds, 3600)
                         minutes, _ = divmod(remainder, 60)
 
-                        # Build progress bar (24 chars = 24 hours max display)
-                        if hours < 24:
-                            filled = max(0, 24 - hours)
+                        # Build progress bar (24 chars = 15 min max display for intraday)
+                        # Bar empties as countdown approaches zero
+                        total_minutes = hours * 60 + minutes
+                        if total_minutes <= 15:
+                            # Show minute-level progress for short countdowns
+                            filled = min(24, int(total_minutes * 24 / 15))
+                            bar = "█" * filled + "░" * (24 - filled)
+                        elif hours < 24:
+                            filled = min(24, hours)
                             bar = "█" * filled + "░" * (24 - filled)
                         else:
-                            bar = "░" * 24
+                            bar = "█" * 24
 
                         next_job_name = job_names.get(next_job, next_job)
                         next_time_str = next_job_time.strftime('%H:%M ET')

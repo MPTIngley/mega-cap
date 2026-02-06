@@ -2,7 +2,28 @@
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
+
+try:
+    from zoneinfo import ZoneInfo
+    ET_TZ = ZoneInfo("America/New_York")
+except ImportError:
+    import pytz
+    ET_TZ = pytz.timezone("America/New_York")
+
+
+class EasternTimeFormatter(logging.Formatter):
+    """Custom formatter that uses Eastern Time for timestamps."""
+
+    def formatTime(self, record, datefmt=None):
+        """Override to use Eastern Time."""
+        ct = datetime.fromtimestamp(record.created, tz=ET_TZ)
+        if datefmt:
+            s = ct.strftime(datefmt)
+        else:
+            s = ct.strftime("%Y-%m-%d %H:%M:%S ET")
+        return s
 
 
 def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
@@ -16,10 +37,10 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
 
-        # Format
-        formatter = logging.Formatter(
+        # Format with Eastern Time
+        formatter = EasternTimeFormatter(
             "%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S ET"
         )
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
