@@ -17,10 +17,18 @@ A self-hosted system that scans the top 100 US stocks by market cap, runs tradin
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Clone and Setup Virtual Environment
 
 ```bash
 cd mega-cap
+
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate it
+source .venv/bin/activate
+
+# Install dependencies
 pip install -e ".[dev]"
 ```
 
@@ -78,6 +86,35 @@ python -m stockpulse.main run
 | `stockpulse ingest` | Manually run data ingestion |
 | `stockpulse test-email` | Test email configuration |
 | `stockpulse digest` | Send daily portfolio digest email now |
+
+## Daily Usage
+
+### Start the System
+
+```bash
+cd mega-cap
+source .venv/bin/activate
+source .env
+python -m stockpulse run
+```
+
+### Reset and Restart Fresh
+
+Wipes all paper positions (open AND closed) while keeping market data:
+
+```bash
+cd mega-cap
+source .venv/bin/activate
+source .env
+python -m stockpulse reset
+python -m stockpulse run
+```
+
+### One-Time Scan (for testing)
+
+```bash
+python -m stockpulse scan
+```
 
 ## Configuration
 
