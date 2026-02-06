@@ -457,17 +457,17 @@ def reset_trading_data(keep_market_data: bool = True) -> dict[str, int]:
         "positions_real",
         "alerts_log",
         "backtest_results",
-        "long_term_watchlist",
         "strategy_state",
     ]
 
-    # Tables with market data (only cleared if keep_market_data=False)
+    # Tables with market/historical data (only cleared if keep_market_data=False)
     market_tables = [
         "prices_daily",
         "prices_intraday",
         "fundamentals",
         "universe",
         "system_state",
+        "long_term_watchlist",  # Preserve long-term scanner history
     ]
 
     tables_to_clear = trading_tables if keep_market_data else trading_tables + market_tables

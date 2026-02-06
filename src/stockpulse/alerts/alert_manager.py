@@ -962,6 +962,7 @@ class AlertManager:
                 company = opp.get('company_name', ticker)
                 sector = opp.get('sector', 'Unknown')
                 score = opp.get('composite_score', 0)
+                price = opp.get('current_price', 0)
                 days = opp.get('consecutive_days', 0)
                 trend = opp.get('trend_symbol', '➡️')
                 change_5d = opp.get('change_vs_5d_avg', 0)
@@ -976,6 +977,7 @@ class AlertManager:
                         <br/><span style="color: #047857; font-size: 12px;">{company}</span>
                         <br/><span style="color: #6b7280; font-size: 11px;">{sector}</span>
                     </td>
+                    <td style="text-align: center; font-size: 16px;">${price:.2f}</td>
                     <td style="text-align: center; font-size: 18px;"><strong>{score:.0f}</strong></td>
                     <td style="text-align: center;">{trend} {days}d</td>
                 </tr>
@@ -996,6 +998,7 @@ class AlertManager:
                 <table style="width: 100%;">
                     <tr>
                         <th style="text-align: left; color: #047857;">Company</th>
+                        <th style="text-align: center; color: #047857;">Price</th>
                         <th style="text-align: center; color: #047857;">Score</th>
                         <th style="text-align: center; color: #047857;">Trend</th>
                     </tr>
@@ -1011,6 +1014,7 @@ class AlertManager:
             company = opp.get('company_name', ticker)
             sector = opp.get('sector', 'Unknown')
             score = opp.get('composite_score', 0)
+            price = opp.get('current_price', 0)
             reasoning = opp.get('reasoning', '')
             trend = opp.get('trend_symbol', '➡️')
             days = opp.get('consecutive_days', 0)
@@ -1031,12 +1035,13 @@ class AlertManager:
                     <span style="color: #6b7280; font-size: 12px;"> - {company}</span>
                     <br/><span style="color: #9ca3af; font-size: 11px;">{sector}</span>
                 </td>
+                <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;"><strong>{score:.0f}</strong></td>
                 <td style="text-align: center;">{trend_info}</td>
                 <td>{opp.get('price_vs_52w_low_pct', 0):.1f}%</td>
             </tr>
             <tr>
-                <td colspan="4" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
+                <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
                     {reasoning}
                 </td>
             </tr>
@@ -1049,11 +1054,13 @@ class AlertManager:
             days = opp.get('consecutive_days', 0)
             ticker = opp.get('ticker', 'N/A')
             company = opp.get('company_name', ticker)
+            price = opp.get('current_price', 0)
             # Truncate company name if too long
             company_short = company[:20] + "..." if len(company) > 20 else company
             breakdown_rows += f"""
             <tr>
                 <td><strong>{ticker}</strong><br/><span style="color: #6b7280; font-size: 10px;">{company_short}</span></td>
+                <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;">{opp.get('composite_score', 0):.0f}</td>
                 <td style="text-align: center;">{trend}{days}d</td>
                 <td style="text-align: center;">{opp.get('valuation_score', 0):.0f}</td>
@@ -1104,6 +1111,7 @@ class AlertManager:
                     <table>
                         <tr>
                             <th>Ticker</th>
+                            <th style="text-align: center;">Price</th>
                             <th style="text-align: center;">Score</th>
                             <th style="text-align: center;">Trend</th>
                             <th>vs 52W Low</th>
@@ -1117,6 +1125,7 @@ class AlertManager:
                     <table class="breakdown-table">
                         <tr>
                             <th>Ticker</th>
+                            <th>Price</th>
                             <th>Score</th>
                             <th>Trend</th>
                             <th>Value</th>

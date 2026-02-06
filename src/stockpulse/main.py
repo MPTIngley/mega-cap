@@ -1608,7 +1608,7 @@ def run_reset(keep_market_data: bool = True):
 
     if keep_market_data:
         print("\n  Mode: Reset trading data ONLY")
-        print("  ✓ Will KEEP: prices_daily, prices_intraday, fundamentals, universe")
+        print("  ✓ Will KEEP: prices_daily, prices_intraday, fundamentals, universe, long_term_watchlist")
         print("  ✗ Will DELETE: signals, positions, alerts, backtest_results")
     else:
         print("\n  Mode: FULL RESET (including historical data)")
