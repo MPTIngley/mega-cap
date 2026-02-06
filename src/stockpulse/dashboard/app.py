@@ -521,7 +521,10 @@ def debug_print(message: str, level: str = "INFO"):
     """Print to console and store in debug log."""
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     formatted = f"[{timestamp}] [{level}] {message}"
-    print(formatted)
+    try:
+        print(formatted)
+    except OSError:
+        pass  # Ignore if stdout not available (e.g., detached terminal)
     _debug_log.append({"time": timestamp, "level": level, "message": message})
 
 
