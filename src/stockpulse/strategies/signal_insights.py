@@ -150,6 +150,8 @@ class SignalInsights:
             if len(ticker_data) < 60:
                 continue
 
+            # Ensure date column is consistent type for sorting
+            ticker_data["date"] = pd.to_datetime(ticker_data["date"])
             ticker_data = ticker_data.sort_values("date")
 
             # Calculate all indicators for near-miss detection
