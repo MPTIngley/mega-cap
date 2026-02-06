@@ -919,18 +919,15 @@ class AlertManager:
         return insights
 
     def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
-        """Get current prices for a list of tickers."""
+        """Get current LIVE prices for a list of tickers."""
         from stockpulse.data.ingestion import DataIngestion
         ingestion = DataIngestion()
-        prices = {}
         try:
-            for ticker in tickers:
-                df = ingestion.get_daily_prices([ticker], days=1)
-                if not df.empty:
-                    prices[ticker] = df[df["ticker"] == ticker]["close"].iloc[-1]
+            # Use fetch_current_prices for LIVE data, not stale database prices
+            return ingestion.fetch_current_prices(tickers)
         except Exception as e:
             logger.warning(f"Error fetching current prices: {e}")
-        return prices
+            return {}
 
     def send_long_term_digest(self, opportunities: list[dict]) -> bool:
         """
