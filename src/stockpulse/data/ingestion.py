@@ -1,8 +1,10 @@
 """Data ingestion module - fetching price and fundamental data."""
 
 import time
+import signal
 from datetime import datetime, date, timedelta
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 import pandas as pd
 import yfinance as yf
@@ -18,6 +20,7 @@ logger = get_logger(__name__)
 MIN_REQUEST_INTERVAL = 0.2  # Minimum seconds between requests
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # Seconds to wait before retry
+YF_DOWNLOAD_TIMEOUT = 60  # Max seconds for a single yfinance download call
 
 
 class DataIngestion:
@@ -36,6 +39,32 @@ class DataIngestion:
         if elapsed < MIN_REQUEST_INTERVAL:
             time.sleep(MIN_REQUEST_INTERVAL - elapsed)
         self.last_request_time = time.time()
+
+    def _download_with_timeout(self, tickers_str: str, timeout: int = YF_DOWNLOAD_TIMEOUT, **kwargs) -> pd.DataFrame:
+        """
+        Download data from yfinance with a timeout.
+
+        Args:
+            tickers_str: Space-separated ticker symbols
+            timeout: Max seconds to wait
+            **kwargs: Arguments to pass to yf.download
+
+        Returns:
+            DataFrame from yfinance or empty DataFrame on timeout
+        """
+        def _download():
+            return yf.download(tickers_str, progress=False, **kwargs)
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_download)
+                return future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            logger.warning(f"yfinance download timed out after {timeout}s for: {tickers_str[:50]}...")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"yfinance download error: {e}")
+            return pd.DataFrame()
 
     def fetch_daily_prices(
         self,
@@ -77,11 +106,11 @@ class DataIngestion:
                     self._rate_limit()
 
                     tickers_str = " ".join(batch)
-                    data = yf.download(
+                    data = self._download_with_timeout(
                         tickers_str,
+                        timeout=YF_DOWNLOAD_TIMEOUT,
                         start=start_date.isoformat(),
                         end=(end_date + timedelta(days=1)).isoformat(),  # Include end date
-                        progress=progress,
                         group_by="ticker",
                         auto_adjust=False,
                         threads=True
@@ -183,11 +212,11 @@ class DataIngestion:
                     self._rate_limit()
 
                     tickers_str = " ".join(batch)
-                    data = yf.download(
+                    data = self._download_with_timeout(
                         tickers_str,
+                        timeout=YF_DOWNLOAD_TIMEOUT,
                         period=period,
                         interval="15m",
-                        progress=False,
                         group_by="ticker",
                         auto_adjust=True,
                         threads=True
@@ -268,11 +297,12 @@ class DataIngestion:
         try:
             self._rate_limit()
             # Use 1d period with 1m interval to get latest price
-            data = yf.download(
-                tickers,
+            tickers_str = " ".join(tickers) if isinstance(tickers, list) else tickers
+            data = self._download_with_timeout(
+                tickers_str,
+                timeout=YF_DOWNLOAD_TIMEOUT,
                 period="1d",
                 interval="1m",
-                progress=False,
                 threads=True
             )
 
