@@ -388,14 +388,15 @@ def run_scheduler():
                 print(f"  {strat}: {len(sigs)} signals {capacity_info}")
                 for sig in top_sigs:
                     upside = ((sig.target_price - sig.entry_price) / sig.entry_price * 100) if sig.entry_price > 0 else 0
-                    print(f"    ✓ {sig.ticker}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
+                    print(f"    ✓ {sig.ticker} @ ${sig.entry_price:.2f}: {sig.confidence:.0f}% conf, +{upside:.1f}% upside")
             else:
                 # Show near-misses when no signals
                 nm = near_misses.get(strat, [])
                 if nm:
                     print(f"  {strat}: 0 signals (near-misses below) {capacity_info}")
                     for stock in nm:
-                        print(f"    ○ {stock['ticker']}: {stock['indicator']} - {stock['distance']}")
+                        price_str = f"${stock['price']:.2f}" if stock.get('price') else "N/A"
+                        print(f"    ○ {stock['ticker']} @ {price_str}: {stock['indicator']} - {stock['distance']}")
                 else:
                     print(f"  {strat}: 0 signals (no stocks near criteria) {capacity_info}")
         print("-" * 60)
@@ -568,18 +569,20 @@ def run_scheduler():
 
         print(f"  Portfolio exposure: {running_exposure_pct:.1f}%")
 
-        # Update existing positions (check stops/targets)
+        # Update existing positions (check stops/targets) - MUST use LIVE prices!
         from stockpulse.data.ingestion import DataIngestion
         ingestion = DataIngestion()
-        prices_df = ingestion.get_daily_prices(tickers)
-        if not prices_df.empty:
-            current_prices = {
-                row["ticker"]: row["close"]
-                for _, row in prices_df.groupby("ticker").last().reset_index().iterrows()
-            }
-            updates = position_manager.update_positions(current_prices)
-            for update in updates:
-                alert_manager.process_position_exit(update)
+        # Get tickers with open positions
+        open_pos_tickers = list(portfolio_tickers) if portfolio_tickers else []
+        if open_pos_tickers:
+            # Fetch LIVE prices for position exit checks - NOT database prices!
+            print(f"  Checking {len(open_pos_tickers)} open positions against live prices...")
+            live_prices = ingestion.fetch_current_prices(open_pos_tickers)
+            if live_prices:
+                updates = position_manager.update_positions(live_prices)
+                for update in updates:
+                    alert_manager.process_position_exit(update)
+                    print(f"  → Closed {update['ticker']}: {update['exit_reason']} @ ${update['exit_price']:.2f}")
 
         # Send consolidated email ONLY if actual trades occurred (opened or actionable sells)
         initial_capital = position_manager.initial_capital

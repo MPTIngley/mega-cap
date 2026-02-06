@@ -92,7 +92,7 @@ class SignalGenerator:
 
         all_signals = []
 
-        # Get price data
+        # Get historical price data from database
         end_date = date.today()
         start_date = end_date - timedelta(days=365)  # 1 year of history
 
@@ -105,6 +105,33 @@ class SignalGenerator:
         if price_data.empty:
             logger.warning("No price data available")
             return []
+
+        # Fetch LIVE prices for all tickers to ensure today's data is accurate
+        logger.info(f"Fetching live prices for {len(tickers)} tickers...")
+        live_prices = self.data_ingestion.fetch_current_prices(tickers)
+        logger.info(f"Got live prices for {len(live_prices)} tickers")
+
+        # Update today's prices in price_data with live data
+        if live_prices:
+            today_str = str(end_date)
+            for ticker, live_price in live_prices.items():
+                mask = (price_data["ticker"] == ticker) & (price_data["date"].astype(str) == today_str)
+                if mask.any():
+                    # Update existing today's row
+                    price_data.loc[mask, "close"] = live_price
+                    price_data.loc[mask, "high"] = max(price_data.loc[mask, "high"].iloc[0], live_price)
+                    price_data.loc[mask, "low"] = min(price_data.loc[mask, "low"].iloc[0], live_price)
+                else:
+                    # Add today's row if missing
+                    last_row = price_data[price_data["ticker"] == ticker].iloc[-1:].copy() if not price_data[price_data["ticker"] == ticker].empty else None
+                    if last_row is not None and not last_row.empty:
+                        new_row = last_row.copy()
+                        new_row["date"] = end_date
+                        new_row["open"] = live_price
+                        new_row["high"] = live_price
+                        new_row["low"] = live_price
+                        new_row["close"] = live_price
+                        price_data = pd.concat([price_data, new_row], ignore_index=True)
 
         # Process each ticker
         for ticker in tickers:
