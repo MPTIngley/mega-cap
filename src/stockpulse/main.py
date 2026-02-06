@@ -800,14 +800,14 @@ def run_scheduler():
                             bar = "█" * 24
 
                         next_job_name = job_names.get(next_job, next_job)
-                        next_time_str = next_job_time.strftime('%H:%M ET')
+                        next_time_str = next_job_time.strftime('%H:%M')
 
-                        # Build compact status line (include seconds for clarity)
+                        # Build compact status line
                         status = (
-                            f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
+                            f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
                             f"Market: {'OPEN' if market_open else 'CLOSED'} | "
-                            f"Next: {next_job_name} @ {next_time_str} ({hours}h {minutes}m) "
-                            f"[{bar}]  "
+                            f"Next: {next_job_name} @ {next_time_str} ET "
+                            f"({hours}h {minutes}m) [{bar}]  "
                         )
 
                         # Always print (seconds ensure it changes each cycle)
@@ -816,9 +816,9 @@ def run_scheduler():
                         # Job is running or overdue, show that
                         next_job_name = job_names.get(next_job, next_job)
                         status = (
-                            f"\r  ⏱ {now.strftime('%H:%M:%S ET')} | "
+                            f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
                             f"Market: {'OPEN' if market_open else 'CLOSED'} | "
-                            f"Running: {next_job_name}...  "
+                            f"Running: {next_job_name}...                              "
                         )
                         print(status, end="", flush=True)
 
