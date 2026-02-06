@@ -2,7 +2,7 @@
 
 Identifies quality large-cap stocks trading near 52-week lows that
 show signs of bottoming and reversal. Combines value with technical
-bounce signals.
+bounce signals and fundamental quality filters to avoid value traps.
 """
 
 from datetime import datetime
@@ -10,8 +10,12 @@ from typing import Any
 
 import pandas as pd
 import numpy as np
+import yfinance as yf
 
 from .base import BaseStrategy, Signal, SignalDirection
+from stockpulse.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Week52LowBounceStrategy(BaseStrategy):
@@ -27,6 +31,11 @@ class Week52LowBounceStrategy(BaseStrategy):
     - Sector rotation plays
     """
 
+    # Cache for fundamental data to avoid repeated API calls
+    _fundamental_cache: dict[str, dict] = {}
+    _cache_timestamp: datetime | None = None
+    CACHE_DURATION_HOURS = 24  # Refresh fundamentals daily
+
     def __init__(self, config: dict[str, Any]):
         """Initialize 52-week low bounce strategy."""
         super().__init__(config)
@@ -34,9 +43,138 @@ class Week52LowBounceStrategy(BaseStrategy):
         self.bounce_threshold_pct = config.get("bounce_threshold_pct", 2.0)  # Min bounce from low
         self.volume_surge = config.get("volume_surge", 1.3)  # Volume confirmation
 
+        # Fundamental quality filters (avoid value traps)
+        self.require_profitable = config.get("require_profitable", True)
+        self.max_pe_ratio = config.get("max_pe_ratio", 50.0)  # Reject if P/E > 50
+        self.max_debt_to_equity = config.get("max_debt_to_equity", 2.0)  # Reject if D/E > 2
+        self.min_market_cap_billions = config.get("min_market_cap_billions", 10.0)  # $10B+ only
+
     @property
     def name(self) -> str:
         return "week52_low_bounce"
+
+    def _get_fundamental_data(self, ticker: str) -> dict:
+        """
+        Get fundamental data for a ticker with caching.
+
+        Returns dict with: profitable, pe_ratio, debt_to_equity, market_cap_b, quality_score
+        """
+        # Check cache freshness
+        now = datetime.now()
+        if (self._cache_timestamp is None or
+            (now - self._cache_timestamp).total_seconds() > self.CACHE_DURATION_HOURS * 3600):
+            Week52LowBounceStrategy._fundamental_cache = {}
+            Week52LowBounceStrategy._cache_timestamp = now
+
+        # Return cached data if available
+        if ticker in self._fundamental_cache:
+            return self._fundamental_cache[ticker]
+
+        # Fetch fresh data
+        fundamentals = {
+            "profitable": False,
+            "pe_ratio": None,
+            "debt_to_equity": None,
+            "market_cap_b": 0,
+            "quality_score": 0,  # 0-100
+            "fetch_failed": False
+        }
+
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            # Profitability
+            net_income = info.get("netIncomeToCommon", 0) or 0
+            fundamentals["profitable"] = net_income > 0
+
+            # P/E ratio
+            pe = info.get("trailingPE") or info.get("forwardPE")
+            fundamentals["pe_ratio"] = pe
+
+            # Debt to Equity
+            fundamentals["debt_to_equity"] = info.get("debtToEquity")
+
+            # Market cap in billions
+            market_cap = info.get("marketCap", 0) or 0
+            fundamentals["market_cap_b"] = market_cap / 1e9
+
+            # Calculate quality score (0-100)
+            score = 50  # Start neutral
+
+            # Profitability bonus
+            if fundamentals["profitable"]:
+                score += 20
+            else:
+                score -= 30  # Big penalty for unprofitable
+
+            # P/E assessment
+            if pe is not None:
+                if 5 < pe < 20:
+                    score += 15  # Value territory
+                elif 20 <= pe < 35:
+                    score += 5   # Reasonable
+                elif pe > 50:
+                    score -= 20  # Expensive even at lows
+
+            # Debt assessment
+            de = fundamentals["debt_to_equity"]
+            if de is not None:
+                if de < 0.5:
+                    score += 15  # Low debt
+                elif de < 1.0:
+                    score += 5   # Moderate
+                elif de > 2.0:
+                    score -= 15  # High debt risk
+
+            # Market cap assessment (mega cap = more reliable)
+            if fundamentals["market_cap_b"] > 100:
+                score += 10  # Mega cap
+            elif fundamentals["market_cap_b"] > 50:
+                score += 5   # Large cap
+
+            fundamentals["quality_score"] = max(0, min(100, score))
+
+        except Exception as e:
+            logger.debug(f"Failed to fetch fundamentals for {ticker}: {e}")
+            fundamentals["fetch_failed"] = True
+            fundamentals["quality_score"] = 40  # Neutral if can't fetch
+
+        # Cache result
+        Week52LowBounceStrategy._fundamental_cache[ticker] = fundamentals
+        return fundamentals
+
+    def _passes_fundamental_filters(self, ticker: str) -> tuple[bool, str, dict]:
+        """
+        Check if ticker passes fundamental quality filters.
+
+        Returns: (passes, reason, fundamentals_dict)
+        """
+        fundamentals = self._get_fundamental_data(ticker)
+
+        # If fetch failed, be conservative and allow with penalty
+        if fundamentals["fetch_failed"]:
+            return True, "fundamentals_unavailable", fundamentals
+
+        # Check profitability
+        if self.require_profitable and not fundamentals["profitable"]:
+            return False, "unprofitable", fundamentals
+
+        # Check P/E ratio
+        pe = fundamentals["pe_ratio"]
+        if pe is not None and pe > self.max_pe_ratio:
+            return False, f"PE_too_high_{pe:.1f}", fundamentals
+
+        # Check debt levels
+        de = fundamentals["debt_to_equity"]
+        if de is not None and de > self.max_debt_to_equity:
+            return False, f"debt_too_high_{de:.1f}", fundamentals
+
+        # Check market cap
+        if fundamentals["market_cap_b"] < self.min_market_cap_billions:
+            return False, f"market_cap_too_small_{fundamentals['market_cap_b']:.1f}B", fundamentals
+
+        return True, "passed", fundamentals
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate 52-week low related indicators."""
@@ -87,7 +225,7 @@ class Week52LowBounceStrategy(BaseStrategy):
         return df
 
     def generate_signals(self, df: pd.DataFrame, ticker: str) -> list[Signal]:
-        """Generate 52-week low bounce signals."""
+        """Generate 52-week low bounce signals with fundamental quality filters."""
         if len(df) < 252:  # Need full year of data
             return []
 
@@ -102,6 +240,12 @@ class Week52LowBounceStrategy(BaseStrategy):
 
         # Check if near 52-week low
         if not latest["near_52w_low"]:
+            return []
+
+        # === FUNDAMENTAL QUALITY FILTER (avoid value traps) ===
+        passes_fundamentals, reason, fundamentals = self._passes_fundamental_filters(ticker)
+        if not passes_fundamentals:
+            logger.debug(f"{ticker}: Rejected by fundamental filter - {reason}")
             return []
 
         # Check for bounce signals
@@ -119,7 +263,7 @@ class Week52LowBounceStrategy(BaseStrategy):
         ])
 
         if confirmations >= 2:
-            confidence = self._calculate_confidence(df, latest, confirmations)
+            confidence = self._calculate_confidence(df, latest, confirmations, fundamentals)
 
             if confidence >= self.min_confidence:
                 week52_low = latest["week52_low"]
@@ -135,6 +279,13 @@ class Week52LowBounceStrategy(BaseStrategy):
                 # Stop: Below recent low
                 stop_price = latest["recent_low"] * 0.98
 
+                # Build notes with fundamental context
+                notes = f"Near 52w low ({latest['pct_from_52w_low']:.1f}%), RSI={latest['rsi']:.0f}"
+                if fundamentals.get("pe_ratio"):
+                    notes += f", PE={fundamentals['pe_ratio']:.1f}"
+                if fundamentals.get("quality_score", 0) >= 70:
+                    notes += ", HIGH_QUALITY"
+
                 signal = Signal(
                     ticker=ticker,
                     strategy=self.name,
@@ -143,7 +294,7 @@ class Week52LowBounceStrategy(BaseStrategy):
                     entry_price=entry_price,
                     target_price=target_price,
                     stop_price=stop_price,
-                    notes=f"Near 52w low ({latest['pct_from_52w_low']:.1f}%), RSI={latest['rsi']:.0f}, bouncing"
+                    notes=notes
                 )
 
                 if self.validate_signal(signal):
@@ -155,9 +306,10 @@ class Week52LowBounceStrategy(BaseStrategy):
         self,
         df: pd.DataFrame,
         latest: pd.Series,
-        confirmations: int
+        confirmations: int,
+        fundamentals: dict | None = None
     ) -> float:
-        """Calculate signal confidence."""
+        """Calculate signal confidence with fundamental quality adjustments."""
         # Base confidence from confirmations
         base = 55 + (confirmations * 5)  # 60-75 base
 
@@ -196,5 +348,28 @@ class Week52LowBounceStrategy(BaseStrategy):
         # Long-term trend context (be careful in strong downtrends)
         if latest["close"] < latest.get("sma_200", latest["close"]):
             factors["trend"] = 0.92  # Penalty for below 200 SMA
+
+        # === FUNDAMENTAL QUALITY ADJUSTMENTS ===
+        if fundamentals:
+            quality_score = fundamentals.get("quality_score", 50)
+
+            # High quality stocks get confidence boost
+            if quality_score >= 80:
+                factors["fundamentals"] = 1.15
+            elif quality_score >= 70:
+                factors["fundamentals"] = 1.10
+            elif quality_score >= 60:
+                factors["fundamentals"] = 1.05
+            elif quality_score < 40:
+                factors["fundamentals"] = 0.90  # Low quality penalty
+
+            # Profitable company bonus
+            if fundamentals.get("profitable"):
+                factors["profitable"] = 1.05
+
+            # Value P/E bonus (if P/E is reasonable)
+            pe = fundamentals.get("pe_ratio")
+            if pe is not None and 5 < pe < 20:
+                factors["value_pe"] = 1.08
 
         return self.calculate_confidence(base, factors)
