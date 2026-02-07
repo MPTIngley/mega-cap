@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "trillion-scan", "trillion-backfill", "ai-scan", "ai-backfill"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "trillion-scan", "trillion-backfill", "ai-scan", "ai-backfill", "sentiment-scan", "sentiment-check"],
         help="Command to execute"
     )
 
@@ -203,6 +203,10 @@ def main():
         run_ai_scan()
     elif args.command == "ai-backfill":
         run_ai_backfill()
+    elif args.command == "sentiment-scan":
+        run_sentiment_scan()
+    elif args.command == "sentiment-check":
+        run_sentiment_check(args)
 
 
 def run_digest():
@@ -2332,6 +2336,125 @@ def run_ai_backfill():
     print("\n" + "=" * 70 + "\n")
     print("  Run 'stockpulse ai-scan' to send AI Pulse email with thesis research.")
     print("\n" + "=" * 70 + "\n")
+
+
+def run_sentiment_scan():
+    """Run daily sentiment scan for AI universe stocks.
+
+    Fetches sentiment from StockTwits (free, no API key) for all AI universe
+    stocks and stores results in database for AI Pulse to use.
+
+    Can be run manually or scheduled daily before AI Pulse scan.
+    """
+    from stockpulse.data.sentiment import run_daily_sentiment_scan
+
+    print("\n" + "=" * 70)
+    print("  DAILY SENTIMENT SCAN")
+    print("  Fetching Social Sentiment for AI Universe Stocks")
+    print("=" * 70)
+
+    print("\n  Data Source: StockTwits (FREE, no API key required)")
+    print("  Analyzing: AI Universe stocks (~80 tickers)")
+    print("\n  Starting scan...\n")
+
+    results = run_daily_sentiment_scan(include_ai_analysis=True, max_tickers=80)
+
+    print("\n" + "-" * 70)
+    print(f"  Scan Date: {results['scan_date']}")
+    print(f"  Tickers Scanned: {results['tickers_scanned']}")
+    print(f"  Successful: {results['successful']}")
+    print(f"  Failed: {results['failed']}")
+
+    if results["bullish"]:
+        print(f"\n  Most Bullish ({len(results['bullish'])}):")
+        for item in results["bullish"][:5]:
+            print(f"    - {item['ticker']}: {item['score']:.0f}/100")
+
+    if results["bearish"]:
+        print(f"\n  Most Bearish ({len(results['bearish'])}):")
+        for item in results["bearish"][:5]:
+            print(f"    - {item['ticker']}: {item['score']:.0f}/100")
+
+    if results["trending"]:
+        print(f"\n  Trending: {', '.join(results['trending'][:10])}")
+
+    if results["errors"]:
+        print(f"\n  Errors ({len(results['errors'])}):")
+        for err in results["errors"][:3]:
+            print(f"    - {err}")
+
+    print("\n" + "=" * 70)
+    print("  Results stored in database. Run 'stockpulse ai-scan' to include")
+    print("  sentiment in AI Pulse email.")
+    print("=" * 70 + "\n")
+
+
+def run_sentiment_check(args):
+    """Quick sentiment check for a single ticker.
+
+    Usage: stockpulse sentiment-check --ticker NVDA
+    """
+    from stockpulse.data.sentiment import SentimentAnalyzer
+
+    ticker = getattr(args, 'ticker', None)
+    if not ticker:
+        print("\nUsage: stockpulse sentiment-check --ticker NVDA")
+        print("       stockpulse sentiment-check --ticker AAPL")
+        return
+
+    print(f"\n  Checking sentiment for {ticker.upper()}...")
+
+    analyzer = SentimentAnalyzer()
+    result = analyzer.get_sentiment(ticker.upper(), include_ai_analysis=True)
+
+    print("\n" + "=" * 50)
+    print(f"  {ticker.upper()} SENTIMENT")
+    print("=" * 50)
+
+    score = result.get("aggregate_score", 50)
+    label = result.get("aggregate_label", "neutral")
+
+    # Emoji
+    if label == "bullish":
+        emoji = "🟢"
+    elif label == "bearish":
+        emoji = "🔴"
+    else:
+        emoji = "🟡"
+
+    print(f"\n  Score: {emoji} {score:.0f}/100 ({label.upper()})")
+
+    # StockTwits details
+    st = result.get("stocktwits", {})
+    if st and not st.get("error"):
+        print(f"\n  StockTwits:")
+        print(f"    - Messages: {st.get('total_messages', 0)}")
+        print(f"    - Bullish: {st.get('bullish_count', 0)}")
+        print(f"    - Bearish: {st.get('bearish_count', 0)}")
+        print(f"    - Neutral: {st.get('neutral_count', 0)}")
+        print(f"    - Trending: {'Yes' if st.get('trending') else 'No'}")
+        print(f"    - Velocity: {st.get('message_velocity', 0):.1f} msgs/hour")
+
+        if st.get("sample_messages"):
+            print(f"\n  Recent messages:")
+            for msg in st["sample_messages"][:3]:
+                sentiment_emoji = "🟢" if msg["sentiment"] == "Bullish" else ("🔴" if msg["sentiment"] == "Bearish" else "⚪")
+                text = msg["text"][:60] + "..." if len(msg["text"]) > 60 else msg["text"]
+                print(f"    {sentiment_emoji} {text}")
+    elif st.get("error"):
+        print(f"\n  StockTwits Error: {st['error']}")
+
+    # AI Analysis
+    ai = result.get("ai_analysis", {})
+    if ai and ai.get("summary"):
+        print(f"\n  AI Analysis (Haiku):")
+        print(f"    {ai['summary'][:300]}...")
+        print(f"\n    Recommendation: {ai.get('recommendation', 'neutral').upper()}")
+        print(f"    Confidence: {ai.get('confidence', 0)}%")
+    elif not analyzer.haiku.is_configured:
+        print("\n  AI Analysis: Not available (ANTHROPIC_API_KEY not set)")
+
+    print("\n" + "=" * 50 + "\n")
 
 
 if __name__ == "__main__":

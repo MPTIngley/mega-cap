@@ -1903,6 +1903,15 @@ class AlertManager:
             </div>
             """
 
+        # Social sentiment section (Phase 7 - isolated module)
+        sentiment_html = ""
+        try:
+            from stockpulse.data.sentiment import get_sentiment_summary_for_email
+            ai_tickers = [s.get("ticker") for s in ai_stocks[:20] if s.get("ticker")]
+            sentiment_html = get_sentiment_summary_for_email(ai_tickers, max_display=10)
+        except Exception as e:
+            logger.debug(f"Sentiment section skipped: {e}")
+
         body_html = f"""
         <html>
         <head>
@@ -1971,6 +1980,8 @@ class AlertManager:
                 {category_html}
 
                 {thesis_html}
+
+                {sentiment_html}
 
                 <div class="section">
                     <h2>Scoring Methodology</h2>
