@@ -453,9 +453,9 @@ class AIPulseScanner:
                     # Determine category
                     category, subcategory = self._categorize_stock(ticker)
 
-                    # Calculate entry score
-                    entry_score = self._calculate_entry_score(
-                        ticker, current_price, hist, info
+                    # Calculate entry score with breakdown
+                    entry_score, score_breakdown = self._calculate_entry_score(
+                        ticker, current_price, hist, info, return_breakdown=True
                     )
 
                     # Price vs 30d high
@@ -472,6 +472,7 @@ class AIPulseScanner:
                         "current_price": current_price,
                         "price_vs_30d_high_pct": price_vs_30d_high_pct,
                         "entry_score": entry_score,
+                        "score_breakdown": score_breakdown,
                         "category": category,
                         "subcategory": subcategory,
                         "sector": info.get("sector", "Unknown"),
@@ -559,34 +560,58 @@ class AIPulseScanner:
         ticker: str,
         current_price: float,
         history: pd.DataFrame,
-        info: dict
-    ) -> float:
+        info: dict,
+        return_breakdown: bool = False
+    ) -> float | tuple[float, dict]:
         """
         Calculate an entry point score for a mega-cap stock.
 
         Higher score = better entry point.
         Considers: valuation, technical position, sentiment.
+
+        Args:
+            ticker: Stock ticker
+            current_price: Current stock price
+            history: Price history DataFrame
+            info: yfinance info dict
+            return_breakdown: If True, return (score, breakdown_dict)
+
+        Returns:
+            Score (0-100), or tuple of (score, breakdown) if return_breakdown=True
         """
         score = 50  # Base score
+        breakdown = {
+            "base": {"points": 50, "label": "Base Score", "raw_value": "-"},
+        }
 
         # === TECHNICAL FACTORS ===
 
         # Distance from 30-day high (lower = better entry)
         high_30d = history["High"].max()
+        pct_from_high = 0.0
+        distance_pts = 0
         if high_30d > 0:
             pct_from_high = ((current_price / high_30d) - 1) * 100
             if pct_from_high <= -15:
-                score += 20  # 15%+ pullback
+                distance_pts = 20  # 15%+ pullback
             elif pct_from_high <= -10:
-                score += 15
+                distance_pts = 15
             elif pct_from_high <= -5:
-                score += 10
+                distance_pts = 10
             elif pct_from_high <= -2:
-                score += 5
+                distance_pts = 5
             elif pct_from_high >= 0:
-                score -= 5  # At or near highs
+                distance_pts = -5  # At or near highs
+        score += distance_pts
+        breakdown["distance_from_high"] = {
+            "points": distance_pts,
+            "label": "Distance from 30d High",
+            "raw_value": f"{pct_from_high:+.1f}%",
+        }
 
         # RSI (oversold = better entry)
+        current_rsi = 50.0
+        rsi_pts = 0
         if len(history) >= 14:
             delta = history["Close"].diff()
             gain = delta.where(delta > 0, 0).rolling(14).mean()
@@ -596,57 +621,105 @@ class AIPulseScanner:
             current_rsi = rsi.iloc[-1] if not rsi.empty else 50
 
             if current_rsi < 30:
-                score += 15
+                rsi_pts = 15
             elif current_rsi < 40:
-                score += 10
-            elif current_rsi > 70:
-                score -= 10
+                rsi_pts = 10
             elif current_rsi > 80:
-                score -= 15
+                rsi_pts = -15
+            elif current_rsi > 70:
+                rsi_pts = -10
+        score += rsi_pts
+        breakdown["rsi"] = {
+            "points": rsi_pts,
+            "label": "RSI (14)",
+            "raw_value": f"{current_rsi:.1f}",
+        }
 
         # 50-day MA position
+        ma_50_pts = 0
+        ma_50_pct = 0.0
         if len(history) >= 50:
             ma_50 = history["Close"].rolling(50).mean().iloc[-1]
+            ma_50_pct = ((current_price / ma_50) - 1) * 100 if ma_50 > 0 else 0
             if current_price < ma_50 * 0.95:
-                score += 10  # 5%+ below 50 MA
+                ma_50_pts = 10  # 5%+ below 50 MA
             elif current_price < ma_50:
-                score += 5
+                ma_50_pts = 5
+        score += ma_50_pts
+        breakdown["ma_50"] = {
+            "points": ma_50_pts,
+            "label": "50-Day MA Position",
+            "raw_value": f"{ma_50_pct:+.1f}% vs MA",
+        }
 
         # === VALUATION FACTORS ===
 
         pe_ratio = info.get("trailingPE", info.get("forwardPE", 0))
+        pe_pts = 0
         if pe_ratio:
             # For mega-caps, PE < 20 is attractive
             if pe_ratio < 15:
-                score += 15
+                pe_pts = 15
             elif pe_ratio < 20:
-                score += 10
+                pe_pts = 10
             elif pe_ratio < 25:
-                score += 5
-            elif pe_ratio > 40:
-                score -= 10
+                pe_pts = 5
             elif pe_ratio > 60:
-                score -= 15
+                pe_pts = -15
+            elif pe_ratio > 40:
+                pe_pts = -10
+        score += pe_pts
+        breakdown["pe_ratio"] = {
+            "points": pe_pts,
+            "label": "P/E Ratio",
+            "raw_value": f"{pe_ratio:.1f}" if pe_ratio else "N/A",
+        }
 
         # Forward PE vs trailing (growth expectation)
         forward_pe = info.get("forwardPE", 0)
         trailing_pe = info.get("trailingPE", 0)
+        growth_pts = 0
         if forward_pe and trailing_pe and forward_pe < trailing_pe:
-            score += 5  # Earnings growth expected
+            growth_pts = 5  # Earnings growth expected
+        score += growth_pts
+        breakdown["earnings_growth"] = {
+            "points": growth_pts,
+            "label": "Earnings Growth Expected",
+            "raw_value": f"Fwd {forward_pe:.1f} vs Trail {trailing_pe:.1f}" if forward_pe and trailing_pe else "N/A",
+        }
 
         # === MOMENTUM FACTORS ===
 
         # Recent price momentum (not too hot, not too cold)
+        momentum_pts = 0
+        pct_change_20d = 0.0
         if len(history) >= 20:
             pct_change_20d = (current_price / history["Close"].iloc[-20] - 1) * 100
             if -10 <= pct_change_20d <= 0:
-                score += 5  # Healthy consolidation
+                momentum_pts = 5  # Healthy consolidation
             elif pct_change_20d < -15:
-                score += 10  # Potential oversold bounce
+                momentum_pts = 10  # Potential oversold bounce
             elif pct_change_20d > 20:
-                score -= 10  # Extended
+                momentum_pts = -10  # Extended
+        score += momentum_pts
+        breakdown["momentum_20d"] = {
+            "points": momentum_pts,
+            "label": "20-Day Momentum",
+            "raw_value": f"{pct_change_20d:+.1f}%",
+        }
 
-        return max(0, min(100, score))
+        final_score = max(0, min(100, score))
+
+        if return_breakdown:
+            # Add total to breakdown
+            breakdown["total"] = {
+                "points": final_score,
+                "label": "TOTAL SCORE",
+                "raw_value": "-",
+            }
+            return final_score, breakdown
+
+        return final_score
 
     def run_scan(self) -> dict[str, Any]:
         """

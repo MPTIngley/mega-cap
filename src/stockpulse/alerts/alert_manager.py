@@ -1240,11 +1240,12 @@ class AlertManager:
 
         subject = f"💎 Trillion+ Club: {len(trillion_club)} Members | Best Entry: {best_ticker} ({best_score:.0f}) - {today}"
 
-        # Build best opportunities section
+        # Build best opportunities section with score breakdown
         best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70][:3]
         best_opps_html = ""
         if best_entries:
             best_rows = ""
+            breakdown_tables = ""
             for opp in best_entries:
                 ticker = opp.get("ticker", "")
                 company = opp.get("company_name", ticker)[:20]
@@ -1266,11 +1267,62 @@ class AlertManager:
                 </div>
                 """
 
+                # Build detailed breakdown table for each high-quality opportunity
+                breakdown = opp.get("score_breakdown", {})
+                if breakdown:
+                    breakdown_rows = ""
+                    for key, data in breakdown.items():
+                        if key in ("base", "total"):
+                            continue
+                        pts = data.get("points", 0)
+                        pts_color = "#22c55e" if pts > 0 else ("#ef4444" if pts < 0 else "#6b7280")
+                        pts_str = f"+{pts}" if pts > 0 else str(pts)
+                        breakdown_rows += f"""
+                        <tr>
+                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb;">{data.get('label', key)}</td>
+                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; font-family: monospace;">{data.get('raw_value', '-')}</td>
+                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; color: {pts_color}; font-weight: bold;">{pts_str}</td>
+                        </tr>
+                        """
+                    breakdown_tables += f"""
+                    <div style="display: inline-block; vertical-align: top; margin: 10px; min-width: 280px;">
+                        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <tr style="background: #15803d; color: white;">
+                                <th colspan="3" style="padding: 8px; text-align: center; border-radius: 6px 6px 0 0;">{ticker} Score Breakdown</th>
+                            </tr>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 6px 10px; text-align: left; font-size: 11px;">Factor</th>
+                                <th style="padding: 6px 10px; text-align: center; font-size: 11px;">Value</th>
+                                <th style="padding: 6px 10px; text-align: center; font-size: 11px;">Pts</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb;">Base Score</td>
+                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">-</td>
+                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; font-weight: bold;">50</td>
+                            </tr>
+                            {breakdown_rows}
+                            <tr style="background: #f0fdf4;">
+                                <td colspan="2" style="padding: 8px 10px; font-weight: bold;">TOTAL SCORE</td>
+                                <td style="padding: 8px 10px; text-align: center; font-weight: bold; font-size: 16px; color: #15803d;">{score:.0f}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    """
+
             best_opps_html = f"""
             <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
                 <h2 style="color: #15803d; margin: 0 0 15px 0; font-size: 18px;">🎯 Best Entry Opportunities Today</h2>
                 <div style="text-align: center;">
                     {best_rows}
+                </div>
+                <div style="margin-top: 20px;">
+                    <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 14px;">📊 Score Breakdown</h3>
+                    <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px 0;">
+                        Detailed breakdown showing how each factor contributed to the entry score.
+                    </p>
+                    <div style="text-align: center;">
+                        {breakdown_tables}
+                    </div>
                 </div>
             </div>
             """
@@ -1402,12 +1454,67 @@ class AlertManager:
                     </table>
                 </div>
 
+                <div class="section">
+                    <h2 style="color: #8b5cf6; border-bottom: 2px solid #8b5cf6;">📐 Entry Score Methodology</h2>
+                    <p style="font-size: 13px; color: #4b5563; margin-bottom: 15px;">
+                        The Entry Score (0-100) measures how attractive a stock's current price is as an entry point.
+                        Higher scores indicate better buying opportunities based on technical, valuation, and momentum factors.
+                    </p>
+                    <table style="font-size: 13px;">
+                        <tr>
+                            <th style="width: 25%;">Factor</th>
+                            <th style="width: 35%;">What It Measures</th>
+                            <th style="width: 40%;">Scoring</th>
+                        </tr>
+                        <tr>
+                            <td><strong>Base Score</strong></td>
+                            <td>Starting point for all stocks</td>
+                            <td style="font-family: monospace;">+50 pts (always)</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>Distance from 30d High</strong></td>
+                            <td>How far price has pulled back from recent peak</td>
+                            <td style="font-family: monospace;">-15%: +20 | -10%: +15 | -5%: +10 | -2%: +5 | At high: -5</td>
+                        </tr>
+                        <tr>
+                            <td><strong>RSI (14-day)</strong></td>
+                            <td>Relative Strength Index - oversold/overbought</td>
+                            <td style="font-family: monospace;">&lt;30: +15 | &lt;40: +10 | &gt;70: -10 | &gt;80: -15</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>50-Day MA Position</strong></td>
+                            <td>Price relative to 50-day moving average</td>
+                            <td style="font-family: monospace;">5%+ below MA: +10 | Below MA: +5</td>
+                        </tr>
+                        <tr>
+                            <td><strong>P/E Ratio</strong></td>
+                            <td>Valuation relative to earnings</td>
+                            <td style="font-family: monospace;">&lt;15: +15 | &lt;20: +10 | &lt;25: +5 | &gt;40: -10 | &gt;60: -15</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>Earnings Growth</strong></td>
+                            <td>Forward P/E vs Trailing P/E</td>
+                            <td style="font-family: monospace;">Forward &lt; Trailing: +5</td>
+                        </tr>
+                        <tr>
+                            <td><strong>20-Day Momentum</strong></td>
+                            <td>Recent price movement pattern</td>
+                            <td style="font-family: monospace;">-15%+: +10 | -10% to 0%: +5 | +20%+: -10</td>
+                        </tr>
+                    </table>
+                    <div style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 6px;">
+                        <strong style="color: #374151;">Score Interpretation:</strong>
+                        <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 15px;">
+                            <span><span style="display: inline-block; width: 12px; height: 12px; background: #22c55e; border-radius: 2px; margin-right: 5px;"></span>75+: Strong Entry</span>
+                            <span><span style="display: inline-block; width: 12px; height: 12px; background: #84cc16; border-radius: 2px; margin-right: 5px;"></span>65-74: Good Entry</span>
+                            <span><span style="display: inline-block; width: 12px; height: 12px; background: #eab308; border-radius: 2px; margin-right: 5px;"></span>55-64: Neutral</span>
+                            <span><span style="display: inline-block; width: 12px; height: 12px; background: #f97316; border-radius: 2px; margin-right: 5px;"></span>&lt;55: Extended</span>
+                        </div>
+                    </div>
+                </div>
+
             </div>
             <div class="footer">
-                <div style="margin-bottom: 15px;">
-                    <strong>Entry Score Guide:</strong><br/>
-                    75+ = Strong Entry (pullback + oversold) | 65-74 = Good Entry | 55-64 = Neutral | &lt;55 = Extended (wait for pullback)
-                </div>
                 <div style="margin-bottom: 15px;">
                     <strong>Trend:</strong> 📈 Score improving | 📉 Score declining | ➡️ Stable | 🆕 New to list<br/>
                     <strong>Xd</strong> = Days tracked on the list
