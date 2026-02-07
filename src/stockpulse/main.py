@@ -679,6 +679,36 @@ def run_scheduler():
         """Callback for daily portfolio digest email."""
         alert_manager.send_daily_digest()
 
+    def on_sentiment_scan():
+        """Callback for sentiment scanner - runs before AI Pulse to cache data."""
+        from stockpulse.data.sentiment import run_daily_sentiment_scan
+
+        print("\n" + "=" * 60)
+        print("  SENTIMENT SCAN RUNNING")
+        print("=" * 60)
+
+        results = run_daily_sentiment_scan(include_ai_analysis=True, max_tickers=80)
+
+        print(f"  Scanned: {results['tickers_scanned']} tickers")
+        print(f"  Successful: {results['successful']}")
+        print(f"  Failed: {results['failed']}")
+
+        if results["bullish"]:
+            print("\n  🟢 Most Bullish:")
+            for item in results["bullish"][:3]:
+                print(f"    {item['ticker']}: {item['score']:.0f}/100")
+
+        if results["bearish"]:
+            print("\n  🔴 Most Bearish:")
+            for item in results["bearish"][:3]:
+                print(f"    {item['ticker']}: {item['score']:.0f}/100")
+
+        if results["trending"]:
+            print(f"\n  📈 Trending: {', '.join(results['trending'][:5])}")
+
+        print("  ✅ Sentiment data cached for AI Pulse!")
+        print("=" * 60)
+
     def on_trillion_scan():
         """Callback for Trillion+ Club scanner."""
         from stockpulse.scanner.ai_pulse import AIPulseScanner
@@ -818,6 +848,10 @@ def run_scheduler():
         on_trillion_scan()
         print_schedule()
 
+    def on_sentiment_scan_wrapper():
+        on_sentiment_scan()
+        print_schedule()
+
     def on_ai_scan_wrapper():
         on_ai_scan()
         print_schedule()
@@ -827,6 +861,7 @@ def run_scheduler():
     scheduler.on_long_term_scan = on_long_term_scan_wrapper
     scheduler.on_daily_digest = on_daily_digest_wrapper
     scheduler.on_trillion_scan = on_trillion_scan_wrapper
+    scheduler.on_sentiment_scan = on_sentiment_scan_wrapper
     scheduler.on_ai_pulse_scan = on_ai_scan_wrapper
 
     scheduler.start()
