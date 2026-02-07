@@ -48,6 +48,7 @@ Before writing any code, do the following:
 - ✅ **Trillion+ Club auto-backfill** (like long-term scanner)
 - ✅ **Trillion email trend column** matches long-term format
 - ✅ **AI Pulse email** now shows full AI stocks + theses
+- ✅ **Consistent email format** across longterm, trillion, AI (table layouts, reasoning rows, compact breakdowns)
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -314,6 +315,7 @@ stockpulse reset            # Clear trading data (keeps prices)
 | 2026-02-07 | Email consolidation | Score breakdowns in single table for easy comparison |
 | 2026-02-07 | Trillion+ auto-backfill | Auto-detect gaps and backfill 3 weeks of historical data (like long-term) |
 | 2026-02-07 | AI Pulse email fixed | Now shows AI stocks table + theses (was blank) |
+| 2026-02-07 | Email format consistency | Trillion + AI emails reformatted to match longterm style (table layouts, reasoning rows, compact breakdowns) |
 
 ---
 
@@ -394,6 +396,7 @@ stockpulse reset            # Clear trading data (keeps prices)
 - Martin prefers to talk through design before coding. Ask before building if requirements are ambiguous.
 - Use type hints. Write docstrings. Keep functions small and testable.
 - Config-driven everything. No magic numbers in strategy code.
+- **ALWAYS give pull/run/test commands** at end of changes. No comments in command blocks (Mac terminal hates them).
 
 ---
 
