@@ -58,9 +58,30 @@ Then use `stockpulse <command>` from anywhere.
 |---------|--------------|
 | `stockpulse longterm-scan` | Run 8-component value scoring on all stocks + email |
 | `stockpulse trillion-scan` | Run Trillion+ Club mega-cap scanner + email |
-| `stockpulse ai-scan` | Run AI thesis research using Claude + email |
+| `stockpulse ai-scan` | Run AI Pulse scan (~70 AI stocks) + Claude thesis research + email |
 | `stockpulse longterm-backfill` | Build 6 weeks of historical scan data for trends |
 | `stockpulse ai-backfill` | Initialize trillion club history and default theses |
+
+### AI Pulse Categories
+
+The `ai-scan` covers 7 AI investment categories (~70 stocks):
+
+| Category | Focus | Example Tickers |
+|----------|-------|-----------------|
+| AI Infrastructure | GPUs, chips, data centers, power | NVDA, AMD, TSM, ASML, SMCI, CEG |
+| Hyperscaler | Cloud giants | MSFT, AMZN, GOOGL, ORCL, BABA |
+| AI Software | Platforms, enterprise AI, cybersecurity | PLTR, CRM, NOW, CRWD, PANW |
+| Robotics/Physical AI | Autonomous systems, industrial | TSLA, ISRG, HON, DE, ABB |
+| AI Edge/Consumer | On-device AI, consumer tech | AAPL, QCOM, SONY, LOGI |
+| AI Healthcare | Drug discovery, diagnostics | RXRX, VEEV, ILMN, TMO |
+| Neocloud | AI-native cloud providers | CRWV |
+
+Each stock gets an **AI Score (0-100)** based on:
+- 30/90-day price performance (pullbacks = opportunities)
+- AI category positioning (Infrastructure gets highest weight)
+- Technical setup (RSI, 50-day MA)
+- Valuation (PEG ratio, P/E)
+- Market cap tier
 
 ---
 
@@ -247,6 +268,30 @@ STOCKPULSE_MAX_POSITIONS=20
 | Stale dashboard data | Refresh browser; ensure scheduler is running |
 | Want to reset trades | Use `reset_trading_data()` - see Database Management above |
 | Database locked error | Use SQLite (already configured); only one writer allowed |
+| `unrecognized arguments` error | Don't use inline `#` comments in shell commands (see note below) |
+
+### Shell Command Note
+
+**Do NOT use inline comments when running commands.** This will fail:
+
+```bash
+# WRONG - the # comment breaks the command
+stockpulse longterm-scan   # Long-term opportunities
+```
+
+Use clean commands instead:
+
+```bash
+# CORRECT - comment on separate line, or no comment
+stockpulse longterm-scan
+stockpulse trillion-scan
+stockpulse ai-scan
+```
+
+For multi-command runs:
+```bash
+stockpulse longterm-scan && stockpulse trillion-scan && stockpulse ai-scan
+```
 
 ---
 
