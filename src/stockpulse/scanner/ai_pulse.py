@@ -39,6 +39,7 @@ HYPERSCALERS = {
     "GOOGL": {"name": "Alphabet", "cloud": "GCP", "notes": "Gemini, DeepMind, Vertex AI"},
     "ORCL": {"name": "Oracle", "cloud": "OCI", "notes": "Enterprise database + cloud, NVIDIA partnership"},
     "IBM": {"name": "IBM", "cloud": "IBM Cloud", "notes": "watsonx AI, hybrid cloud focus"},
+    "BABA": {"name": "Alibaba", "cloud": "Aliyun", "notes": "China cloud leader, Qwen AI models"},
 }
 
 # Neoclouds: New AI-native cloud providers, heavily leveraged, high growth potential
@@ -59,6 +60,7 @@ AI_INFRASTRUCTURE = {
     # Custom Silicon
     "AVGO": {"name": "Broadcom", "category": "Custom chips", "notes": "Google TPU partner, VMware"},
     "MRVL": {"name": "Marvell", "category": "Custom chips", "notes": "Custom AI silicon for hyperscalers"},
+    "ARM": {"name": "Arm Holdings", "category": "CPU architecture", "notes": "AI chip architecture, edge compute"},
     # Foundry & Equipment
     "TSM": {"name": "TSMC", "category": "Foundry", "notes": "Makes all advanced AI chips"},
     "ASML": {"name": "ASML", "category": "Equipment", "notes": "EUV lithography monopoly"},
@@ -68,6 +70,7 @@ AI_INFRASTRUCTURE = {
     # Memory
     "MU": {"name": "Micron", "category": "Memory", "notes": "HBM memory for AI, DRAM leader"},
     "WDC": {"name": "Western Digital", "category": "Storage", "notes": "Data storage for AI workloads"},
+    "SMCI": {"name": "Super Micro", "category": "AI Servers", "notes": "AI server systems, GPU integration"},
     # Networking
     "ANET": {"name": "Arista Networks", "category": "Networking", "notes": "AI data center networking"},
     "CSCO": {"name": "Cisco", "category": "Networking", "notes": "Enterprise networking, AI infrastructure"},
@@ -77,6 +80,7 @@ AI_INFRASTRUCTURE = {
     # Power/Utilities for AI
     "VST": {"name": "Vistra", "category": "Power", "notes": "Power for AI data centers"},
     "CEG": {"name": "Constellation Energy", "category": "Power", "notes": "Nuclear for AI data centers"},
+    "NRG": {"name": "NRG Energy", "category": "Power", "notes": "Power generation for data centers"},
 }
 
 # AI Software/Platform leaders
@@ -91,6 +95,8 @@ AI_SOFTWARE = {
     "NOW": {"name": "ServiceNow", "notes": "AI workflows, enterprise automation"},
     "ADBE": {"name": "Adobe", "notes": "Firefly generative AI, Creative Cloud"},
     "WDAY": {"name": "Workday", "notes": "AI for HR and finance"},
+    "SAP": {"name": "SAP", "notes": "Enterprise AI, Joule assistant"},
+    "INTU": {"name": "Intuit", "notes": "AI for small business, TurboTax AI"},
     # AI-Native Software
     "PLTR": {"name": "Palantir", "notes": "AIP platform, government & enterprise"},
     "AI": {"name": "C3.ai", "notes": "Enterprise AI applications"},
@@ -99,14 +105,20 @@ AI_SOFTWARE = {
     "MDB": {"name": "MongoDB", "notes": "Database for AI applications"},
     "DDOG": {"name": "Datadog", "notes": "AI observability, LLM monitoring"},
     "CFLT": {"name": "Confluent", "notes": "Real-time data streaming for AI"},
+    "ESTC": {"name": "Elastic", "notes": "Search and AI, vector search"},
+    "GTLB": {"name": "GitLab", "notes": "DevSecOps with AI, code generation"},
     # Cybersecurity AI
     "CRWD": {"name": "CrowdStrike", "notes": "AI-powered cybersecurity"},
     "PANW": {"name": "Palo Alto Networks", "notes": "AI security platform"},
     "ZS": {"name": "Zscaler", "notes": "Zero trust AI security"},
     "S": {"name": "SentinelOne", "notes": "AI endpoint protection"},
+    "FTNT": {"name": "Fortinet", "notes": "AI-driven network security"},
     # Communication/Collaboration AI
     "ZM": {"name": "Zoom", "notes": "AI companion, meeting intelligence"},
     "DOCN": {"name": "DigitalOcean", "notes": "Cloud for developers, AI/ML tools"},
+    # Search & AI
+    "RDDT": {"name": "Reddit", "notes": "AI training data, search partnerships"},
+    "PINS": {"name": "Pinterest", "notes": "Visual AI, recommendation engine"},
 }
 
 # Robotics / Physical AI thesis
@@ -121,6 +133,8 @@ ROBOTICS_THESIS = {
     "TER": {"name": "Teradyne", "notes": "Universal Robots, test equipment"},
     "IRBT": {"name": "iRobot", "notes": "Consumer robotics (Roomba)"},
     "DE": {"name": "Deere & Co", "notes": "Autonomous farming equipment, AgTech AI"},
+    "HON": {"name": "Honeywell", "notes": "Industrial automation, quantum computing"},
+    "EMR": {"name": "Emerson Electric", "notes": "Industrial automation software"},
 }
 
 # AI Healthcare - emerging category
@@ -131,6 +145,18 @@ AI_HEALTHCARE = {
     "ILMN": {"name": "Illumina", "notes": "Genomics, AI for drug discovery"},
     "TMO": {"name": "Thermo Fisher", "notes": "Lab equipment, AI analytics"},
     "DHR": {"name": "Danaher", "notes": "Life sciences tools, diagnostics AI"},
+    "RXRX": {"name": "Recursion Pharma", "notes": "AI drug discovery platform"},
+    "EXAI": {"name": "Exscientia", "notes": "AI-designed drug candidates"},
+    "SDGR": {"name": "Schrodinger", "notes": "Computational drug discovery"},
+}
+
+# AI Edge/Consumer - new category
+AI_EDGE_CONSUMER = {
+    "AAPL": {"name": "Apple", "notes": "On-device AI, Apple Intelligence"},
+    "QCOM": {"name": "Qualcomm", "notes": "Snapdragon AI, edge NPUs"},
+    "AMD": {"name": "AMD", "notes": "Ryzen AI, edge compute"},
+    "SONY": {"name": "Sony", "notes": "AI in gaming, sensors, entertainment"},
+    "LOGI": {"name": "Logitech", "notes": "AI peripherals, collaboration devices"},
 }
 
 # All AI Universe tickers (for scanning)
@@ -140,7 +166,8 @@ AI_UNIVERSE = set(
     list(AI_INFRASTRUCTURE.keys()) +
     list(AI_SOFTWARE.keys()) +
     list(ROBOTICS_THESIS.keys()) +
-    list(AI_HEALTHCARE.keys())
+    list(AI_HEALTHCARE.keys()) +
+    list(AI_EDGE_CONSUMER.keys())
 )
 
 # Known trillion dollar club members (current and recent)
@@ -213,8 +240,8 @@ class ClaudeResearch:
                 perf_section = "\n\nACTUAL PRICE PERFORMANCE (CRITICAL DATA):\n" + "\n".join(perf_lines)
                 perf_section += "\n\nIMPORTANT: Base your analysis on this ACTUAL price data. If stocks are down 10%+, acknowledge the pullback. If RSI is oversold (<30), note the opportunity. Be objective about price action."
 
-            prompt = f"""You are an expert AI and technology investment analyst.
-Analyze the following investment thesis and provide actionable insights.
+            prompt = f"""You are a SKEPTICAL AI and technology investment analyst who prioritizes capital preservation.
+Analyze the following investment thesis based on ACTUAL PRICE DATA.
 
 THESIS: {thesis_name}
 
@@ -225,15 +252,25 @@ RELATED TICKERS: {', '.join(tickers)}
 
 TODAY'S DATE: {date.today().isoformat()}
 
-Provide a concise analysis with:
-1. THESIS STATUS: Is this thesis playing out? Consider both fundamentals AND the actual price performance above.
-2. KEY SIGNALS: What does the price action tell us? Are stocks in this thesis being sold off or bid up?
-3. ENTRY POINTS: Based on the ACTUAL performance data above, which stocks look attractive for entry? Be specific about oversold opportunities.
-4. RISKS: What could invalidate this thesis? Consider if the selloff (if any) is warranted.
-5. RECOMMENDATION: bullish/neutral/bearish - BE HONEST about price weakness if stocks are down significantly.
-6. TOP PICK: Which single stock is the best risk/reward right now given price levels?
+CRITICAL RULES:
+- If ANY stock is down >10% in 30 days, you MUST acknowledge this is concerning and affects the thesis
+- If multiple stocks are down >15% in 30 days, the thesis is likely BEARISH or NEUTRAL, not bullish
+- Pullbacks are only opportunities if fundamentals are intact - don't assume they are
+- Extended rallies (+20% or more) are RISKS, not positives
 
-Be objective and data-driven. If stocks are down big, acknowledge it. Don't be blindly bullish.
+Provide analysis with:
+1. PRICE REALITY CHECK: Summarize the ACTUAL 30d and 90d performance. Are stocks mostly up or down? By how much?
+2. THESIS STATUS: Given the price action, is the market validating or rejecting this thesis?
+3. HONEST ASSESSMENT: What is the price action telling us? Significant drawdowns suggest caution.
+4. ENTRY POINTS: Only suggest entries for stocks that are down AND have strong fundamentals. Acknowledge risk.
+5. RISKS: Why might these stocks be selling off? Is the market seeing something we're not?
+6. RECOMMENDATION:
+   - BEARISH if most stocks down >10% in 30d or thesis appears to be failing
+   - NEUTRAL if mixed signals or significant uncertainty
+   - BULLISH only if stocks are UP or minor pullback with clear bullish catalysts
+7. TOP PICK: Best risk/reward given ACTUAL price levels and risk
+
+BE BRUTALLY HONEST. If stocks are getting crushed, say so. The user loses money from false optimism.
 Keep response under 500 words."""
 
             message = client.messages.create(
@@ -244,19 +281,50 @@ Keep response under 500 words."""
 
             analysis = message.content[0].text
 
-            # Parse recommendation from response
+            # Parse recommendation from response - look at the explicit recommendation section
             recommendation = "neutral"
-            if "bullish" in analysis.lower():
+            analysis_lower = analysis.lower()
+
+            # Look for explicit recommendation markers
+            if "recommendation: bullish" in analysis_lower or "recommendation:\nbullish" in analysis_lower:
                 recommendation = "bullish"
-            elif "bearish" in analysis.lower():
+            elif "recommendation: bearish" in analysis_lower or "recommendation:\nbearish" in analysis_lower:
                 recommendation = "bearish"
+            elif "recommendation: neutral" in analysis_lower or "recommendation:\nneutral" in analysis_lower:
+                recommendation = "neutral"
+            else:
+                # Count bullish vs bearish keywords for fallback
+                bullish_words = ["bullish", "opportunity", "upside", "buy", "undervalued", "attractive entry"]
+                bearish_words = ["bearish", "downside", "sell", "overvalued", "caution", "risk", "selloff", "decline", "concerning"]
+
+                bullish_count = sum(1 for word in bullish_words if word in analysis_lower)
+                bearish_count = sum(1 for word in bearish_words if word in analysis_lower)
+
+                if bearish_count > bullish_count + 2:
+                    recommendation = "bearish"
+                elif bullish_count > bearish_count + 2:
+                    recommendation = "bullish"
+
+            # Calculate confidence based on price performance too
+            confidence = 50
+            if ticker_performance:
+                avg_30d = sum(d['pct_30d'] for d in ticker_performance.values()) / len(ticker_performance)
+                # If stocks are down big, lower confidence in bullish calls
+                if recommendation == "bullish" and avg_30d < -10:
+                    confidence = 40  # Low confidence - bullish call but stocks are down
+                elif recommendation == "bearish" and avg_30d < -10:
+                    confidence = 75  # High confidence - bearish matches price action
+                elif recommendation == "bullish" and avg_30d > 5:
+                    confidence = 70  # Bullish matches price action
+                else:
+                    confidence = 55
 
             return {
                 "thesis": thesis_name,
                 "analysis": analysis,
                 "signals": [],  # Could parse signals from response
                 "recommendation": recommendation,
-                "confidence": 70 if recommendation != "neutral" else 50,
+                "confidence": confidence,
                 "researched_at": datetime.now().isoformat(),
             }
 
@@ -297,21 +365,27 @@ Keep response under 500 words."""
 
             client = anthropic.Anthropic(api_key=self.api_key)
 
-            prompt = f"""You are an AI market analyst providing a daily briefing.
-Generate a concise, actionable market pulse for AI/tech investors.
+            prompt = f"""You are a SKEPTICAL AI market analyst who prioritizes capital preservation.
+Generate a concise, HONEST market pulse for AI/tech investors.
 
 MARKET DATA:
 {json.dumps(market_data, indent=2, default=str)}
 
 TODAY'S DATE: {date.today().isoformat()}
 
-Provide a brief (3-5 bullet points) market pulse covering:
-- AI sector sentiment today
-- Notable moves in AI stocks
-- Any important news/developments
-- What to watch tomorrow
+CRITICAL: Look at the avg_30d_performance and worst_30d_performers in the data.
+- If avg_30d_performance is negative, the AI sector is SELLING OFF - acknowledge this
+- If many stocks are down >10%, this is concerning - don't sugarcoat it
+- Pullbacks are only opportunities if there's clear reason to believe fundamentals are intact
 
-Keep it punchy and actionable. Under 200 words."""
+Provide a brief (3-5 bullet points) market pulse covering:
+- AI sector sentiment (BE HONEST about weakness if present)
+- Notable moves in AI stocks (especially BIG losers)
+- Risk factors to watch
+- Actionable guidance (sometimes "stay cautious" is the right call)
+
+DO NOT be blindly bullish. If the data shows a selloff, call it out.
+Keep it punchy and honest. Under 200 words."""
 
             message = client.messages.create(
                 model="claude-sonnet-4-20250514",
@@ -601,6 +675,9 @@ class AIPulseScanner:
 
         if ticker in AI_HEALTHCARE:
             return "AI Healthcare", AI_HEALTHCARE[ticker].get("notes", "Healthcare")
+
+        if ticker in AI_EDGE_CONSUMER:
+            return "AI Edge/Consumer", AI_EDGE_CONSUMER[ticker].get("notes", "Edge AI")
 
         # Default categorization based on sector
         try:
@@ -914,12 +991,15 @@ class AIPulseScanner:
         elif ticker in ROBOTICS_THESIS:
             category_pts = 6  # Robotics is emerging
             category_name = "Robotics/Physical AI"
-        elif ticker in NEOCLOUDS:
-            category_pts = 5  # Neoclouds are speculative
-            category_name = "Neocloud"
+        elif ticker in AI_EDGE_CONSUMER:
+            category_pts = 6  # Edge AI is growing
+            category_name = "AI Edge/Consumer"
         elif ticker in AI_HEALTHCARE:
             category_pts = 5
             category_name = "AI Healthcare"
+        elif ticker in NEOCLOUDS:
+            category_pts = 5  # Neoclouds are speculative
+            category_name = "Neocloud"
         score += category_pts
         breakdown["ai_category"] = {
             "points": category_pts,
@@ -1175,6 +1255,7 @@ class AIPulseScanner:
             "AI Infrastructure": [],
             "AI Software": [],
             "Robotics/Physical AI": [],
+            "AI Edge/Consumer": [],
             "AI Healthcare": [],
             "Neocloud": [],
             "Other": [],

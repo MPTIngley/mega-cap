@@ -1786,15 +1786,37 @@ class AlertManager:
                 count = data["count"]
                 top_pick = data.get("top_pick", "-")
 
+                # Calculate category health score
+                # High avg_score + negative 30d = opportunity (WAIT)
+                # High avg_score + positive 30d = extended (HOLD)
+                # Low avg_score + negative 30d = avoid (SELL)
+                if avg_30d <= -10:
+                    if avg_score >= 65:
+                        health = "OPPORTUNITY"
+                        health_color = "#22c55e"
+                    else:
+                        health = "WEAKNESS"
+                        health_color = "#ef4444"
+                elif avg_30d <= -5:
+                    health = "PULLBACK"
+                    health_color = "#eab308"
+                elif avg_30d >= 10:
+                    health = "EXTENDED"
+                    health_color = "#f97316"
+                else:
+                    health = "NEUTRAL"
+                    health_color = "#6b7280"
+
                 score_color = "#22c55e" if avg_score >= 65 else ("#eab308" if avg_score >= 55 else "#f97316")
-                perf_color = "#22c55e" if avg_30d <= -5 else ("#ef4444" if avg_30d >= 5 else "#6b7280")
+                perf_color = "#22c55e" if avg_30d > 0 else "#ef4444"
 
                 cat_rows += f"""
                 <tr>
                     <td><strong>{cat}</strong></td>
                     <td style="text-align: center;">{count}</td>
                     <td style="text-align: center; color: {score_color}; font-weight: bold;">{avg_score:.0f}</td>
-                    <td style="text-align: center; color: {perf_color};">{avg_30d:+.1f}%</td>
+                    <td style="text-align: center; color: {perf_color}; font-weight: bold;">{avg_30d:+.1f}%</td>
+                    <td style="text-align: center; color: {health_color}; font-weight: bold; font-size: 11px;">{health}</td>
                     <td style="font-size: 12px;">{top_pick}</td>
                 </tr>
                 """
@@ -1802,12 +1824,19 @@ class AlertManager:
             category_html = f"""
             <div class="section">
                 <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 AI Categories Performance</h2>
+                <p style="font-size: 12px; color: #6b7280; margin-bottom: 10px;">
+                    Category health based on average AI score and 30-day performance.
+                    <strong style="color: #22c55e;">OPPORTUNITY</strong> = High score + pullback (potential entry) |
+                    <strong style="color: #ef4444;">WEAKNESS</strong> = Low score + selloff (avoid) |
+                    <strong style="color: #f97316;">EXTENDED</strong> = Running hot (wait for pullback)
+                </p>
                 <table>
                     <tr>
                         <th>Category</th>
                         <th style="text-align: center;">Stocks</th>
                         <th style="text-align: center;">Avg Score</th>
                         <th style="text-align: center;">Avg 30d</th>
+                        <th style="text-align: center;">Health</th>
                         <th>Top Pick</th>
                     </tr>
                     {cat_rows}
@@ -1986,7 +2015,7 @@ class AlertManager:
                         <tr style="background: #f9fafb;">
                             <td><strong>AI Category</strong></td>
                             <td>Position in the AI ecosystem</td>
-                            <td style="font-family: monospace;">Infra: +10 | Hyperscaler: +8 | Software: +7</td>
+                            <td style="font-family: monospace;">Infra: +10 | Hyperscaler: +8 | Software: +7 | Robotics/Edge: +6</td>
                         </tr>
                         <tr>
                             <td><strong>RSI (14-day)</strong></td>
@@ -2023,12 +2052,27 @@ class AlertManager:
             </div>
             <div class="footer">
                 <div style="margin-bottom: 15px;">
-                    <strong>Categories:</strong><br/>
-                    AI Infrastructure = GPUs, chips, data centers, networking | Hyperscaler = Cloud giants (AWS, Azure, GCP) |
-                    AI Software = Platforms, enterprise AI, cybersecurity | Robotics = Autonomous systems, physical AI
+                    <strong>AI Categories:</strong><br/>
+                    <span style="color: #4b5563;">
+                    <strong>AI Infrastructure</strong> = GPUs, chips, data centers, networking, power |
+                    <strong>Hyperscaler</strong> = Cloud giants (AWS, Azure, GCP, Alibaba) |
+                    <strong>AI Software</strong> = Platforms, enterprise AI, cybersecurity |
+                    <strong>Robotics/Physical AI</strong> = Autonomous systems, industrial automation |
+                    <strong>AI Edge/Consumer</strong> = On-device AI, consumer tech |
+                    <strong>AI Healthcare</strong> = Drug discovery, diagnostics, surgical robotics
+                    </span>
+                </div>
+                <div style="margin-bottom: 15px; background: #fef3c7; padding: 10px; border-radius: 4px;">
+                    <strong style="color: #92400e;">Note on Interpretation:</strong><br/>
+                    <span style="color: #78350f; font-size: 11px;">
+                    High AI Score + Negative 30d = Potential opportunity (pullback in quality stock)<br/>
+                    High AI Score + Positive 30d = Extended, consider waiting for pullback<br/>
+                    Low AI Score + Negative 30d = Avoid - weakness may continue<br/>
+                    Category Avg 30d shows overall sector health - negative means sector under pressure
+                    </span>
                 </div>
                 <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
-                for research purposes only. Always do your own due diligence before investing.
+                for research purposes only. Pullbacks can continue - always do your own due diligence.
                 <br/><br/>
                 StockPulse AI Pulse Scanner | Runs daily at 5:30pm ET
             </div>
