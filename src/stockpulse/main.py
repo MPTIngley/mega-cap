@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "trillion-scan", "ai-scan", "ai-backfill"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "trillion-scan", "trillion-backfill", "ai-scan", "ai-backfill"],
         help="Command to execute"
     )
 
@@ -197,6 +197,8 @@ def main():
         run_show_holdings(args)
     elif args.command == "trillion-scan":
         run_trillion_scan()
+    elif args.command == "trillion-backfill":
+        run_trillion_backfill()
     elif args.command == "ai-scan":
         run_ai_scan()
     elif args.command == "ai-backfill":
@@ -2142,6 +2144,55 @@ def run_trillion_scan():
     print("\n" + "=" * 70 + "\n")
 
 
+def run_trillion_backfill():
+    """Backfill Trillion+ Club historical data for trend analysis.
+
+    Builds historical entry scores from stored price data, enabling:
+    - Trend tracking (score improving/declining)
+    - Consecutive days on list
+    - Historical score comparison
+    """
+    from stockpulse.scanner.ai_pulse import AIPulseScanner
+
+    print("\n" + "=" * 70)
+    print("  TRILLION+ CLUB BACKFILL")
+    print("  Building Historical Entry Scores")
+    print("=" * 70)
+
+    ai_scanner = AIPulseScanner()
+
+    result = ai_scanner.db.fetchone("""
+        SELECT COUNT(*), MIN(scan_date), MAX(scan_date), COUNT(DISTINCT scan_date)
+        FROM trillion_club
+    """)
+    current_count = result[0] if result else 0
+    min_date = result[1] if result else "None"
+    max_date = result[2] if result else "None"
+    unique_dates = result[3] if result else 0
+
+    print(f"\n  Current State:")
+    print(f"    Total Records: {current_count}")
+    print(f"    Unique Dates: {unique_dates}")
+    print(f"    Date Range: {min_date} to {max_date}")
+
+    print("\n  Backfilling 3 weeks of historical data...")
+    records_created = ai_scanner.backfill_trillion_history(days=21)
+
+    result = ai_scanner.db.fetchone("""
+        SELECT COUNT(*), COUNT(DISTINCT scan_date) FROM trillion_club
+    """)
+    final_count = result[0] if result else 0
+    final_dates = result[1] if result else 0
+
+    print(f"\n  ✅ Backfill Complete:")
+    print(f"     Records Created: {records_created}")
+    print(f"     Total Records: {final_count}")
+    print(f"     Unique Dates: {final_dates}")
+
+    print("\n  Run 'stockpulse trillion-scan' to add today's data and send email.")
+    print("\n" + "=" * 70 + "\n")
+
+
 def run_ai_scan():
     """Run AI investment thesis scanner and send research email.
 
@@ -2238,64 +2289,47 @@ def run_ai_scan():
 
 
 def run_ai_backfill():
-    """Backfill AI Pulse history data for trend analysis.
+    """Initialize AI investment theses for research tracking.
 
-    Builds historical data for:
-    - Trillion+ Club entry scores over time
-    - Thesis research history
-    - Snapshot time-series for trend detection
+    Seeds default theses and verifies they're active:
+    - NVIDIA AI dominance
+    - Hyperscaler capex cycle
+    - AI software monetization
+    - Robotics/physical AI
+    - And more...
+
+    Note: For Trillion+ Club backfill, use: stockpulse trillion-backfill
     """
     from stockpulse.scanner.ai_pulse import AIPulseScanner
-    from datetime import date, timedelta
 
     print("\n" + "=" * 70)
-    print("  AI PULSE HISTORY BACKFILL")
+    print("  AI THESES INITIALIZATION")
+    print("  Setting Up Investment Thesis Tracking")
     print("=" * 70)
 
     ai_scanner = AIPulseScanner()
 
-    # Check current state of trillion_club
-    result = ai_scanner.db.fetchone("""
-        SELECT COUNT(*), MIN(scan_date), MAX(scan_date), COUNT(DISTINCT scan_date)
-        FROM trillion_club
-    """)
-    current_count = result[0] if result else 0
-    min_date = result[1] if result else "None"
-    max_date = result[2] if result else "None"
-    unique_dates = result[3] if result else 0
-
-    print(f"\n  Trillion+ Club Records: {current_count}")
-    print(f"  Unique Dates: {unique_dates}")
-    print(f"  Date Range: {min_date} to {max_date}")
-
-    # Run backfill for trillion club (3 weeks of historical data)
-    print("\n  📊 Backfilling Trillion+ Club history (3 weeks)...")
-    records_created = ai_scanner.backfill_trillion_history(days=21)
-    print(f"  ✅ Created {records_created} historical records")
-
-    # Run today's scan to get current data
-    print("\n  📈 Running today's Trillion+ Club scan...")
-    trillion_club = ai_scanner.get_trillion_club_members()
-    ai_scanner._store_scan_results(trillion_club)
-    print(f"  ✅ Stored {len(trillion_club)} Trillion+ Club members for today")
-
-    # Check theses (should be auto-seeded)
     theses = ai_scanner.get_theses()
-    print(f"\n  🧠 Active Theses: {len(theses)}")
-    for thesis in theses[:5]:
-        print(f"      - {thesis['thesis_name']}")
+    print(f"\n  Active Theses: {len(theses)}")
 
-    # Show final record count
-    result = ai_scanner.db.fetchone("""
-        SELECT COUNT(*), COUNT(DISTINCT scan_date) FROM trillion_club
-    """)
-    final_count = result[0] if result else 0
-    final_dates = result[1] if result else 0
+    if theses:
+        print("\n  Current theses:")
+        for thesis in theses:
+            name = thesis.get("thesis_name", "")
+            tickers = thesis.get("tickers", "")
+            status = thesis.get("status", "active")
+            print(f"    - {name}")
+            print(f"      Tickers: {tickers}")
+            print(f"      Status: {status}")
+    else:
+        print("\n  No theses found. They should auto-seed on scanner init.")
+        print("  Try running: stockpulse ai-scan")
 
-    print(f"\n  ✅ Backfill Complete:")
-    print(f"     Total Records: {final_count}")
-    print(f"     Unique Dates: {final_dates}")
-    print("\n  Run 'stockpulse trillion-scan' to update today's data.")
+    print("\n  Commands:")
+    print("    stockpulse ai-scan          - Run AI Pulse scan and send email")
+    print("    stockpulse trillion-backfill - Backfill Trillion+ Club history")
+    print("    stockpulse trillion-scan    - Run Trillion+ Club scan")
+    print("\n" + "=" * 70 + "\n")
     print("  Run 'stockpulse ai-scan' to send AI Pulse email with thesis research.")
     print("\n" + "=" * 70 + "\n")
 
