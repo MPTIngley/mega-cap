@@ -1351,16 +1351,14 @@ class LongTermScanner:
 
     def send_digest(
         self,
-        opportunities: list[dict],
-        trillion_club: list[dict] | None = None
+        opportunities: list[dict]
     ) -> bool:
         """Send long-term opportunities digest email.
 
         Args:
             opportunities: Long-term opportunities from 8-component scoring
-            trillion_club: Optional Trillion+ Club members with entry scores
         """
-        if not opportunities and not trillion_club:
+        if not opportunities:
             return False
 
-        return self.alert_manager.send_long_term_digest(opportunities, trillion_club)
+        return self.alert_manager.send_long_term_digest(opportunities)
