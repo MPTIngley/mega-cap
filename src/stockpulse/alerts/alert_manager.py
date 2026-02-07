@@ -1628,6 +1628,20 @@ class AlertManager:
                 pct_30d = stock.get('pct_30d', 0)
                 pct_90d = stock.get('pct_90d', 0)
 
+                # Get sentiment for this ticker
+                sent = sentiment_data.get(ticker, {})
+                sent_score = sent.get("aggregate_score", 0)
+                sent_label = sent.get("aggregate_label", "")
+                if sent_score > 0:
+                    if sent_label == "bullish":
+                        sent_display = f'<span style="color: #22c55e;">🟢 {sent_score:.0f}</span>'
+                    elif sent_label == "bearish":
+                        sent_display = f'<span style="color: #ef4444;">🔴 {sent_score:.0f}</span>'
+                    else:
+                        sent_display = f'<span style="color: #eab308;">🟡 {sent_score:.0f}</span>'
+                else:
+                    sent_display = '<span style="color: #9ca3af;">-</span>'
+
                 reasoning = f"{category} - 30d: {pct_30d:+.1f}%, 90d: {pct_90d:+.1f}%"
 
                 strong_rows += f"""
@@ -1639,10 +1653,11 @@ class AlertManager:
                     </td>
                     <td style="text-align: center; font-size: 16px;">${price:.2f}</td>
                     <td style="text-align: center; font-size: 18px;"><strong>{score:.0f}</strong></td>
+                    <td style="text-align: center;">{sent_display}</td>
                     <td style="text-align: center; color: {'#22c55e' if pct_30d <= -5 else '#6b7280'};">{pct_30d:+.1f}%</td>
                 </tr>
                 <tr style="background: #f5f3ff;">
-                    <td colspan="4" style="padding: 5px 15px 15px; color: #6d28d9; font-size: 13px; border-bottom: 2px solid #7c3aed;">
+                    <td colspan="5" style="padding: 5px 15px 15px; color: #6d28d9; font-size: 13px; border-bottom: 2px solid #7c3aed;">
                         <strong>Why:</strong> {reasoning}
                     </td>
                 </tr>
@@ -1658,7 +1673,8 @@ class AlertManager:
                     <tr>
                         <th style="text-align: left; color: #6d28d9;">Company</th>
                         <th style="text-align: center; color: #6d28d9;">Price</th>
-                        <th style="text-align: center; color: #6d28d9;">Score</th>
+                        <th style="text-align: center; color: #6d28d9;">AI Score</th>
+                        <th style="text-align: center; color: #6d28d9;">Sentiment</th>
                         <th style="text-align: center; color: #6d28d9;">30d</th>
                     </tr>
                     {strong_rows}
@@ -1718,6 +1734,24 @@ class AlertManager:
                 count = data["count"]
                 top_pick = data.get("top_pick", "-")
 
+                # Get category sentiment
+                cat_sent_scores = category_sentiment.get(cat, [])
+                if cat_sent_scores:
+                    avg_sent = sum(cat_sent_scores) / len(cat_sent_scores)
+                    if avg_sent >= 60:
+                        sent_emoji = "🟢"
+                        sent_color = "#22c55e"
+                    elif avg_sent <= 40:
+                        sent_emoji = "🔴"
+                        sent_color = "#ef4444"
+                    else:
+                        sent_emoji = "🟡"
+                        sent_color = "#eab308"
+                    sent_display = f"{sent_emoji} {avg_sent:.0f}"
+                else:
+                    sent_display = "-"
+                    sent_color = "#9ca3af"
+
                 # Calculate category health score
                 # High avg_score + negative 30d = opportunity (WAIT)
                 # High avg_score + positive 30d = extended (HOLD)
@@ -1747,6 +1781,7 @@ class AlertManager:
                     <td><strong>{cat}</strong></td>
                     <td style="text-align: center;">{count}</td>
                     <td style="text-align: center; color: {score_color}; font-weight: bold;">{avg_score:.0f}</td>
+                    <td style="text-align: center; color: {sent_color};">{sent_display}</td>
                     <td style="text-align: center; color: {perf_color}; font-weight: bold;">{avg_30d:+.1f}%</td>
                     <td style="text-align: center; color: {health_color}; font-weight: bold; font-size: 11px;">{health}</td>
                     <td style="font-size: 12px;">{top_pick}</td>
@@ -1757,7 +1792,7 @@ class AlertManager:
             <div class="section">
                 <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 AI Categories Performance</h2>
                 <p style="font-size: 12px; color: #6b7280; margin-bottom: 10px;">
-                    Category health based on average AI score and 30-day performance.
+                    Category health based on average AI score, social sentiment, and 30-day performance.
                     <strong style="color: #22c55e;">OPPORTUNITY</strong> = High score + pullback (potential entry) |
                     <strong style="color: #ef4444;">WEAKNESS</strong> = Low score + selloff (avoid) |
                     <strong style="color: #f97316;">EXTENDED</strong> = Running hot (wait for pullback)
@@ -1766,7 +1801,8 @@ class AlertManager:
                     <tr>
                         <th>Category</th>
                         <th style="text-align: center;">Stocks</th>
-                        <th style="text-align: center;">Avg Score</th>
+                        <th style="text-align: center;">AI Score</th>
+                        <th style="text-align: center;">Sentiment</th>
                         <th style="text-align: center;">Avg 30d</th>
                         <th style="text-align: center;">Health</th>
                         <th>Top Pick</th>
@@ -1787,6 +1823,31 @@ class AlertManager:
             pct_90d = stock.get("pct_90d", 0)
             category = stock.get("category", "Other")
 
+            # Get sentiment for this ticker
+            sent = sentiment_data.get(ticker, {})
+            sent_score = sent.get("aggregate_score", 0)
+            sent_label = sent.get("aggregate_label", "")
+            st_data = sent.get("stocktwits", {})
+            sent_trending = st_data.get("trending", False)
+
+            # Sentiment display
+            if sent_score > 0:
+                if sent_label == "bullish":
+                    sent_emoji = "🟢"
+                    sent_color = "#22c55e"
+                elif sent_label == "bearish":
+                    sent_emoji = "🔴"
+                    sent_color = "#ef4444"
+                else:
+                    sent_emoji = "🟡"
+                    sent_color = "#eab308"
+                sent_display = f"{sent_emoji} {sent_score:.0f}"
+                trending_badge = " 📈" if sent_trending else ""
+            else:
+                sent_display = "-"
+                sent_color = "#9ca3af"
+                trending_badge = ""
+
             reasoning = f"{category} - 30d: {pct_30d:+.1f}%, 90d: {pct_90d:+.1f}%"
 
             stocks_rows += f"""
@@ -1798,8 +1859,8 @@ class AlertManager:
                 </td>
                 <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;"><strong>{ai_score:.0f}</strong></td>
+                <td style="text-align: center; color: {sent_color};">{sent_display}{trending_badge}</td>
                 <td style="text-align: center; color: {'#22c55e' if pct_30d < 0 else '#6b7280'};">{pct_30d:+.1f}%</td>
-                <td>{pct_90d:+.1f}%</td>
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
@@ -1852,7 +1913,25 @@ class AlertManager:
                 recommendation = thesis.get("recommendation", "neutral")
                 confidence = thesis.get("confidence", 50)
                 analysis = thesis.get("analysis", "")[:400]
-                tickers = ", ".join(thesis.get("tickers", []))
+                thesis_tickers = thesis.get("tickers", [])
+                tickers_str = ", ".join(thesis_tickers)
+
+                # Get sentiment for thesis tickers
+                thesis_sent_scores = []
+                for t in thesis_tickers:
+                    if t in sentiment_data:
+                        thesis_sent_scores.append(sentiment_data[t].get("aggregate_score", 50))
+
+                if thesis_sent_scores:
+                    avg_thesis_sent = sum(thesis_sent_scores) / len(thesis_sent_scores)
+                    if avg_thesis_sent >= 60:
+                        sent_badge = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">🟢 Sentiment: {avg_thesis_sent:.0f}</span>'
+                    elif avg_thesis_sent <= 40:
+                        sent_badge = f'<span style="background: #fef2f2; color: #991b1b; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">🔴 Sentiment: {avg_thesis_sent:.0f}</span>'
+                    else:
+                        sent_badge = f'<span style="background: #fef9c3; color: #854d0e; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">🟡 Sentiment: {avg_thesis_sent:.0f}</span>'
+                else:
+                    sent_badge = ""
 
                 rec_color = {
                     "bullish": "#22c55e",
@@ -1862,8 +1941,8 @@ class AlertManager:
 
                 thesis_rows += f"""
                 <div style="margin-bottom: 15px; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid {rec_color};">
-                    <h4 style="margin: 0 0 8px 0; color: #1e293b;">{name}</h4>
-                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;">Tickers: {tickers}</p>
+                    <h4 style="margin: 0 0 8px 0; color: #1e293b;">{name}{sent_badge}</h4>
+                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;">Tickers: {tickers_str}</p>
                     <p style="margin: 0 0 10px 0; font-size: 13px; color: #334155;">{analysis}...</p>
                     <div style="font-size: 12px;">
                         <span style="color: {rec_color}; font-weight: bold; text-transform: uppercase;">{recommendation}</span>
@@ -1905,9 +1984,25 @@ class AlertManager:
 
         # Social sentiment section (Phase 7 - isolated module)
         sentiment_html = ""
+        sentiment_data = {}  # ticker -> sentiment dict
+        category_sentiment = {}  # category -> list of sentiment scores
         try:
-            from stockpulse.data.sentiment import get_sentiment_summary_for_email
-            ai_tickers = [s.get("ticker") for s in ai_stocks[:20] if s.get("ticker")]
+            from stockpulse.data.sentiment import SentimentStorage, get_sentiment_summary_for_email
+            storage = SentimentStorage()
+            ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
+            sentiment_data = storage.get_todays_sentiment(ai_tickers)
+
+            # Build category sentiment aggregation
+            for stock in ai_stocks:
+                ticker = stock.get("ticker", "")
+                cat = stock.get("category", "Other")
+                if ticker in sentiment_data:
+                    score = sentiment_data[ticker].get("aggregate_score", 50)
+                    if cat not in category_sentiment:
+                        category_sentiment[cat] = []
+                    category_sentiment[cat].append(score)
+
+            # Get formatted sentiment summary for email
             sentiment_html = get_sentiment_summary_for_email(ai_tickers, max_display=10)
         except Exception as e:
             logger.debug(f"Sentiment section skipped: {e}")
@@ -1951,9 +2046,9 @@ class AlertManager:
                         <tr>
                             <th>Company</th>
                             <th style="text-align: center;">Price</th>
-                            <th style="text-align: center;">Score</th>
+                            <th style="text-align: center;">AI Score</th>
+                            <th style="text-align: center;">Sentiment</th>
                             <th style="text-align: center;">30d</th>
-                            <th>90d</th>
                         </tr>
                         {stocks_rows}
                     </table>

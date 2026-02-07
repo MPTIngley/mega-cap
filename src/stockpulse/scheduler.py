@@ -264,10 +264,11 @@ class StockPulseScheduler:
             max_instances=1
         )
 
-        # Sentiment scan - 17:29 ET on weekdays (before AI Pulse to cache data)
+        # Sentiment scan - 17:00 ET on weekdays (before AI Pulse to cache data)
+        # Runs for ~5-10 min scanning 80 tickers with rate limiting
         sentiment_config = self.config.get("sentiment", {})
         if sentiment_config.get("enabled", True):
-            run_time = sentiment_config.get("run_time", "17:29").split(":")
+            run_time = sentiment_config.get("run_time", "17:00").split(":")
             self.scheduler.add_job(
                 self._run_sentiment_scan_job,
                 CronTrigger(
@@ -284,10 +285,10 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
-        # Long-term scanner - 17:30 ET on weekdays
+        # Long-term scanner - 17:15 ET on weekdays (after sentiment completes)
         lt_config = self.config.get("long_term_scanner", {})
         if lt_config.get("enabled", True):
-            run_time = lt_config.get("run_time", "17:30").split(":")
+            run_time = lt_config.get("run_time", "17:15").split(":")
             self.scheduler.add_job(
                 self._run_long_term_scan_job,
                 CronTrigger(
@@ -304,10 +305,10 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
-        # Trillion+ Club scanner - 17:31 ET on weekdays (1 min after long-term)
+        # Trillion+ Club scanner - 17:20 ET on weekdays (5 min after long-term)
         trillion_config = self.config.get("trillion_club", {})
         if trillion_config.get("enabled", True):
-            run_time = trillion_config.get("run_time", "17:31").split(":")
+            run_time = trillion_config.get("run_time", "17:20").split(":")
             self.scheduler.add_job(
                 self._run_trillion_scan_job,
                 CronTrigger(
@@ -324,10 +325,10 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
-        # AI Thesis scanner - 17:32 ET on weekdays (2 min after long-term)
+        # AI Thesis scanner - 17:30 ET on weekdays (uses cached sentiment data)
         ai_config = self.config.get("ai_pulse", {})
         if ai_config.get("enabled", True):
-            run_time = ai_config.get("run_time", "17:32").split(":")
+            run_time = ai_config.get("run_time", "17:30").split(":")
             self.scheduler.add_job(
                 self._run_ai_pulse_scan_job,
                 CronTrigger(
