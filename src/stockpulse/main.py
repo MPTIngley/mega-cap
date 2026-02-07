@@ -708,23 +708,22 @@ def run_scheduler():
         print("=" * 60)
 
         ai_scanner = AIPulseScanner()
-        theses = ai_scanner._research_theses()
 
+        # Run full AI Pulse scan (includes stocks + theses + market pulse)
+        scan_results = ai_scanner.run_scan()
+
+        theses = scan_results.get("theses", [])
+        ai_stocks = scan_results.get("ai_stocks", [])
+
+        print(f"  Scanned {len(ai_stocks)} AI stocks")
         print(f"  Researched {len(theses)} investment theses")
         for thesis in theses[:3]:
             rec = thesis.get("recommendation", "neutral")
             print(f"    {thesis['thesis_name']}: {rec.upper()}")
 
-        # Send email (theses-only)
-        scan_results = {
-            "theses": theses,
-            "market_pulse": ai_scanner.claude.generate_market_pulse({"theses": len(theses)}),
-            "trillion_club": [],
-            "categories": {},
-            "best_opportunities": []
-        }
+        # Send email with full scan results
         alert_manager.send_ai_pulse_digest(scan_results, long_term_opportunities=None)
-        print("  ✅ AI Thesis email sent!")
+        print("  ✅ AI Pulse email sent!")
         print("=" * 60)
 
     # Timezone and job names for schedule display
@@ -2164,12 +2163,37 @@ def run_ai_scan():
     # Initialize scanner
     ai_scanner = AIPulseScanner()
 
-    # Research theses using Claude
-    print("\n  🧠 Researching Investment Theses...")
-    theses = ai_scanner._research_theses()
+    # Run full AI Pulse scan (stocks + theses + market pulse)
+    print("\n  🤖 Running AI Pulse scan...")
+    scan_results = ai_scanner.run_scan()
 
+    ai_stocks = scan_results.get("ai_stocks", [])
+    theses = scan_results.get("theses", [])
+    market_pulse = scan_results.get("market_pulse", "")
+    top_picks = scan_results.get("top_picks", [])
+    category_scores = scan_results.get("category_scores", {})
+
+    # Display AI stocks summary
+    print(f"\n  📊 Scanned {len(ai_stocks)} AI Universe stocks")
+    if top_picks:
+        print("\n  🎯 Top AI Picks (Score 70+):")
+        for pick in top_picks[:5]:
+            ticker = pick.get("ticker", "")
+            score = pick.get("ai_score", 0)
+            pct_30d = pick.get("pct_30d", 0)
+            category = pick.get("category", "")
+            print(f"    {ticker}: Score {score:.0f} | 30d: {pct_30d:+.1f}% | {category}")
+
+    # Display category summary
+    if category_scores:
+        print("\n  📁 Category Performance:")
+        for cat, data in sorted(category_scores.items(), key=lambda x: x[1]["avg_score"], reverse=True):
+            if data["count"] > 0:
+                print(f"    {cat}: Avg Score {data['avg_score']:.0f} | Avg 30d: {data['avg_30d']:+.1f}% | {data['count']} stocks")
+
+    # Display theses
     if theses:
-        print(f"\n  Found {len(theses)} active theses:")
+        print(f"\n  🧠 Researched {len(theses)} investment theses:")
         for thesis in theses:
             name = thesis.get("thesis_name", "")
             recommendation = thesis.get("recommendation", "neutral")
@@ -2180,42 +2204,24 @@ def run_ai_scan():
             # Show brief analysis
             analysis = thesis.get("analysis", "")
             if analysis and "not configured" not in analysis.lower():
-                # Show first 150 chars
                 brief = analysis[:150] + "..." if len(analysis) > 150 else analysis
                 print(f"       {brief}")
             print()
     else:
         print("\n  No active theses found. Run 'stockpulse ai-backfill' to create defaults.")
 
-    # Generate market pulse
-    print("\n  📡 Generating Market Pulse...")
-    market_data = {
-        "theses_count": len(theses),
-        "bullish_theses": len([t for t in theses if t.get("recommendation") == "bullish"]),
-        "bearish_theses": len([t for t in theses if t.get("recommendation") == "bearish"]),
-    }
-    market_pulse = ai_scanner.claude.generate_market_pulse(market_data)
-
+    # Display market pulse
     if market_pulse and "not configured" not in market_pulse.lower():
-        print("\n  AI Market Pulse:")
+        print("\n  📡 AI Market Pulse:")
         for line in market_pulse.split("\n")[:5]:
             if line.strip():
                 print(f"    {line.strip()}")
     else:
-        print("  (Claude API not configured - add ANTHROPIC_API_KEY to .env)")
+        print("\n  (Claude API not configured - add ANTHROPIC_API_KEY to .env for market pulse)")
 
-    # Send AI theses email
-    print("\n  Sending AI Thesis Research email...")
+    # Send AI Pulse email
+    print("\n  Sending AI Pulse email...")
     alert_manager = AlertManager()
-
-    # Create simplified scan results for theses-only email
-    scan_results = {
-        "theses": theses,
-        "market_pulse": market_pulse,
-        "trillion_club": [],  # Empty - trillion data is now separate
-        "categories": {},
-        "best_opportunities": []
-    }
 
     success = alert_manager.send_ai_pulse_digest(
         scan_results=scan_results,
@@ -2248,45 +2254,49 @@ def run_ai_backfill():
 
     ai_scanner = AIPulseScanner()
 
-    # Check current state
+    # Check current state of trillion_club
     result = ai_scanner.db.fetchone("""
-        SELECT COUNT(*), MIN(scan_date), MAX(scan_date)
+        SELECT COUNT(*), MIN(scan_date), MAX(scan_date), COUNT(DISTINCT scan_date)
         FROM trillion_club
     """)
     current_count = result[0] if result else 0
     min_date = result[1] if result else "None"
     max_date = result[2] if result else "None"
+    unique_dates = result[3] if result else 0
 
-    print(f"\n  Current Records: {current_count}")
+    print(f"\n  Trillion+ Club Records: {current_count}")
+    print(f"  Unique Dates: {unique_dates}")
     print(f"  Date Range: {min_date} to {max_date}")
 
-    if current_count > 0:
-        print("\n  ⚠️  Existing data found. Running scan to add today's snapshot...")
-    else:
-        print("\n  No existing data. Running initial scan...")
+    # Run backfill for trillion club (3 weeks of historical data)
+    print("\n  📊 Backfilling Trillion+ Club history (3 weeks)...")
+    records_created = ai_scanner.backfill_trillion_history(days=21)
+    print(f"  ✅ Created {records_created} historical records")
 
-    # Run a fresh scan to populate today's data
-    print("\n  Scanning Trillion+ Club members...")
-    results = ai_scanner.run_scan()
+    # Run today's scan to get current data
+    print("\n  📈 Running today's Trillion+ Club scan...")
+    trillion_club = ai_scanner.get_trillion_club_members()
+    ai_scanner._store_scan_results(trillion_club)
+    print(f"  ✅ Stored {len(trillion_club)} Trillion+ Club members for today")
 
-    trillion_club = results.get("trillion_club", [])
-    print(f"\n  ✅ Stored {len(trillion_club)} Trillion+ Club members for today")
-
-    # Check theses
+    # Check theses (should be auto-seeded)
     theses = ai_scanner.get_theses()
-    print(f"  📊 Active Theses: {len(theses)}")
+    print(f"\n  🧠 Active Theses: {len(theses)}")
     for thesis in theses[:5]:
         print(f"      - {thesis['thesis_name']}")
 
-    # Show new record count
+    # Show final record count
     result = ai_scanner.db.fetchone("""
-        SELECT COUNT(*) FROM trillion_club
+        SELECT COUNT(*), COUNT(DISTINCT scan_date) FROM trillion_club
     """)
-    new_count = result[0] if result else 0
+    final_count = result[0] if result else 0
+    final_dates = result[1] if result else 0
 
-    print(f"\n  Total Records After Backfill: {new_count}")
-    print("\n  Run 'stockpulse ai-scan' daily to build trend history.")
-    print("  Entry scores will track better with more historical data.")
+    print(f"\n  ✅ Backfill Complete:")
+    print(f"     Total Records: {final_count}")
+    print(f"     Unique Dates: {final_dates}")
+    print("\n  Run 'stockpulse trillion-scan' to update today's data.")
+    print("  Run 'stockpulse ai-scan' to send AI Pulse email with thesis research.")
     print("\n" + "=" * 70 + "\n")
 
 

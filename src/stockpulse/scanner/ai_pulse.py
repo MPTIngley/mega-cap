@@ -562,6 +562,9 @@ class AIPulseScanner:
         """
         logger.info("Scanning for Trillion+ Club members...")
 
+        # Ensure we have enough historical data for trend analysis
+        self._ensure_trillion_history()
+
         trillion_threshold = 1_000_000_000_000  # $1 trillion
         members = []
 
@@ -1580,3 +1583,263 @@ class AIPulseScanner:
             VALUES (?, ?, ?)
         """, (name, description, ",".join(tickers)))
         return cursor.lastrowid
+
+    def _ensure_trillion_history(self, min_days: int = 5) -> None:
+        """
+        Check if trillion_club has enough historical data for trend analysis.
+
+        If not enough history exists OR there are gaps in recent data, runs backfill.
+
+        Args:
+            min_days: Minimum number of unique scan dates required (default 5)
+        """
+        # Check how many unique dates we have in trillion_club (last 14 days)
+        result = self.db.fetchone("""
+            SELECT COUNT(DISTINCT scan_date) FROM trillion_club
+            WHERE scan_date >= date('now', '-14 days')
+        """)
+        tc_dates_14d = result[0] if result and result[0] else 0
+
+        # Check how many trading days exist in prices_daily (last 14 days)
+        result = self.db.fetchone("""
+            SELECT COUNT(DISTINCT date) FROM prices_daily
+            WHERE date >= date('now', '-14 days')
+        """)
+        price_dates_14d = result[0] if result and result[0] else 0
+
+        # If trillion_club has fewer dates than prices, we have gaps to fill
+        needs_backfill = False
+        missing_days = price_dates_14d - tc_dates_14d
+
+        if missing_days >= 2:
+            needs_backfill = True
+            logger.info(
+                f"Trillion Club missing {missing_days} days in last 14 days "
+                f"(trillion_club: {tc_dates_14d}, prices: {price_dates_14d}). Running backfill..."
+            )
+
+        if tc_dates_14d < min_days:
+            needs_backfill = True
+            logger.info(
+                f"Trillion Club history insufficient ({tc_dates_14d} days in last 14d, need {min_days}). "
+                f"Running backfill..."
+            )
+
+        if needs_backfill:
+            try:
+                # Backfill 3 weeks to cover gaps
+                records = self.backfill_trillion_history(days=21)
+                logger.info(f"Trillion Club backfill complete: {records} records created")
+            except Exception as e:
+                logger.error(f"Failed to backfill trillion club history: {e}")
+        else:
+            logger.info(f"Trillion Club history sufficient ({tc_dates_14d} days in last 14d, no gaps)")
+
+    def backfill_trillion_history(self, days: int = 21) -> int:
+        """
+        Backfill historical trillion club data by calculating scores on past dates.
+
+        Uses stored price data to calculate historical entry scores, enabling
+        trend detection and consecutive day tracking.
+
+        Args:
+            days: Number of days to backfill (default 21 = 3 weeks)
+
+        Returns:
+            Number of records created
+        """
+        logger.info(f"Backfilling {days} days of Trillion+ Club history...")
+
+        records_created = 0
+        today = date.today()
+
+        # Get all trading days from prices_daily in the backfill range
+        trading_days = self.db.fetchdf("""
+            SELECT DISTINCT date FROM prices_daily
+            WHERE date >= date('now', ?) AND date < date('now')
+            ORDER BY date
+        """, (f'-{days} days',))
+
+        if trading_days.empty:
+            logger.warning("No price data available for backfill")
+            return 0
+
+        trading_dates = trading_days["date"].tolist()
+        logger.info(f"Processing {len(trading_dates)} trading days...")
+
+        # Get trillion club candidates
+        candidates = set(TRILLION_CLUB_SEED)
+
+        # Add any previously tracked
+        existing = self.db.fetchdf("""
+            SELECT DISTINCT ticker FROM trillion_club
+        """)
+        if not existing.empty:
+            candidates.update(existing["ticker"].tolist())
+
+        for i, scan_date_raw in enumerate(trading_dates):
+            # Parse date
+            try:
+                if hasattr(scan_date_raw, 'strftime'):
+                    scan_date = scan_date_raw if isinstance(scan_date_raw, date) else scan_date_raw.date()
+                else:
+                    scan_date = datetime.strptime(str(scan_date_raw)[:10], "%Y-%m-%d").date()
+            except Exception as e:
+                logger.debug(f"Date parsing error: {e}")
+                continue
+
+            # Skip if we already have data for this date
+            existing_check = self.db.fetchone("""
+                SELECT COUNT(*) FROM trillion_club WHERE scan_date = ?
+            """, (scan_date.isoformat(),))
+            if existing_check and existing_check[0] > 0:
+                continue
+
+            # Calculate scores for each candidate as of this date
+            day_records = 0
+            for ticker in candidates:
+                try:
+                    score_data = self._calculate_historical_entry_score(ticker, scan_date)
+                    if score_data:
+                        # Store the result
+                        self.db.execute("""
+                            INSERT INTO trillion_club (
+                                ticker, scan_date, market_cap, market_cap_category,
+                                peak_market_cap_30d, current_price, price_vs_30d_high_pct,
+                                entry_score, category, subcategory, reasoning
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (ticker, scan_date) DO UPDATE SET
+                                entry_score = excluded.entry_score,
+                                current_price = excluded.current_price,
+                                price_vs_30d_high_pct = excluded.price_vs_30d_high_pct
+                        """, (
+                            ticker,
+                            scan_date.isoformat(),
+                            score_data.get("market_cap", 0),
+                            score_data.get("market_cap_category", "Mega Cap"),
+                            score_data.get("peak_market_cap_30d", 0),
+                            score_data.get("current_price", 0),
+                            score_data.get("price_vs_30d_high_pct", 0),
+                            score_data.get("entry_score", 50),
+                            score_data.get("category", "Unknown"),
+                            score_data.get("subcategory", ""),
+                            f"Historical backfill for {scan_date.isoformat()}",
+                        ))
+                        day_records += 1
+                        records_created += 1
+                except Exception as e:
+                    logger.debug(f"Error scoring {ticker} for {scan_date}: {e}")
+                    continue
+
+            if (i + 1) % 5 == 0:
+                logger.info(f"  Processed {i + 1}/{len(trading_dates)} days, {records_created} records")
+
+        logger.info(f"Trillion Club backfill complete: {records_created} records created")
+        return records_created
+
+    def _calculate_historical_entry_score(self, ticker: str, as_of_date: date) -> dict | None:
+        """
+        Calculate entry score for a ticker as of a historical date.
+
+        Uses stored price data to simulate what the entry score would have been
+        on that date.
+
+        Args:
+            ticker: Stock ticker
+            as_of_date: Date to calculate score for
+
+        Returns:
+            Dict with score data, or None if insufficient data
+        """
+        # Get price history up to and including as_of_date
+        price_data = self.db.fetchdf("""
+            SELECT date, open, high, low, close, volume
+            FROM prices_daily
+            WHERE ticker = ? AND date <= ? AND date >= date(?, '-60 days')
+            ORDER BY date
+        """, (ticker, as_of_date.isoformat(), as_of_date.isoformat()))
+
+        if price_data.empty or len(price_data) < 20:
+            return None
+
+        # Get the closing price on as_of_date
+        current_price = price_data["close"].iloc[-1]
+
+        # Calculate 30-day high
+        recent_30d = price_data.tail(22) if len(price_data) >= 22 else price_data
+        high_30d = recent_30d["high"].max()
+
+        # Calculate price vs 30d high
+        pct_from_high = ((current_price / high_30d) - 1) * 100 if high_30d > 0 else 0
+
+        # Calculate RSI
+        close_prices = price_data["close"]
+        delta = close_prices.diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        current_rsi = rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
+
+        # Calculate 50-day MA
+        ma_50 = close_prices.rolling(min(50, len(close_prices))).mean().iloc[-1]
+        ma_50_pct = ((current_price / ma_50) - 1) * 100 if ma_50 > 0 else 0
+
+        # Calculate 20-day momentum
+        pct_20d = 0.0
+        if len(close_prices) >= 20:
+            pct_20d = (current_price / close_prices.iloc[-20] - 1) * 100
+
+        # Calculate entry score (simplified version of _calculate_entry_score)
+        score = 50  # Base score
+
+        # Distance from 30d high
+        if pct_from_high <= -15:
+            score += 20
+        elif pct_from_high <= -10:
+            score += 15
+        elif pct_from_high <= -5:
+            score += 10
+        elif pct_from_high <= -2:
+            score += 5
+        elif pct_from_high >= 0:
+            score -= 5
+
+        # RSI
+        if current_rsi < 30:
+            score += 15
+        elif current_rsi < 40:
+            score += 10
+        elif current_rsi > 80:
+            score -= 15
+        elif current_rsi > 70:
+            score -= 10
+
+        # 50-day MA position
+        if ma_50_pct <= -5:
+            score += 10
+        elif ma_50_pct <= 0:
+            score += 5
+
+        # 20-day momentum
+        if -10 <= pct_20d <= 0:
+            score += 5
+        elif pct_20d < -15:
+            score += 10
+        elif pct_20d > 20:
+            score -= 10
+
+        # Get category
+        category, subcategory = self._categorize_stock(ticker)
+
+        return {
+            "ticker": ticker,
+            "entry_score": max(0, min(100, score)),
+            "current_price": current_price,
+            "price_vs_30d_high_pct": pct_from_high,
+            "market_cap": 0,  # Not available historically without API call
+            "market_cap_category": "Mega Cap",
+            "peak_market_cap_30d": 0,
+            "category": category,
+            "subcategory": subcategory,
+        }

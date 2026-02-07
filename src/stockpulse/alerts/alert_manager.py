@@ -1359,6 +1359,8 @@ class AlertManager:
             category = member.get("category", "Other")
             trend = member.get("trend_symbol", "➡️")
             days = member.get("consecutive_days", 0)
+            score_change_5d = member.get("score_change_5d", 0)
+            is_new = member.get("is_new", False)
 
             # Entry score color coding
             if entry_score >= 75:
@@ -1373,6 +1375,13 @@ class AlertManager:
             else:
                 score_color = "#f97316"
                 score_label = "Extended"
+
+            # Format trend info (matching long-term email format)
+            if is_new:
+                trend_info = "🆕 New"
+            else:
+                sign = "+" if score_change_5d >= 0 else ""
+                trend_info = f"{trend} {days}d ({sign}{score_change_5d:.1f})"
 
             tc_rows += f"""
             <tr>
@@ -1390,7 +1399,7 @@ class AlertManager:
                     <br/><span style="font-size: 10px; color: #6b7280;">{score_label}</span>
                 </td>
                 <td style="text-align: center; font-size: 12px;">{category}</td>
-                <td style="text-align: center;">{trend}{days}d</td>
+                <td style="text-align: center;">{trend_info}</td>
             </tr>
             """
 
@@ -1939,6 +1948,17 @@ class AlertManager:
                     Research based on actual price performance data. Theses are re-evaluated when stocks show significant moves.
                 </p>
                 {thesis_rows}
+            </div>
+            """
+        else:
+            # Show fallback message when no theses are available
+            thesis_html = f"""
+            <div class="section">
+                <h2 style="color: #6366f1; border-bottom: 2px solid #6366f1;">🧠 AI Investment Theses</h2>
+                <p style="font-size: 13px; color: #6b7280; padding: 15px; background: #f8fafc; border-radius: 8px;">
+                    No active theses found. Run <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 3px;">stockpulse ai-backfill</code> to initialize default AI investment theses.
+                    Once configured, theses will be researched using Claude API for deeper analysis.
+                </p>
             </div>
             """
 
