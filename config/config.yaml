@@ -217,3 +217,36 @@ long_term_scanner:
     fcf_yield: 0.14
     earnings_momentum: 0.10
     peer_valuation: 0.05
+
+# AI Pulse Scanner - Trillion+ Club & AI Investment Tracking
+# The core thesis: mega-cap tech will continue to dominate
+# Run: stockpulse ai-scan or via scheduler at 5:30 PM ET
+ai_pulse:
+  enabled: true
+  run_time: "17:30"  # Same as long-term, they run together
+  send_digest: true
+
+  # Trillion+ Club settings
+  trillion_threshold: 1000000000000  # $1 trillion
+  lookback_days: 30  # Include if hit $1T in last 30 days
+  universe_refresh_days: 7  # Weekly universe refresh
+
+  # Entry scoring weights
+  entry_scoring:
+    technical_weight: 0.4   # RSI, price vs moving averages
+    valuation_weight: 0.3   # P/E, forward P/E
+    momentum_weight: 0.3    # Recent price action
+
+  # Categories to track
+  categories:
+    hyperscalers: ["MSFT", "AMZN", "GOOGL", "ORCL", "IBM"]
+    neoclouds: ["CRWV"]  # CoreWeave and future AI cloud players
+    ai_infrastructure: ["NVDA", "AMD", "AVGO", "MRVL", "TSM", "ASML"]
+    ai_software: ["MSFT", "GOOGL", "META", "CRM", "PLTR", "NOW"]
+    robotics: ["TSLA", "GOOGL", "AMZN", "ISRG"]
+
+  # Thesis research (requires ANTHROPIC_API_KEY)
+  research:
+    enabled: true
+    research_frequency: "daily"  # daily, weekly
+    max_tokens: 1024

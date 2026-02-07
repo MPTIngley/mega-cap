@@ -35,6 +35,7 @@ class StockPulseScheduler:
         self.on_daily_scan: Callable | None = None
         self.on_long_term_scan: Callable | None = None
         self.on_daily_digest: Callable | None = None
+        self.on_ai_pulse_scan: Callable | None = None
 
     def _is_market_hours(self) -> bool:
         """Check if current time is during market hours."""
@@ -130,6 +131,18 @@ class StockPulseScheduler:
 
         except Exception as e:
             logger.error(f"Error in daily digest job: {e}", exc_info=True)
+
+    def _run_ai_pulse_scan_job(self) -> None:
+        """Run AI Pulse scanner (Trillion+ Club & AI thesis tracking)."""
+        logger.info("Running AI Pulse scan job")
+
+        try:
+            if self.on_ai_pulse_scan:
+                self.on_ai_pulse_scan()
+            logger.info("AI Pulse scan job completed")
+
+        except Exception as e:
+            logger.error(f"Error in AI Pulse scan job: {e}", exc_info=True)
 
     def start(self) -> None:
         """Start the scheduler with all jobs."""
@@ -245,6 +258,26 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
+        # AI Pulse scanner - 17:30 ET on weekdays (same time as long-term)
+        ai_config = self.config.get("ai_pulse", {})
+        if ai_config.get("enabled", True):
+            run_time = ai_config.get("run_time", "17:30").split(":")
+            self.scheduler.add_job(
+                self._run_ai_pulse_scan_job,
+                CronTrigger(
+                    hour=int(run_time[0]),
+                    minute=int(run_time[1]) + 1,  # Run 1 minute after long-term
+                    day_of_week="mon-fri",
+                    timezone=self.timezone
+                ),
+                id="ai_pulse_scan",
+                name="AI Pulse scanner (Trillion+ Club & AI theses)",
+                replace_existing=True,
+                misfire_grace_time=600,
+                coalesce=True,
+                max_instances=1
+            )
+
         # Daily digest email - configured time (default 17:00 ET)
         alerts_config = self.config.get("alerts", {})
         if alerts_config.get("send_daily_digest", True):
@@ -281,6 +314,8 @@ class StockPulseScheduler:
             self._run_daily_job()
         elif job_type == "long_term":
             self._run_long_term_scan_job()
+        elif job_type == "ai_pulse":
+            self._run_ai_pulse_scan_job()
         else:
             raise ValueError(f"Unknown job type: {job_type}")
 

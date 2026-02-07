@@ -1271,3 +1271,320 @@ class AlertManager:
                 if not stats.empty and stats["total"].sum() > 0 else 0
             )
         }
+
+    def send_ai_pulse_digest(
+        self,
+        scan_results: dict[str, Any],
+        long_term_opportunities: list[dict] | None = None
+    ) -> bool:
+        """
+        Send daily AI Pulse digest email.
+
+        This is the consolidated daily email that includes:
+        - Trillion+ Club tracking with entry scores
+        - Category breakdown (Hyperscalers, Neoclouds, AI Infra)
+        - AI thesis research updates
+        - Long-term opportunities (integrated from existing scanner)
+        - Market pulse summary
+
+        Args:
+            scan_results: Results from AIPulseScanner.run_scan()
+            long_term_opportunities: Optional long-term opportunities to include
+
+        Returns:
+            True if sent successfully
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        trillion_club = scan_results.get("trillion_club", [])
+        categories = scan_results.get("categories", {})
+        theses = scan_results.get("theses", [])
+        market_pulse = scan_results.get("market_pulse", "")
+        best_opportunities = scan_results.get("best_opportunities", [])
+
+        # Subject line
+        top_opp = trillion_club[0]["ticker"] if trillion_club else "None"
+        subject = f"🤖 AI Pulse: {len(trillion_club)} Trillion Club | Top Entry: {top_opp} - {today}"
+
+        # === BUILD EMAIL HTML ===
+
+        # Trillion+ Club section
+        trillion_rows = ""
+        for member in trillion_club[:15]:
+            ticker = member.get("ticker", "N/A")
+            company = member.get("company_name", ticker)
+            market_cap_b = member.get("market_cap_b", 0)
+            entry_score = member.get("entry_score", 50)
+            price = member.get("current_price", 0)
+            pct_from_high = member.get("price_vs_30d_high_pct", 0)
+            category = member.get("category", "Other")
+            trend = member.get("trend_symbol", "➡️")
+            days = member.get("consecutive_days", 0)
+
+            # Entry score color coding
+            if entry_score >= 75:
+                score_color = "#22c55e"  # Green - strong entry
+                score_label = "Strong Entry"
+            elif entry_score >= 65:
+                score_color = "#84cc16"  # Lime - good entry
+                score_label = "Good Entry"
+            elif entry_score >= 55:
+                score_color = "#eab308"  # Yellow - neutral
+                score_label = "Neutral"
+            else:
+                score_color = "#f97316"  # Orange - wait
+                score_label = "Extended"
+
+            trillion_rows += f"""
+            <tr>
+                <td>
+                    <strong style="font-size: 16px;">{ticker}</strong>
+                    <br/><span style="color: #6b7280; font-size: 12px;">{company[:25]}</span>
+                </td>
+                <td style="text-align: center;">${market_cap_b:.0f}B</td>
+                <td style="text-align: center;">${price:.2f}</td>
+                <td style="text-align: center; color: {'#22c55e' if pct_from_high <= -5 else '#6b7280'};">
+                    {pct_from_high:+.1f}%
+                </td>
+                <td style="text-align: center;">
+                    <span style="color: {score_color}; font-weight: bold;">{entry_score:.0f}</span>
+                    <br/><span style="font-size: 10px; color: #6b7280;">{score_label}</span>
+                </td>
+                <td style="text-align: center; font-size: 12px;">{category}</td>
+                <td style="text-align: center;">{trend}{days}d</td>
+            </tr>
+            """
+
+        # Category summary
+        category_summary = ""
+        for cat, members_list in categories.items():
+            if members_list:
+                tickers = ", ".join([m["ticker"] for m in members_list[:5]])
+                if len(members_list) > 5:
+                    tickers += f" +{len(members_list) - 5} more"
+                category_summary += f"""
+                <tr>
+                    <td><strong>{cat}</strong></td>
+                    <td>{len(members_list)}</td>
+                    <td style="font-size: 12px;">{tickers}</td>
+                </tr>
+                """
+
+        # Best entry opportunities (highlight section)
+        best_opps_html = ""
+        if best_opportunities:
+            best_rows = ""
+            for opp in best_opportunities[:3]:
+                ticker = opp.get("ticker", "")
+                company = opp.get("company_name", ticker)
+                score = opp.get("entry_score", 0)
+                pct_from_high = opp.get("price_vs_30d_high_pct", 0)
+                price = opp.get("current_price", 0)
+
+                best_rows += f"""
+                <div style="display: inline-block; margin: 10px; padding: 15px; background: #f0fdf4; border-radius: 8px; border: 2px solid #22c55e; text-align: center; min-width: 150px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #15803d;">{ticker}</div>
+                    <div style="font-size: 12px; color: #166534;">{company[:20]}</div>
+                    <div style="margin-top: 10px;">
+                        <span style="font-size: 20px; color: #22c55e;">{score:.0f}</span>
+                        <span style="font-size: 12px; color: #6b7280;"> entry score</span>
+                    </div>
+                    <div style="font-size: 13px; color: #6b7280;">
+                        ${price:.2f} ({pct_from_high:+.1f}% from high)
+                    </div>
+                </div>
+                """
+
+            best_opps_html = f"""
+            <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
+                <h2 style="color: #15803d; margin: 0 0 15px 0; font-size: 18px;">🎯 Best Entry Opportunities Today</h2>
+                <div style="text-align: center;">
+                    {best_rows}
+                </div>
+            </div>
+            """
+
+        # Thesis research section
+        thesis_html = ""
+        if theses:
+            thesis_rows = ""
+            for thesis in theses[:5]:
+                name = thesis.get("thesis_name", "")
+                recommendation = thesis.get("recommendation", "neutral")
+                confidence = thesis.get("confidence", 50)
+                analysis = thesis.get("analysis", "")[:300]
+                tickers = ", ".join(thesis.get("tickers", []))
+
+                rec_color = {
+                    "bullish": "#22c55e",
+                    "bearish": "#ef4444",
+                    "neutral": "#6b7280"
+                }.get(recommendation, "#6b7280")
+
+                thesis_rows += f"""
+                <div style="margin-bottom: 15px; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid {rec_color};">
+                    <h4 style="margin: 0 0 8px 0; color: #1e293b;">{name}</h4>
+                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;">Tickers: {tickers}</p>
+                    <p style="margin: 0 0 10px 0; font-size: 13px; color: #334155;">{analysis}...</p>
+                    <div style="font-size: 12px;">
+                        <span style="color: {rec_color}; font-weight: bold; text-transform: uppercase;">{recommendation}</span>
+                        <span style="color: #94a3b8;"> | Confidence: {confidence:.0f}%</span>
+                    </div>
+                </div>
+                """
+
+            thesis_html = f"""
+            <div class="section">
+                <h2 style="color: #6366f1; border-bottom: 2px solid #6366f1;">🧠 AI Investment Theses</h2>
+                {thesis_rows}
+            </div>
+            """
+
+        # Long-term opportunities section (from existing scanner)
+        longterm_html = ""
+        if long_term_opportunities:
+            lt_rows = ""
+            for opp in long_term_opportunities[:10]:
+                ticker = opp.get("ticker", "")
+                company = opp.get("company_name", ticker)
+                score = opp.get("composite_score", 0)
+                price = opp.get("current_price", 0)
+                trend = opp.get("trend_symbol", "➡️")
+                days = opp.get("consecutive_days", 0)
+                reasoning = opp.get("reasoning", "")[:100]
+
+                lt_rows += f"""
+                <tr>
+                    <td>
+                        <strong>{ticker}</strong>
+                        <br/><span style="font-size: 11px; color: #6b7280;">{company[:20]}</span>
+                    </td>
+                    <td style="text-align: center;">${price:.2f}</td>
+                    <td style="text-align: center;"><strong>{score:.0f}</strong></td>
+                    <td style="text-align: center;">{trend}{days}d</td>
+                    <td style="font-size: 12px; color: #6b7280;">{reasoning}</td>
+                </tr>
+                """
+
+            longterm_html = f"""
+            <div class="section">
+                <h2 style="color: #059669; border-bottom: 2px solid #059669;">📊 Long-Term Value Opportunities</h2>
+                <p style="font-size: 13px; color: #6b7280;">From the 8-component scoring model (valuation, technical, quality, etc.)</p>
+                <table>
+                    <tr>
+                        <th>Ticker</th>
+                        <th style="text-align: center;">Price</th>
+                        <th style="text-align: center;">Score</th>
+                        <th style="text-align: center;">Trend</th>
+                        <th>Why</th>
+                    </tr>
+                    {lt_rows}
+                </table>
+            </div>
+            """
+
+        # Market pulse section
+        pulse_html = ""
+        if market_pulse:
+            pulse_html = f"""
+            <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                <h3 style="color: #92400e; margin: 0 0 10px 0; font-size: 16px;">📡 AI Market Pulse</h3>
+                <div style="color: #78350f; font-size: 13px; white-space: pre-wrap;">{market_pulse}</div>
+            </div>
+            """
+
+        body_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #f9fafb; }}
+                .header {{ background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; padding: 25px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 24px; }}
+                .header p {{ margin: 5px 0 0 0; opacity: 0.9; }}
+                .content {{ padding: 25px; background: white; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+                th {{ background: #f3f4f6; color: #374151; font-size: 12px; text-transform: uppercase; }}
+                .section {{ margin-top: 30px; }}
+                .section h2 {{ font-size: 18px; padding-bottom: 8px; margin-bottom: 15px; }}
+                .footer {{ background: #f3f4f6; padding: 20px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6b7280; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🤖 AI Pulse Daily Report</h1>
+                <p>{today} | Tracking Trillion+ Club & AI Investments</p>
+            </div>
+            <div class="content">
+                <p style="color: #4b5563; font-size: 14px;">
+                    <strong>Core Thesis:</strong> Mega-cap tech companies will continue to dominate.
+                    We're tracking the Trillion+ Club and looking for optimal long-term entry points.
+                </p>
+
+                {pulse_html}
+
+                {best_opps_html}
+
+                <div class="section">
+                    <h2 style="color: #4f46e5; border-bottom: 2px solid #4f46e5;">💎 Trillion+ Club ({len(trillion_club)} Members)</h2>
+                    <p style="font-size: 13px; color: #6b7280;">Stocks that have hit $1T+ market cap in the last 30 days, ranked by entry score.</p>
+                    <table>
+                        <tr>
+                            <th>Company</th>
+                            <th style="text-align: center;">Mkt Cap</th>
+                            <th style="text-align: center;">Price</th>
+                            <th style="text-align: center;">vs High</th>
+                            <th style="text-align: center;">Entry Score</th>
+                            <th style="text-align: center;">Category</th>
+                            <th style="text-align: center;">Trend</th>
+                        </tr>
+                        {trillion_rows}
+                    </table>
+                </div>
+
+                <div class="section">
+                    <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 Categories</h2>
+                    <table>
+                        <tr>
+                            <th>Category</th>
+                            <th style="width: 60px;">Count</th>
+                            <th>Members</th>
+                        </tr>
+                        {category_summary}
+                    </table>
+                </div>
+
+                {thesis_html}
+
+                {longterm_html}
+
+            </div>
+            <div class="footer">
+                <div style="margin-bottom: 15px;">
+                    <strong>Entry Score Guide:</strong><br/>
+                    75+ = Strong Entry (pullback + oversold) | 65-74 = Good Entry | 55-64 = Neutral | &lt;55 = Extended (wait for pullback)
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Categories:</strong><br/>
+                    Hyperscaler = Established cloud giants (AWS, Azure, GCP) | Neocloud = AI-native cloud providers | AI Infrastructure = Chips, GPUs, data centers
+                </div>
+                <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
+                for research purposes only. Always do your own due diligence before investing.
+                <br/><br/>
+                StockPulse AI Pulse Scanner | Runs daily at 5:30pm ET
+            </div>
+        </body>
+        </html>
+        """
+
+        success = self.email_sender.send_email(subject, body_html)
+
+        self._log_alert(
+            "ai_pulse_digest",
+            None,
+            subject,
+            f"Trillion Club: {len(trillion_club)}, Theses: {len(theses)}",
+            success
+        )
+
+        return success
