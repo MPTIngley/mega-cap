@@ -1611,10 +1611,10 @@ class AlertManager:
         Send daily AI Pulse digest email.
 
         This is the consolidated daily email that includes:
-        - Trillion+ Club tracking with entry scores
-        - Category breakdown (Hyperscalers, Neoclouds, AI Infra)
-        - AI thesis research updates
-        - Long-term opportunities (integrated from existing scanner)
+        - AI Universe stock scanning with opportunity scores
+        - Category breakdown (Hyperscalers, AI Infra, AI Software, etc.)
+        - AI thesis research updates with real price data
+        - Top picks with detailed score breakdowns
         - Market pulse summary
 
         Args:
@@ -1626,112 +1626,232 @@ class AlertManager:
         """
         today = datetime.now().strftime('%Y-%m-%d')
 
-        trillion_club = scan_results.get("trillion_club", [])
+        ai_stocks = scan_results.get("ai_stocks", [])
         categories = scan_results.get("categories", {})
+        category_scores = scan_results.get("category_scores", {})
         theses = scan_results.get("theses", [])
         market_pulse = scan_results.get("market_pulse", "")
-        best_opportunities = scan_results.get("best_opportunities", [])
+        top_picks = scan_results.get("top_picks", [])
+        worst_performers = scan_results.get("worst_performers", [])
 
         # Subject line
-        top_opp = trillion_club[0]["ticker"] if trillion_club else "None"
-        subject = f"🤖 AI Pulse: {len(trillion_club)} Trillion Club | Top Entry: {top_opp} - {today}"
+        top_pick = top_picks[0]["ticker"] if top_picks else "None"
+        top_score = top_picks[0]["ai_score"] if top_picks else 0
+        subject = f"🤖 AI Pulse: {len(ai_stocks)} Stocks | Top Pick: {top_pick} ({top_score:.0f}) - {today}"
 
         # === BUILD EMAIL HTML ===
 
-        # Trillion+ Club section
-        trillion_rows = ""
-        for member in trillion_club[:15]:
-            ticker = member.get("ticker", "N/A")
-            company = member.get("company_name", ticker)
-            market_cap_b = member.get("market_cap_b", 0)
-            entry_score = member.get("entry_score", 50)
-            price = member.get("current_price", 0)
-            pct_from_high = member.get("price_vs_30d_high_pct", 0)
-            category = member.get("category", "Other")
-            trend = member.get("trend_symbol", "➡️")
-            days = member.get("consecutive_days", 0)
+        # Top Picks section with score breakdowns
+        top_picks_html = ""
+        if top_picks:
+            picks_cards = ""
+            breakdown_tables = ""
 
-            # Entry score color coding
-            if entry_score >= 75:
-                score_color = "#22c55e"  # Green - strong entry
-                score_label = "Strong Entry"
-            elif entry_score >= 65:
-                score_color = "#84cc16"  # Lime - good entry
-                score_label = "Good Entry"
-            elif entry_score >= 55:
-                score_color = "#eab308"  # Yellow - neutral
-                score_label = "Neutral"
-            else:
-                score_color = "#f97316"  # Orange - wait
-                score_label = "Extended"
+            for pick in top_picks[:5]:
+                ticker = pick.get("ticker", "")
+                company = pick.get("company_name", ticker)[:20]
+                score = pick.get("ai_score", 0)
+                pct_30d = pick.get("pct_30d", 0)
+                pct_90d = pick.get("pct_90d", 0)
+                price = pick.get("current_price", 0)
+                category = pick.get("category", "")
 
-            trillion_rows += f"""
-            <tr>
-                <td>
-                    <strong style="font-size: 16px;">{ticker}</strong>
-                    <br/><span style="color: #6b7280; font-size: 12px;">{company[:25]}</span>
-                </td>
-                <td style="text-align: center;">${market_cap_b:.0f}B</td>
-                <td style="text-align: center;">${price:.2f}</td>
-                <td style="text-align: center; color: {'#22c55e' if pct_from_high <= -5 else '#6b7280'};">
-                    {pct_from_high:+.1f}%
-                </td>
-                <td style="text-align: center;">
-                    <span style="color: {score_color}; font-weight: bold;">{entry_score:.0f}</span>
-                    <br/><span style="font-size: 10px; color: #6b7280;">{score_label}</span>
-                </td>
-                <td style="text-align: center; font-size: 12px;">{category}</td>
-                <td style="text-align: center;">{trend}{days}d</td>
-            </tr>
+                # Color based on 30d performance
+                perf_color = "#22c55e" if pct_30d <= -5 else ("#ef4444" if pct_30d >= 10 else "#6b7280")
+
+                picks_cards += f"""
+                <div style="display: inline-block; margin: 8px; padding: 15px; background: #f0fdf4; border-radius: 8px; border: 2px solid #22c55e; text-align: center; min-width: 140px; vertical-align: top;">
+                    <div style="font-size: 22px; font-weight: bold; color: #15803d;">{ticker}</div>
+                    <div style="font-size: 11px; color: #166534;">{company}</div>
+                    <div style="margin-top: 8px;">
+                        <span style="font-size: 24px; color: #22c55e; font-weight: bold;">{score:.0f}</span>
+                    </div>
+                    <div style="font-size: 11px; color: #6b7280;">AI Score</div>
+                    <div style="margin-top: 8px; font-size: 12px;">
+                        <span style="color: {perf_color}; font-weight: bold;">30d: {pct_30d:+.1f}%</span>
+                    </div>
+                    <div style="font-size: 11px; color: #6b7280;">${price:.2f}</div>
+                </div>
+                """
+
+                # Build detailed breakdown table
+                breakdown = pick.get("score_breakdown", {})
+                if breakdown:
+                    breakdown_rows = ""
+                    for key, data in breakdown.items():
+                        if key in ("base", "total"):
+                            continue
+                        pts = data.get("points", 0)
+                        pts_color = "#22c55e" if pts > 0 else ("#ef4444" if pts < 0 else "#6b7280")
+                        pts_str = f"+{pts}" if pts > 0 else str(pts)
+                        breakdown_rows += f"""
+                        <tr>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px;">{data.get('label', key)}</td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-family: monospace; font-size: 11px;">{data.get('raw_value', '-')}</td>
+                            <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; color: {pts_color}; font-weight: bold; font-size: 12px;">{pts_str}</td>
+                        </tr>
+                        """
+                    breakdown_tables += f"""
+                    <div style="display: inline-block; vertical-align: top; margin: 8px; min-width: 260px;">
+                        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <tr style="background: #15803d; color: white;">
+                                <th colspan="3" style="padding: 8px; text-align: center; border-radius: 6px 6px 0 0; font-size: 13px;">{ticker} - Score Breakdown</th>
+                            </tr>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 5px 8px; text-align: left; font-size: 10px;">Factor</th>
+                                <th style="padding: 5px 8px; text-align: center; font-size: 10px;">Value</th>
+                                <th style="padding: 5px 8px; text-align: center; font-size: 10px;">Pts</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px;">Base Score</td>
+                                <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">-</td>
+                                <td style="padding: 5px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-weight: bold;">50</td>
+                            </tr>
+                            {breakdown_rows}
+                            <tr style="background: #f0fdf4;">
+                                <td colspan="2" style="padding: 6px 8px; font-weight: bold; font-size: 12px;">TOTAL</td>
+                                <td style="padding: 6px 8px; text-align: center; font-weight: bold; font-size: 14px; color: #15803d;">{score:.0f}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    """
+
+            top_picks_html = f"""
+            <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
+                <h2 style="color: #15803d; margin: 0 0 15px 0; font-size: 18px;">🎯 Top AI Stock Picks</h2>
+                <p style="font-size: 12px; color: #166534; margin: 0 0 15px 0;">
+                    Highest scoring AI stocks based on price pullback, technical setup, valuation, and AI category positioning.
+                </p>
+                <div style="text-align: center;">
+                    {picks_cards}
+                </div>
+                <div style="margin-top: 20px;">
+                    <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 14px;">📊 Score Breakdowns</h3>
+                    <div style="text-align: center;">
+                        {breakdown_tables}
+                    </div>
+                </div>
+            </div>
             """
 
-        # Category summary
-        category_summary = ""
-        for cat, members_list in categories.items():
-            if members_list:
-                tickers = ", ".join([m["ticker"] for m in members_list[:5]])
-                if len(members_list) > 5:
-                    tickers += f" +{len(members_list) - 5} more"
-                category_summary += f"""
+        # Worst performers section (opportunities or warnings)
+        worst_html = ""
+        if worst_performers:
+            worst_rows = ""
+            for stock in worst_performers[:5]:
+                ticker = stock.get("ticker", "")
+                pct_30d = stock.get("pct_30d", 0)
+                pct_90d = stock.get("pct_90d", 0)
+                ai_score = stock.get("ai_score", 0)
+                category = stock.get("category", "")
+
+                worst_rows += f"""
                 <tr>
-                    <td><strong>{cat}</strong></td>
-                    <td>{len(members_list)}</td>
-                    <td style="font-size: 12px;">{tickers}</td>
+                    <td><strong>{ticker}</strong></td>
+                    <td style="text-align: center; color: #ef4444; font-weight: bold;">{pct_30d:+.1f}%</td>
+                    <td style="text-align: center; color: {'#ef4444' if pct_90d < 0 else '#22c55e'};">{pct_90d:+.1f}%</td>
+                    <td style="text-align: center;">{ai_score:.0f}</td>
+                    <td style="font-size: 12px;">{category}</td>
                 </tr>
                 """
 
-        # Best entry opportunities (highlight section)
-        best_opps_html = ""
-        if best_opportunities:
-            best_rows = ""
-            for opp in best_opportunities[:3]:
-                ticker = opp.get("ticker", "")
-                company = opp.get("company_name", ticker)
-                score = opp.get("entry_score", 0)
-                pct_from_high = opp.get("price_vs_30d_high_pct", 0)
-                price = opp.get("current_price", 0)
+            worst_html = f"""
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                <h3 style="color: #991b1b; margin: 0 0 10px 0; font-size: 16px;">📉 Biggest Pullbacks (30d)</h3>
+                <p style="font-size: 12px; color: #7f1d1d; margin: 0 0 10px 0;">
+                    These stocks have pulled back the most - could be opportunities or warnings.
+                </p>
+                <table style="width: 100%;">
+                    <tr>
+                        <th>Ticker</th>
+                        <th style="text-align: center;">30d</th>
+                        <th style="text-align: center;">90d</th>
+                        <th style="text-align: center;">AI Score</th>
+                        <th>Category</th>
+                    </tr>
+                    {worst_rows}
+                </table>
+            </div>
+            """
 
-                best_rows += f"""
-                <div style="display: inline-block; margin: 10px; padding: 15px; background: #f0fdf4; border-radius: 8px; border: 2px solid #22c55e; text-align: center; min-width: 150px;">
-                    <div style="font-size: 24px; font-weight: bold; color: #15803d;">{ticker}</div>
-                    <div style="font-size: 12px; color: #166534;">{company[:20]}</div>
-                    <div style="margin-top: 10px;">
-                        <span style="font-size: 20px; color: #22c55e;">{score:.0f}</span>
-                        <span style="font-size: 12px; color: #6b7280;"> entry score</span>
-                    </div>
-                    <div style="font-size: 13px; color: #6b7280;">
-                        ${price:.2f} ({pct_from_high:+.1f}% from high)
-                    </div>
-                </div>
+        # Category scores section
+        category_html = ""
+        if category_scores:
+            cat_rows = ""
+            for cat, data in sorted(category_scores.items(), key=lambda x: x[1]["avg_score"], reverse=True):
+                if data["count"] == 0:
+                    continue
+                avg_score = data["avg_score"]
+                avg_30d = data["avg_30d"]
+                count = data["count"]
+                top_pick = data.get("top_pick", "-")
+
+                score_color = "#22c55e" if avg_score >= 65 else ("#eab308" if avg_score >= 55 else "#f97316")
+                perf_color = "#22c55e" if avg_30d <= -5 else ("#ef4444" if avg_30d >= 5 else "#6b7280")
+
+                cat_rows += f"""
+                <tr>
+                    <td><strong>{cat}</strong></td>
+                    <td style="text-align: center;">{count}</td>
+                    <td style="text-align: center; color: {score_color}; font-weight: bold;">{avg_score:.0f}</td>
+                    <td style="text-align: center; color: {perf_color};">{avg_30d:+.1f}%</td>
+                    <td style="font-size: 12px;">{top_pick}</td>
+                </tr>
                 """
 
-            best_opps_html = f"""
-            <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
-                <h2 style="color: #15803d; margin: 0 0 15px 0; font-size: 18px;">🎯 Best Entry Opportunities Today</h2>
-                <div style="text-align: center;">
-                    {best_rows}
-                </div>
+            category_html = f"""
+            <div class="section">
+                <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 AI Categories Performance</h2>
+                <table>
+                    <tr>
+                        <th>Category</th>
+                        <th style="text-align: center;">Stocks</th>
+                        <th style="text-align: center;">Avg Score</th>
+                        <th style="text-align: center;">Avg 30d</th>
+                        <th>Top Pick</th>
+                    </tr>
+                    {cat_rows}
+                </table>
             </div>
+            """
+
+        # All AI stocks table (top 20)
+        stocks_rows = ""
+        for stock in ai_stocks[:20]:
+            ticker = stock.get("ticker", "N/A")
+            company = stock.get("company_name", ticker)
+            ai_score = stock.get("ai_score", 0)
+            price = stock.get("current_price", 0)
+            pct_30d = stock.get("pct_30d", 0)
+            pct_90d = stock.get("pct_90d", 0)
+            category = stock.get("category", "Other")
+
+            # Score color coding
+            if ai_score >= 75:
+                score_color = "#22c55e"
+            elif ai_score >= 65:
+                score_color = "#84cc16"
+            elif ai_score >= 55:
+                score_color = "#eab308"
+            else:
+                score_color = "#f97316"
+
+            perf_color = "#22c55e" if pct_30d < 0 else ("#ef4444" if pct_30d > 10 else "#6b7280")
+
+            stocks_rows += f"""
+            <tr>
+                <td>
+                    <strong style="font-size: 14px;">{ticker}</strong>
+                    <br/><span style="color: #6b7280; font-size: 11px;">{company[:22]}</span>
+                </td>
+                <td style="text-align: center;">${price:.2f}</td>
+                <td style="text-align: center; color: {perf_color};">{pct_30d:+.1f}%</td>
+                <td style="text-align: center;">{pct_90d:+.1f}%</td>
+                <td style="text-align: center;">
+                    <span style="color: {score_color}; font-weight: bold; font-size: 16px;">{ai_score:.0f}</span>
+                </td>
+                <td style="text-align: center; font-size: 11px;">{category}</td>
+            </tr>
             """
 
         # Thesis research section
@@ -1742,7 +1862,7 @@ class AlertManager:
                 name = thesis.get("thesis_name", "")
                 recommendation = thesis.get("recommendation", "neutral")
                 confidence = thesis.get("confidence", 50)
-                analysis = thesis.get("analysis", "")[:300]
+                analysis = thesis.get("analysis", "")[:400]
                 tickers = ", ".join(thesis.get("tickers", []))
 
                 rec_color = {
@@ -1766,50 +1886,10 @@ class AlertManager:
             thesis_html = f"""
             <div class="section">
                 <h2 style="color: #6366f1; border-bottom: 2px solid #6366f1;">🧠 AI Investment Theses</h2>
+                <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
+                    Research based on actual price performance data. Theses are re-evaluated when stocks show significant moves.
+                </p>
                 {thesis_rows}
-            </div>
-            """
-
-        # Long-term opportunities section (from existing scanner)
-        longterm_html = ""
-        if long_term_opportunities:
-            lt_rows = ""
-            for opp in long_term_opportunities[:10]:
-                ticker = opp.get("ticker", "")
-                company = opp.get("company_name", ticker)
-                score = opp.get("composite_score", 0)
-                price = opp.get("current_price", 0)
-                trend = opp.get("trend_symbol", "➡️")
-                days = opp.get("consecutive_days", 0)
-                reasoning = opp.get("reasoning", "")[:100]
-
-                lt_rows += f"""
-                <tr>
-                    <td>
-                        <strong>{ticker}</strong>
-                        <br/><span style="font-size: 11px; color: #6b7280;">{company[:20]}</span>
-                    </td>
-                    <td style="text-align: center;">${price:.2f}</td>
-                    <td style="text-align: center;"><strong>{score:.0f}</strong></td>
-                    <td style="text-align: center;">{trend}{days}d</td>
-                    <td style="font-size: 12px; color: #6b7280;">{reasoning}</td>
-                </tr>
-                """
-
-            longterm_html = f"""
-            <div class="section">
-                <h2 style="color: #059669; border-bottom: 2px solid #059669;">📊 Long-Term Value Opportunities</h2>
-                <p style="font-size: 13px; color: #6b7280;">From the 8-component scoring model (valuation, technical, quality, etc.)</p>
-                <table>
-                    <tr>
-                        <th>Ticker</th>
-                        <th style="text-align: center;">Price</th>
-                        <th style="text-align: center;">Score</th>
-                        <th style="text-align: center;">Trend</th>
-                        <th>Why</th>
-                    </tr>
-                    {lt_rows}
-                </table>
             </div>
             """
 
@@ -1833,8 +1913,8 @@ class AlertManager:
                 .header p {{ margin: 5px 0 0 0; opacity: 0.9; }}
                 .content {{ padding: 25px; background: white; }}
                 table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
-                th {{ background: #f3f4f6; color: #374151; font-size: 12px; text-transform: uppercase; }}
+                td, th {{ padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+                th {{ background: #f3f4f6; color: #374151; font-size: 11px; text-transform: uppercase; }}
                 .section {{ margin-top: 30px; }}
                 .section h2 {{ font-size: 18px; padding-bottom: 8px; margin-bottom: 15px; }}
                 .footer {{ background: #f3f4f6; padding: 20px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6b7280; }}
@@ -1843,60 +1923,109 @@ class AlertManager:
         <body>
             <div class="header">
                 <h1>🤖 AI Pulse Daily Report</h1>
-                <p>{today} | Tracking Trillion+ Club & AI Investments</p>
+                <p>{today} | Scanning {len(ai_stocks)} AI Universe Stocks</p>
             </div>
             <div class="content">
                 <p style="color: #4b5563; font-size: 14px;">
-                    <strong>Core Thesis:</strong> Mega-cap tech companies will continue to dominate.
-                    We're tracking the Trillion+ Club and looking for optimal long-term entry points.
+                    <strong>Core Thesis:</strong> AI infrastructure, software, and applications will drive the next decade of tech growth.
+                    We scan the full AI universe looking for the best risk/reward opportunities based on pullbacks, technicals, and valuations.
                 </p>
 
                 {pulse_html}
 
-                {best_opps_html}
+                {top_picks_html}
+
+                {worst_html}
+
+                {category_html}
 
                 <div class="section">
-                    <h2 style="color: #4f46e5; border-bottom: 2px solid #4f46e5;">💎 Trillion+ Club ({len(trillion_club)} Members)</h2>
-                    <p style="font-size: 13px; color: #6b7280;">Stocks that have hit $1T+ market cap in the last 30 days, ranked by entry score.</p>
+                    <h2 style="color: #4f46e5; border-bottom: 2px solid #4f46e5;">📋 All AI Stocks (Top 20)</h2>
                     <table>
                         <tr>
                             <th>Company</th>
-                            <th style="text-align: center;">Mkt Cap</th>
                             <th style="text-align: center;">Price</th>
-                            <th style="text-align: center;">vs High</th>
-                            <th style="text-align: center;">Entry Score</th>
+                            <th style="text-align: center;">30d</th>
+                            <th style="text-align: center;">90d</th>
+                            <th style="text-align: center;">AI Score</th>
                             <th style="text-align: center;">Category</th>
-                            <th style="text-align: center;">Trend</th>
                         </tr>
-                        {trillion_rows}
-                    </table>
-                </div>
-
-                <div class="section">
-                    <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 Categories</h2>
-                    <table>
-                        <tr>
-                            <th>Category</th>
-                            <th style="width: 60px;">Count</th>
-                            <th>Members</th>
-                        </tr>
-                        {category_summary}
+                        {stocks_rows}
                     </table>
                 </div>
 
                 {thesis_html}
 
-                {longterm_html}
+                <div class="section">
+                    <h2 style="color: #8b5cf6; border-bottom: 2px solid #8b5cf6;">📐 AI Score Methodology</h2>
+                    <p style="font-size: 13px; color: #4b5563; margin-bottom: 15px;">
+                        The AI Score (0-100) measures how attractive a stock is as an AI investment opportunity.
+                        Higher scores indicate better entry points based on price pullbacks, technical setup, and AI positioning.
+                    </p>
+                    <table style="font-size: 12px;">
+                        <tr>
+                            <th style="width: 25%;">Factor</th>
+                            <th style="width: 35%;">What It Measures</th>
+                            <th style="width: 40%;">Scoring</th>
+                        </tr>
+                        <tr>
+                            <td><strong>Base Score</strong></td>
+                            <td>Starting point</td>
+                            <td style="font-family: monospace;">+50 pts</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>30-Day Performance</strong></td>
+                            <td>Recent price action - pullbacks are opportunities</td>
+                            <td style="font-family: monospace;">-20%: +20 | -10%: +15 | -5%: +10 | +20%: -10</td>
+                        </tr>
+                        <tr>
+                            <td><strong>90-Day Performance</strong></td>
+                            <td>Medium-term trend context</td>
+                            <td style="font-family: monospace;">-30%: +15 | -15%: +10 | +50%: -10</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>AI Category</strong></td>
+                            <td>Position in the AI ecosystem</td>
+                            <td style="font-family: monospace;">Infra: +10 | Hyperscaler: +8 | Software: +7</td>
+                        </tr>
+                        <tr>
+                            <td><strong>RSI (14-day)</strong></td>
+                            <td>Overbought/oversold indicator</td>
+                            <td style="font-family: monospace;">&lt;30: +15 | &lt;40: +10 | &gt;70: -5 | &gt;80: -10</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>50-Day MA</strong></td>
+                            <td>Position vs moving average</td>
+                            <td style="font-family: monospace;">-10% vs MA: +10 | -5%: +7 | +15%: -5</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Valuation</strong></td>
+                            <td>PEG ratio or P/E if no PEG</td>
+                            <td style="font-family: monospace;">PEG&lt;1: +10 | P/E&lt;20: +8 | P/E&gt;80: -10</td>
+                        </tr>
+                        <tr style="background: #f9fafb;">
+                            <td><strong>Market Cap</strong></td>
+                            <td>Size/stability tier</td>
+                            <td style="font-family: monospace;">$1T+: +5 | $200B+: +4 | $50B+: +3</td>
+                        </tr>
+                    </table>
+                    <div style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 6px;">
+                        <strong style="color: #374151;">Score Interpretation:</strong>
+                        <div style="margin-top: 8px;">
+                            <span style="display: inline-block; margin-right: 15px;"><span style="display: inline-block; width: 12px; height: 12px; background: #22c55e; border-radius: 2px; margin-right: 5px;"></span>75+: Strong Buy</span>
+                            <span style="display: inline-block; margin-right: 15px;"><span style="display: inline-block; width: 12px; height: 12px; background: #84cc16; border-radius: 2px; margin-right: 5px;"></span>65-74: Buy</span>
+                            <span style="display: inline-block; margin-right: 15px;"><span style="display: inline-block; width: 12px; height: 12px; background: #eab308; border-radius: 2px; margin-right: 5px;"></span>55-64: Hold</span>
+                            <span style="display: inline-block;"><span style="display: inline-block; width: 12px; height: 12px; background: #f97316; border-radius: 2px; margin-right: 5px;"></span>&lt;55: Wait</span>
+                        </div>
+                    </div>
+                </div>
 
             </div>
             <div class="footer">
                 <div style="margin-bottom: 15px;">
-                    <strong>Entry Score Guide:</strong><br/>
-                    75+ = Strong Entry (pullback + oversold) | 65-74 = Good Entry | 55-64 = Neutral | &lt;55 = Extended (wait for pullback)
-                </div>
-                <div style="margin-bottom: 15px;">
                     <strong>Categories:</strong><br/>
-                    Hyperscaler = Established cloud giants (AWS, Azure, GCP) | Neocloud = AI-native cloud providers | AI Infrastructure = Chips, GPUs, data centers
+                    AI Infrastructure = GPUs, chips, data centers, networking | Hyperscaler = Cloud giants (AWS, Azure, GCP) |
+                    AI Software = Platforms, enterprise AI, cybersecurity | Robotics = Autonomous systems, physical AI
                 </div>
                 <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
                 for research purposes only. Always do your own due diligence before investing.
@@ -1913,7 +2042,7 @@ class AlertManager:
             "ai_pulse_digest",
             None,
             subject,
-            f"Trillion Club: {len(trillion_club)}, Theses: {len(theses)}",
+            f"AI Stocks: {len(ai_stocks)}, Theses: {len(theses)}",
             success
         )
 

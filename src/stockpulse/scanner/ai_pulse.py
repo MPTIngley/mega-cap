@@ -29,54 +29,119 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
-# CATEGORY DEFINITIONS
+# CATEGORY DEFINITIONS - Expanded AI Universe
 # ============================================================================
 
 # Hyperscalers: Established cloud giants with massive revenue and infrastructure
 HYPERSCALERS = {
-    "MSFT": {"name": "Microsoft", "cloud": "Azure", "notes": "Enterprise cloud leader"},
-    "AMZN": {"name": "Amazon", "cloud": "AWS", "notes": "Cloud market share leader"},
-    "GOOGL": {"name": "Alphabet", "cloud": "GCP", "notes": "AI/ML cloud innovation"},
-    "ORCL": {"name": "Oracle", "cloud": "OCI", "notes": "Enterprise database + cloud"},
-    "IBM": {"name": "IBM", "cloud": "IBM Cloud", "notes": "Hybrid cloud focus"},
+    "MSFT": {"name": "Microsoft", "cloud": "Azure", "notes": "Enterprise cloud leader, OpenAI partnership"},
+    "AMZN": {"name": "Amazon", "cloud": "AWS", "notes": "Cloud market share leader, Bedrock AI"},
+    "GOOGL": {"name": "Alphabet", "cloud": "GCP", "notes": "Gemini, DeepMind, Vertex AI"},
+    "ORCL": {"name": "Oracle", "cloud": "OCI", "notes": "Enterprise database + cloud, NVIDIA partnership"},
+    "IBM": {"name": "IBM", "cloud": "IBM Cloud", "notes": "watsonx AI, hybrid cloud focus"},
 }
 
 # Neoclouds: New AI-native cloud providers, heavily leveraged, high growth potential
 NEOCLOUDS = {
-    "CRWV": {"name": "CoreWeave", "notes": "GPU cloud for AI, IPO 2024"},
+    "CRWV": {"name": "CoreWeave", "notes": "GPU cloud for AI, NVIDIA-backed"},
     # Lambda Labs - private
     # Together AI - private
-    # Cerebras - private (filed S-1)
+    # Cerebras - IPO pending
 }
 
-# AI Infrastructure plays (GPU, chips, data centers)
+# AI Infrastructure plays (GPU, chips, data centers, networking)
 AI_INFRASTRUCTURE = {
-    "NVDA": {"name": "NVIDIA", "category": "GPU/AI chips", "notes": "Dominant AI chip maker"},
-    "AMD": {"name": "AMD", "category": "GPU/chips", "notes": "GPU competition, MI300"},
-    "AVGO": {"name": "Broadcom", "category": "Custom chips", "notes": "Google TPU partner"},
-    "MRVL": {"name": "Marvell", "category": "Custom chips", "notes": "Custom AI silicon"},
-    "TSM": {"name": "TSMC", "category": "Foundry", "notes": "Makes all advanced chips"},
+    # GPU/AI Chips
+    "NVDA": {"name": "NVIDIA", "category": "GPU/AI chips", "notes": "Dominant AI chip maker, Blackwell"},
+    "AMD": {"name": "AMD", "category": "GPU/chips", "notes": "MI300X competition, data center growth"},
+    "INTC": {"name": "Intel", "category": "CPU/AI chips", "notes": "Gaudi accelerators, foundry ambitions"},
+    "QCOM": {"name": "Qualcomm", "category": "Edge AI chips", "notes": "Snapdragon X, on-device AI"},
+    # Custom Silicon
+    "AVGO": {"name": "Broadcom", "category": "Custom chips", "notes": "Google TPU partner, VMware"},
+    "MRVL": {"name": "Marvell", "category": "Custom chips", "notes": "Custom AI silicon for hyperscalers"},
+    # Foundry & Equipment
+    "TSM": {"name": "TSMC", "category": "Foundry", "notes": "Makes all advanced AI chips"},
     "ASML": {"name": "ASML", "category": "Equipment", "notes": "EUV lithography monopoly"},
+    "AMAT": {"name": "Applied Materials", "category": "Equipment", "notes": "Chip manufacturing equipment"},
+    "LRCX": {"name": "Lam Research", "category": "Equipment", "notes": "Etch and deposition equipment"},
+    "KLAC": {"name": "KLA Corp", "category": "Equipment", "notes": "Process control equipment"},
+    # Memory
+    "MU": {"name": "Micron", "category": "Memory", "notes": "HBM memory for AI, DRAM leader"},
+    "WDC": {"name": "Western Digital", "category": "Storage", "notes": "Data storage for AI workloads"},
+    # Networking
+    "ANET": {"name": "Arista Networks", "category": "Networking", "notes": "AI data center networking"},
+    "CSCO": {"name": "Cisco", "category": "Networking", "notes": "Enterprise networking, AI infrastructure"},
+    # Data Centers
+    "EQIX": {"name": "Equinix", "category": "Data Centers", "notes": "Largest data center REIT"},
+    "DLR": {"name": "Digital Realty", "category": "Data Centers", "notes": "AI-ready data centers"},
+    # Power/Utilities for AI
+    "VST": {"name": "Vistra", "category": "Power", "notes": "Power for AI data centers"},
+    "CEG": {"name": "Constellation Energy", "category": "Power", "notes": "Nuclear for AI data centers"},
 }
 
 # AI Software/Platform leaders
 AI_SOFTWARE = {
-    "MSFT": {"name": "Microsoft", "notes": "Copilot, OpenAI partnership"},
-    "GOOGL": {"name": "Alphabet", "notes": "Gemini, DeepMind, Waymo"},
-    "META": {"name": "Meta", "notes": "Llama open source, AI ads"},
-    "CRM": {"name": "Salesforce", "notes": "Einstein AI, enterprise"},
-    "PLTR": {"name": "Palantir", "notes": "AIP platform, government"},
-    "NOW": {"name": "ServiceNow", "notes": "Enterprise AI workflows"},
+    # Major Platforms
+    "MSFT": {"name": "Microsoft", "notes": "Copilot, OpenAI, GitHub, Azure AI"},
+    "GOOGL": {"name": "Alphabet", "notes": "Gemini, DeepMind, Waymo, Cloud AI"},
+    "META": {"name": "Meta", "notes": "Llama open source, AI ads, Reality Labs"},
+    "AAPL": {"name": "Apple", "notes": "Apple Intelligence, on-device AI, Siri"},
+    # Enterprise AI
+    "CRM": {"name": "Salesforce", "notes": "Einstein AI, Agentforce, enterprise AI"},
+    "NOW": {"name": "ServiceNow", "notes": "AI workflows, enterprise automation"},
+    "ADBE": {"name": "Adobe", "notes": "Firefly generative AI, Creative Cloud"},
+    "WDAY": {"name": "Workday", "notes": "AI for HR and finance"},
+    # AI-Native Software
+    "PLTR": {"name": "Palantir", "notes": "AIP platform, government & enterprise"},
+    "AI": {"name": "C3.ai", "notes": "Enterprise AI applications"},
+    "PATH": {"name": "UiPath", "notes": "Robotic process automation, AI agents"},
+    "SNOW": {"name": "Snowflake", "notes": "AI data cloud, Cortex AI"},
+    "MDB": {"name": "MongoDB", "notes": "Database for AI applications"},
+    "DDOG": {"name": "Datadog", "notes": "AI observability, LLM monitoring"},
+    "CFLT": {"name": "Confluent", "notes": "Real-time data streaming for AI"},
+    # Cybersecurity AI
+    "CRWD": {"name": "CrowdStrike", "notes": "AI-powered cybersecurity"},
+    "PANW": {"name": "Palo Alto Networks", "notes": "AI security platform"},
+    "ZS": {"name": "Zscaler", "notes": "Zero trust AI security"},
+    "S": {"name": "SentinelOne", "notes": "AI endpoint protection"},
+    # Communication/Collaboration AI
+    "ZM": {"name": "Zoom", "notes": "AI companion, meeting intelligence"},
+    "DOCN": {"name": "DigitalOcean", "notes": "Cloud for developers, AI/ML tools"},
 }
 
 # Robotics / Physical AI thesis
 ROBOTICS_THESIS = {
-    "TSLA": {"name": "Tesla", "notes": "Optimus robot, FSD, Dojo"},
-    "GOOGL": {"name": "Alphabet", "notes": "Waymo autonomous driving"},
-    "AMZN": {"name": "Amazon", "notes": "Warehouse robotics, delivery"},
-    "ISRG": {"name": "Intuitive Surgical", "notes": "Da Vinci surgical robots"},
-    "FANUY": {"name": "Fanuc", "notes": "Industrial robotics leader"},
+    "TSLA": {"name": "Tesla", "notes": "Optimus humanoid robot, FSD, Dojo supercomputer"},
+    "GOOGL": {"name": "Alphabet", "notes": "Waymo autonomous driving, robotics research"},
+    "AMZN": {"name": "Amazon", "notes": "Warehouse robotics, Zoox, drone delivery"},
+    "ISRG": {"name": "Intuitive Surgical", "notes": "Da Vinci surgical robots, market leader"},
+    "FANUY": {"name": "Fanuc", "notes": "Industrial robotics, CNC systems"},
+    "ABB": {"name": "ABB Ltd", "notes": "Industrial automation and robotics"},
+    "ROK": {"name": "Rockwell Automation", "notes": "Industrial AI and automation"},
+    "TER": {"name": "Teradyne", "notes": "Universal Robots, test equipment"},
+    "IRBT": {"name": "iRobot", "notes": "Consumer robotics (Roomba)"},
+    "DE": {"name": "Deere & Co", "notes": "Autonomous farming equipment, AgTech AI"},
 }
+
+# AI Healthcare - emerging category
+AI_HEALTHCARE = {
+    "ISRG": {"name": "Intuitive Surgical", "notes": "Surgical robotics, Da Vinci"},
+    "VEEV": {"name": "Veeva Systems", "notes": "Life sciences cloud, AI for pharma"},
+    "DXCM": {"name": "DexCom", "notes": "AI-powered glucose monitoring"},
+    "ILMN": {"name": "Illumina", "notes": "Genomics, AI for drug discovery"},
+    "TMO": {"name": "Thermo Fisher", "notes": "Lab equipment, AI analytics"},
+    "DHR": {"name": "Danaher", "notes": "Life sciences tools, diagnostics AI"},
+}
+
+# All AI Universe tickers (for scanning)
+AI_UNIVERSE = set(
+    list(HYPERSCALERS.keys()) +
+    list(NEOCLOUDS.keys()) +
+    list(AI_INFRASTRUCTURE.keys()) +
+    list(AI_SOFTWARE.keys()) +
+    list(ROBOTICS_THESIS.keys()) +
+    list(AI_HEALTHCARE.keys())
+)
 
 # Known trillion dollar club members (current and recent)
 TRILLION_CLUB_SEED = [
@@ -104,7 +169,8 @@ class ClaudeResearch:
         thesis_name: str,
         context: str,
         tickers: list[str],
-        max_tokens: int = 1024
+        max_tokens: int = 1024,
+        ticker_performance: dict[str, dict] | None = None
     ) -> dict[str, Any]:
         """
         Research an investment thesis using Claude.
@@ -114,6 +180,7 @@ class ClaudeResearch:
             context: Current context about the thesis
             tickers: Related tickers to research
             max_tokens: Maximum response length
+            ticker_performance: Dict of ticker -> {price, pct_30d, pct_90d, rsi, signal}
 
         Returns:
             Research findings dict with analysis, signals, and recommendations
@@ -132,6 +199,20 @@ class ClaudeResearch:
 
             client = anthropic.Anthropic(api_key=self.api_key)
 
+            # Build performance data section
+            perf_section = ""
+            if ticker_performance:
+                perf_lines = []
+                for ticker, data in ticker_performance.items():
+                    perf_lines.append(
+                        f"  {ticker}: ${data['price']:.2f} | "
+                        f"30d: {data['pct_30d']:+.1f}% | "
+                        f"90d: {data['pct_90d']:+.1f}% | "
+                        f"RSI: {data['rsi']:.0f} ({data['signal']})"
+                    )
+                perf_section = "\n\nACTUAL PRICE PERFORMANCE (CRITICAL DATA):\n" + "\n".join(perf_lines)
+                perf_section += "\n\nIMPORTANT: Base your analysis on this ACTUAL price data. If stocks are down 10%+, acknowledge the pullback. If RSI is oversold (<30), note the opportunity. Be objective about price action."
+
             prompt = f"""You are an expert AI and technology investment analyst.
 Analyze the following investment thesis and provide actionable insights.
 
@@ -140,18 +221,19 @@ THESIS: {thesis_name}
 CONTEXT: {context}
 
 RELATED TICKERS: {', '.join(tickers)}
+{perf_section}
 
 TODAY'S DATE: {date.today().isoformat()}
 
 Provide a concise analysis with:
-1. THESIS STATUS: Is this thesis playing out? What's the current evidence?
-2. KEY SIGNALS: What recent developments support or contradict this thesis?
-3. ENTRY POINTS: Are any of these stocks at attractive entry points right now?
-4. RISKS: What could invalidate this thesis?
-5. RECOMMENDATION: bullish/neutral/bearish on this thesis overall
-6. TOP PICK: Which single stock best captures this thesis right now?
+1. THESIS STATUS: Is this thesis playing out? Consider both fundamentals AND the actual price performance above.
+2. KEY SIGNALS: What does the price action tell us? Are stocks in this thesis being sold off or bid up?
+3. ENTRY POINTS: Based on the ACTUAL performance data above, which stocks look attractive for entry? Be specific about oversold opportunities.
+4. RISKS: What could invalidate this thesis? Consider if the selloff (if any) is warranted.
+5. RECOMMENDATION: bullish/neutral/bearish - BE HONEST about price weakness if stocks are down significantly.
+6. TOP PICK: Which single stock is the best risk/reward right now given price levels?
 
-Be specific, cite recent developments if known, and focus on actionable insights.
+Be objective and data-driven. If stocks are down big, acknowledge it. Don't be blindly bullish.
 Keep response under 500 words."""
 
             message = client.messages.create(
@@ -512,10 +594,13 @@ class AIPulseScanner:
             return "AI Infrastructure", AI_INFRASTRUCTURE[ticker].get("category", "Chips")
 
         if ticker in AI_SOFTWARE:
-            return "AI Software", "Platform"
+            return "AI Software", AI_SOFTWARE[ticker].get("notes", "Platform")
 
         if ticker in ROBOTICS_THESIS:
             return "Robotics/Physical AI", ROBOTICS_THESIS[ticker].get("notes", "")
+
+        if ticker in AI_HEALTHCARE:
+            return "AI Healthcare", AI_HEALTHCARE[ticker].get("notes", "Healthcare")
 
         # Default categorization based on sector
         try:
@@ -721,76 +806,444 @@ class AIPulseScanner:
 
         return final_score
 
+    def _calculate_ai_score(
+        self,
+        ticker: str,
+        return_breakdown: bool = False
+    ) -> float | tuple[float, dict]:
+        """
+        Calculate AI Opportunity Score for a stock.
+
+        This score measures how attractive a stock is as an AI investment based on:
+        - Price performance (30d, 90d momentum)
+        - AI category positioning (infrastructure vs software)
+        - Technical setup (RSI, MA position)
+        - Valuation relative to growth
+        - Market cap tier
+
+        Args:
+            ticker: Stock ticker
+            return_breakdown: If True, return (score, breakdown_dict)
+
+        Returns:
+            Score (0-100), or tuple of (score, breakdown) if return_breakdown=True
+        """
+        try:
+            yf_ticker = self._get_yf_ticker(ticker)
+            info = yf_ticker.info
+            hist = yf_ticker.history(period="6mo")
+
+            if hist.empty or not info:
+                return (0, {}) if return_breakdown else 0
+
+            current_price = info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+        except Exception as e:
+            logger.debug(f"Error getting data for {ticker}: {e}")
+            return (0, {}) if return_breakdown else 0
+
+        score = 50  # Base score
+        breakdown = {
+            "base": {"points": 50, "label": "Base Score", "raw_value": "-"},
+        }
+
+        # === PRICE PERFORMANCE (most critical) ===
+
+        # 30-day performance
+        pct_30d = 0.0
+        perf_30d_pts = 0
+        if len(hist) >= 22:
+            pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100
+            # Pullbacks are opportunities, extended runs are risky
+            if pct_30d <= -20:
+                perf_30d_pts = 20  # Deep pullback - strong opportunity
+            elif pct_30d <= -10:
+                perf_30d_pts = 15  # Meaningful pullback
+            elif pct_30d <= -5:
+                perf_30d_pts = 10  # Healthy consolidation
+            elif pct_30d <= 0:
+                perf_30d_pts = 5   # Flat/slight dip
+            elif pct_30d >= 30:
+                perf_30d_pts = -15  # Way overextended
+            elif pct_30d >= 20:
+                perf_30d_pts = -10  # Overextended
+            elif pct_30d >= 10:
+                perf_30d_pts = -5   # Running hot
+        score += perf_30d_pts
+        breakdown["perf_30d"] = {
+            "points": perf_30d_pts,
+            "label": "30-Day Performance",
+            "raw_value": f"{pct_30d:+.1f}%",
+        }
+
+        # 90-day performance (longer-term trend)
+        pct_90d = 0.0
+        perf_90d_pts = 0
+        if len(hist) >= 63:
+            pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100
+            # Similar logic but less weight
+            if pct_90d <= -30:
+                perf_90d_pts = 15  # Major pullback from 90d ago
+            elif pct_90d <= -15:
+                perf_90d_pts = 10
+            elif pct_90d <= 0:
+                perf_90d_pts = 5
+            elif pct_90d >= 50:
+                perf_90d_pts = -10  # Massively extended
+            elif pct_90d >= 30:
+                perf_90d_pts = -5
+        score += perf_90d_pts
+        breakdown["perf_90d"] = {
+            "points": perf_90d_pts,
+            "label": "90-Day Performance",
+            "raw_value": f"{pct_90d:+.1f}%",
+        }
+
+        # === AI CATEGORY POSITIONING ===
+
+        category_pts = 0
+        category_name = "Other"
+        if ticker in AI_INFRASTRUCTURE:
+            category_pts = 10  # AI infrastructure is core thesis
+            category_name = "AI Infrastructure"
+        elif ticker in HYPERSCALERS:
+            category_pts = 8  # Hyperscalers = proven AI winners
+            category_name = "Hyperscaler"
+        elif ticker in AI_SOFTWARE:
+            category_pts = 7  # AI software is growth area
+            category_name = "AI Software"
+        elif ticker in ROBOTICS_THESIS:
+            category_pts = 6  # Robotics is emerging
+            category_name = "Robotics/Physical AI"
+        elif ticker in NEOCLOUDS:
+            category_pts = 5  # Neoclouds are speculative
+            category_name = "Neocloud"
+        elif ticker in AI_HEALTHCARE:
+            category_pts = 5
+            category_name = "AI Healthcare"
+        score += category_pts
+        breakdown["ai_category"] = {
+            "points": category_pts,
+            "label": "AI Category",
+            "raw_value": category_name,
+        }
+
+        # === TECHNICAL FACTORS ===
+
+        # RSI
+        current_rsi = 50.0
+        rsi_pts = 0
+        if len(hist) >= 14:
+            delta = hist["Close"].diff()
+            gain = delta.where(delta > 0, 0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            current_rsi = rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
+
+            if current_rsi < 30:
+                rsi_pts = 15  # Deeply oversold
+            elif current_rsi < 40:
+                rsi_pts = 10  # Oversold
+            elif current_rsi < 50:
+                rsi_pts = 5   # Below average
+            elif current_rsi > 80:
+                rsi_pts = -10  # Overbought
+            elif current_rsi > 70:
+                rsi_pts = -5   # Getting hot
+        score += rsi_pts
+        breakdown["rsi"] = {
+            "points": rsi_pts,
+            "label": "RSI (14)",
+            "raw_value": f"{current_rsi:.1f}",
+        }
+
+        # 50-day MA position
+        ma_50_pts = 0
+        ma_50_pct = 0.0
+        if len(hist) >= 50:
+            ma_50 = hist["Close"].rolling(50).mean().iloc[-1]
+            ma_50_pct = ((current_price / ma_50) - 1) * 100 if ma_50 > 0 else 0
+            if ma_50_pct <= -10:
+                ma_50_pts = 10  # Well below MA - potential support
+            elif ma_50_pct <= -5:
+                ma_50_pts = 7
+            elif ma_50_pct <= 0:
+                ma_50_pts = 5  # At or below MA
+            elif ma_50_pct >= 15:
+                ma_50_pts = -5  # Extended above MA
+        score += ma_50_pts
+        breakdown["ma_50"] = {
+            "points": ma_50_pts,
+            "label": "50-Day MA Position",
+            "raw_value": f"{ma_50_pct:+.1f}% vs MA",
+        }
+
+        # === VALUATION ===
+
+        pe_ratio = info.get("trailingPE", info.get("forwardPE", 0)) or 0
+        peg = info.get("pegRatio", 0) or 0
+        val_pts = 0
+
+        if peg and 0 < peg < 1:
+            val_pts = 10  # PEG < 1 = growth at reasonable price
+        elif peg and 1 <= peg < 1.5:
+            val_pts = 5
+        elif pe_ratio:
+            if pe_ratio < 20:
+                val_pts = 8
+            elif pe_ratio < 30:
+                val_pts = 4
+            elif pe_ratio > 80:
+                val_pts = -10
+            elif pe_ratio > 50:
+                val_pts = -5
+        score += val_pts
+        breakdown["valuation"] = {
+            "points": val_pts,
+            "label": "Valuation (PEG/PE)",
+            "raw_value": f"PEG: {peg:.2f}" if peg else f"P/E: {pe_ratio:.1f}" if pe_ratio else "N/A",
+        }
+
+        # === MARKET CAP TIER ===
+
+        market_cap = info.get("marketCap", 0)
+        cap_pts = 0
+        cap_label = "Unknown"
+        if market_cap >= 1_000_000_000_000:  # $1T+
+            cap_pts = 5  # Mega-cap stability
+            cap_label = "Mega Cap ($1T+)"
+        elif market_cap >= 200_000_000_000:  # $200B+
+            cap_pts = 4
+            cap_label = "Large Cap ($200B+)"
+        elif market_cap >= 50_000_000_000:  # $50B+
+            cap_pts = 3
+            cap_label = "Mid-Large ($50B+)"
+        elif market_cap >= 10_000_000_000:  # $10B+
+            cap_pts = 2
+            cap_label = "Mid Cap ($10B+)"
+        else:
+            cap_pts = 0
+            cap_label = "Small Cap"
+        score += cap_pts
+        breakdown["market_cap"] = {
+            "points": cap_pts,
+            "label": "Market Cap Tier",
+            "raw_value": cap_label,
+        }
+
+        final_score = max(0, min(100, score))
+
+        if return_breakdown:
+            breakdown["total"] = {
+                "points": final_score,
+                "label": "TOTAL AI SCORE",
+                "raw_value": "-",
+            }
+            return final_score, breakdown
+
+        return final_score
+
+    def get_ai_stocks(self) -> list[dict]:
+        """
+        Scan all AI universe stocks and calculate AI opportunity scores.
+
+        Returns:
+            List of AI stocks with scores, sorted by score descending
+        """
+        logger.info(f"Scanning {len(AI_UNIVERSE)} AI universe stocks...")
+
+        stocks = []
+        for ticker in AI_UNIVERSE:
+            try:
+                yf_ticker = self._get_yf_ticker(ticker)
+                info = yf_ticker.info
+                hist = yf_ticker.history(period="6mo")
+
+                if hist.empty or not info:
+                    continue
+
+                current_price = info.get("regularMarketPrice") or info.get("currentPrice")
+                if not current_price:
+                    continue
+
+                # Calculate AI score with breakdown
+                ai_score, score_breakdown = self._calculate_ai_score(ticker, return_breakdown=True)
+
+                # Determine category
+                category, subcategory = self._categorize_stock(ticker)
+
+                # Calculate performance metrics
+                pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
+                pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+
+                # Get market cap
+                market_cap = info.get("marketCap", 0)
+
+                stock = {
+                    "ticker": ticker,
+                    "company_name": info.get("shortName", info.get("longName", ticker)),
+                    "current_price": current_price,
+                    "market_cap": market_cap,
+                    "market_cap_b": market_cap / 1_000_000_000 if market_cap else 0,
+                    "pct_30d": pct_30d,
+                    "pct_90d": pct_90d,
+                    "ai_score": ai_score,
+                    "score_breakdown": score_breakdown,
+                    "category": category,
+                    "subcategory": subcategory,
+                    "sector": info.get("sector", "Unknown"),
+                    "scan_date": date.today(),
+                }
+                stocks.append(stock)
+
+                logger.debug(f"{ticker}: AI Score {ai_score:.0f}, 30d: {pct_30d:+.1f}%, 90d: {pct_90d:+.1f}%")
+
+            except Exception as e:
+                logger.debug(f"Error processing {ticker}: {e}")
+                continue
+
+        # Sort by AI score (best opportunities first)
+        stocks.sort(key=lambda x: x["ai_score"], reverse=True)
+
+        logger.info(f"Scanned {len(stocks)} AI stocks")
+        return stocks
+
+    def _get_ticker_performance(self, tickers: list[str]) -> dict[str, dict]:
+        """
+        Get price performance data for a list of tickers.
+
+        Returns dict with 30d, 90d performance and current RSI for each ticker.
+        """
+        results = {}
+        for ticker in tickers:
+            try:
+                yf_ticker = self._get_yf_ticker(ticker)
+                hist = yf_ticker.history(period="6mo")
+                info = yf_ticker.info
+
+                if hist.empty:
+                    continue
+
+                current_price = info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+
+                pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
+                pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+
+                # RSI
+                current_rsi = 50.0
+                if len(hist) >= 14:
+                    delta = hist["Close"].diff()
+                    gain = delta.where(delta > 0, 0).rolling(14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    current_rsi = rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
+
+                results[ticker] = {
+                    "price": current_price,
+                    "pct_30d": pct_30d,
+                    "pct_90d": pct_90d,
+                    "rsi": current_rsi,
+                    "signal": "OVERSOLD" if current_rsi < 30 else ("OVERBOUGHT" if current_rsi > 70 else "NEUTRAL"),
+                }
+            except Exception as e:
+                logger.debug(f"Error getting performance for {ticker}: {e}")
+                continue
+
+        return results
+
     def run_scan(self) -> dict[str, Any]:
         """
         Run full AI Pulse scan.
 
         Returns:
             Dict containing all scan results:
-            - trillion_club: List of trillion+ stocks with entry scores
+            - ai_stocks: List of AI universe stocks with scores
             - categories: Breakdown by category
             - theses: Thesis research updates
             - market_pulse: AI-generated market summary
+            - top_picks: Best AI opportunities with breakdowns
         """
         logger.info("Running AI Pulse scan...")
 
-        # 1. Get Trillion+ Club members
-        trillion_club = self.get_trillion_club_members()
+        # 1. Scan all AI universe stocks
+        ai_stocks = self.get_ai_stocks()
 
-        # 2. Categorize members
+        # 2. Categorize by AI category
         categories = {
             "Hyperscaler": [],
-            "Neocloud": [],
             "AI Infrastructure": [],
             "AI Software": [],
             "Robotics/Physical AI": [],
+            "AI Healthcare": [],
+            "Neocloud": [],
             "Other": [],
         }
-        for member in trillion_club:
-            cat = member.get("category", "Other")
+        for stock in ai_stocks:
+            cat = stock.get("category", "Other")
             if cat in categories:
-                categories[cat].append(member)
+                categories[cat].append(stock)
             else:
-                categories["Other"].append(member)
+                categories["Other"].append(stock)
 
-        # 3. Research active theses
+        # 3. Research active theses (now with real price data)
         theses_results = self._research_theses()
 
-        # 4. Generate market pulse
+        # 4. Generate market pulse with AI stock data
+        top_picks = [s for s in ai_stocks if s["ai_score"] >= 70][:10]
+        worst_performers = sorted(ai_stocks, key=lambda x: x["pct_30d"])[:5]
+
         market_data = {
-            "trillion_club_count": len(trillion_club),
-            "total_market_cap_t": sum(m["market_cap"] for m in trillion_club) / 1e12,
-            "top_entry_opportunities": [
-                {"ticker": m["ticker"], "score": m["entry_score"], "pct_from_high": m["price_vs_30d_high_pct"]}
-                for m in trillion_club[:5]
+            "ai_stocks_scanned": len(ai_stocks),
+            "top_ai_opportunities": [
+                {
+                    "ticker": s["ticker"],
+                    "score": s["ai_score"],
+                    "pct_30d": s["pct_30d"],
+                    "pct_90d": s["pct_90d"],
+                    "category": s["category"]
+                }
+                for s in ai_stocks[:10]
             ],
-            "categories": {cat: len(stocks) for cat, stocks in categories.items()},
-            "best_entry_score": trillion_club[0]["entry_score"] if trillion_club else 0,
+            "category_summary": {cat: len(stocks) for cat, stocks in categories.items()},
+            "worst_30d_performers": [
+                {"ticker": s["ticker"], "pct_30d": s["pct_30d"]}
+                for s in worst_performers
+            ],
+            "avg_30d_performance": sum(s["pct_30d"] for s in ai_stocks) / len(ai_stocks) if ai_stocks else 0,
         }
         market_pulse = self.claude.generate_market_pulse(market_data)
 
-        # 5. Store results
-        self._store_scan_results(trillion_club)
-        self._store_snapshot(trillion_club, market_pulse)
-
-        # 6. Enrich with trend data
-        trillion_club = self._enrich_with_trends(trillion_club)
+        # 5. Calculate category scores (avg AI score per category)
+        category_scores = {}
+        for cat, stocks in categories.items():
+            if stocks:
+                avg_score = sum(s["ai_score"] for s in stocks) / len(stocks)
+                avg_30d = sum(s["pct_30d"] for s in stocks) / len(stocks)
+                category_scores[cat] = {
+                    "avg_score": avg_score,
+                    "avg_30d": avg_30d,
+                    "count": len(stocks),
+                    "top_pick": stocks[0]["ticker"] if stocks else None,
+                }
 
         results = {
             "scan_date": date.today().isoformat(),
-            "trillion_club": trillion_club,
-            "trillion_club_count": len(trillion_club),
+            "ai_stocks": ai_stocks,
+            "ai_stocks_count": len(ai_stocks),
             "categories": categories,
+            "category_scores": category_scores,
             "theses": theses_results,
             "market_pulse": market_pulse,
-            "best_opportunities": [m for m in trillion_club if m["entry_score"] >= 70][:5],
+            "top_picks": top_picks,
+            "worst_performers": worst_performers,
         }
 
-        logger.info(f"AI Pulse scan complete: {len(trillion_club)} trillion club members")
+        logger.info(f"AI Pulse scan complete: {len(ai_stocks)} AI stocks scanned")
         return results
 
     def _research_theses(self) -> list[dict]:
-        """Research all active theses."""
+        """Research all active theses with real price performance data."""
         theses_df = self.db.fetchdf("""
             SELECT * FROM ai_theses WHERE status = 'active'
         """)
@@ -804,12 +1257,16 @@ class AIPulseScanner:
             description = thesis["description"]
             tickers = thesis["tickers"].split(",") if thesis["tickers"] else []
 
+            # Get actual price performance for thesis tickers
+            ticker_performance = self._get_ticker_performance(tickers)
+
             # Only research if Claude is configured
             if self.claude.is_configured:
                 research = self.claude.research_thesis(
                     thesis_name=thesis_name,
                     context=description,
-                    tickers=tickers
+                    tickers=tickers,
+                    ticker_performance=ticker_performance  # Pass performance data
                 )
 
                 # Store research
