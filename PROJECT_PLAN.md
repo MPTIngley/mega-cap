@@ -45,6 +45,9 @@ Before writing any code, do the following:
 - ✅ Cooldown tracking for winning trades (not just losses)
 - ✅ Historical P/E backfill via FMP API or calculated method
 - ✅ Dashboard data status shows actual price count
+- ✅ **Trillion+ Club auto-backfill** (like long-term scanner)
+- ✅ **Trillion email trend column** matches long-term format
+- ✅ **AI Pulse email** now shows full AI stocks + theses
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -309,6 +312,8 @@ stockpulse reset            # Clear trading data (keeps prices)
 | 2026-02-07 | Trillion+ Club scanner | Mega-cap entry point tracking with consolidated score breakdown |
 | 2026-02-07 | AI Pulse scanner | ~70 AI stocks, 7 categories, Claude thesis research |
 | 2026-02-07 | Email consolidation | Score breakdowns in single table for easy comparison |
+| 2026-02-07 | Trillion+ auto-backfill | Auto-detect gaps and backfill 3 weeks of historical data (like long-term) |
+| 2026-02-07 | AI Pulse email fixed | Now shows AI stocks table + theses (was blank) |
 
 ---
 
