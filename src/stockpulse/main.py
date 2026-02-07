@@ -1647,13 +1647,18 @@ def run_longterm_backtest():
 
 
 def run_longterm_scan():
-    """Run long-term scanner and display results."""
+    """Run long-term scanner and display results.
+
+    Now also includes Trillion+ Club tracking for mega-cap entry points.
+    """
     from stockpulse.scanner.long_term_scanner import LongTermScanner
+    from stockpulse.scanner.ai_pulse import AIPulseScanner
     from stockpulse.data.universe import UniverseManager
 
     print("\n" + "=" * 70)
     print("  LONG-TERM INVESTMENT SCANNER")
     print("  Scoring: Valuation, Technical, Quality, Insider, FCF, Earnings, Peers")
+    print("  + Trillion+ Club Tracking")
     print("=" * 70)
 
     universe = UniverseManager()
@@ -1734,6 +1739,24 @@ def run_longterm_scan():
               f" {opp.get('dividend_score', 50):4.0f} "
               f" {opp.get('quality_score', 50):4.0f}")
 
+    # Also fetch Trillion+ Club data for the email
+    print("\n  Scanning Trillion+ Club members...")
+    try:
+        ai_scanner = AIPulseScanner()
+        trillion_club = ai_scanner.get_trillion_club_members()
+        trillion_club = ai_scanner._enrich_with_trends(trillion_club)
+        print(f"  Found {len(trillion_club)} Trillion+ Club members")
+
+        # Show top entry opportunities
+        best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70]
+        if best_entries:
+            print("\n  🎯 Best Trillion+ Entry Points:")
+            for m in best_entries[:3]:
+                print(f"      {m['ticker']}: Score {m['entry_score']:.0f} ({m['price_vs_30d_high_pct']:+.1f}% from high)")
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch Trillion+ Club: {e}")
+        trillion_club = []
+
     print("\n" + "=" * 70)
     print(f"  Scan complete. {len(opportunities)} opportunities saved to database.")
     print("=" * 70 + "\n")
@@ -1742,7 +1765,7 @@ def run_longterm_scan():
     scanner_config = scanner.config.get("long_term_scanner", {})
     if scanner_config.get("send_digest", True):
         print("  Sending opportunity digest email...")
-        scanner.send_digest(opportunities[:10])
+        scanner.send_digest(opportunities[:10], trillion_club)
 
 
 def run_longterm_backfill():

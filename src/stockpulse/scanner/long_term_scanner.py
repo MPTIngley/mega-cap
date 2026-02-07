@@ -1349,9 +1349,18 @@ class LongTermScanner:
         except Exception as e:
             return None
 
-    def send_digest(self, opportunities: list[dict]) -> bool:
-        """Send long-term opportunities digest email."""
-        if not opportunities:
+    def send_digest(
+        self,
+        opportunities: list[dict],
+        trillion_club: list[dict] | None = None
+    ) -> bool:
+        """Send long-term opportunities digest email.
+
+        Args:
+            opportunities: Long-term opportunities from 8-component scoring
+            trillion_club: Optional Trillion+ Club members with entry scores
+        """
+        if not opportunities and not trillion_club:
             return False
 
-        return self.alert_manager.send_long_term_digest(opportunities)
+        return self.alert_manager.send_long_term_digest(opportunities, trillion_club)
