@@ -719,7 +719,7 @@ def main():
     # Navigation
     page = st.sidebar.radio(
         "Navigation",
-        ["Live Signals", "Paper Portfolio", "Long-Term Holdings", "Performance", "Backtests", "Long-Term Watchlist", "Universe", "Settings", "Debug"],
+        ["Live Signals", "Paper Portfolio", "Long-Term Holdings", "Performance", "Backtests", "Long-Term Watchlist", "Trillion Club", "AI Theses", "Universe", "Settings", "Debug"],
         label_visibility="collapsed"
     )
 
@@ -836,6 +836,10 @@ def main():
         render_backtests_page(services)
     elif page == "Long-Term Watchlist":
         render_watchlist_page(services)
+    elif page == "Trillion Club":
+        render_trillion_club_page(services)
+    elif page == "AI Theses":
+        render_ai_theses_page(services)
     elif page == "Universe":
         render_universe_page(services)
     elif page == "Settings":
@@ -2818,6 +2822,331 @@ def render_longterm_holdings_page(services: dict):
             st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
             st.info("No closed positions yet.")
+
+
+def render_trillion_club_page(services: dict):
+    """Render Trillion Club page showing mega-cap stocks and entry scores."""
+    st.title("💎 Trillion+ Club")
+    st.markdown("Tracking stocks that have hit $1T+ market cap in the last 30 days. Looking for optimal long-term entry points.")
+
+    # Get trillion club data from database
+    try:
+        db = services.get("db") or get_db()
+        trillion_df = db.fetchdf("""
+            SELECT t.* FROM trillion_club t
+            INNER JOIN (
+                SELECT ticker, MAX(scan_date) as max_date
+                FROM trillion_club
+                GROUP BY ticker
+            ) latest ON t.ticker = latest.ticker AND t.scan_date = latest.max_date
+            ORDER BY t.entry_score DESC
+        """)
+    except Exception as e:
+        st.error(f"Error loading trillion club data: {e}")
+        trillion_df = pd.DataFrame()
+
+    if trillion_df.empty:
+        st.warning("No Trillion Club data yet. Run `stockpulse trillion-scan` to populate.")
+
+        # Quick action button
+        if st.button("🔍 Run Trillion Club Scan Now"):
+            st.info("Run in terminal: `stockpulse trillion-scan`")
+        return
+
+    # Summary metrics
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Members", len(trillion_df))
+    with col2:
+        total_market_cap = trillion_df["market_cap"].sum() / 1e12 if "market_cap" in trillion_df.columns else 0
+        st.metric("Total Market Cap", f"${total_market_cap:.1f}T")
+    with col3:
+        avg_score = trillion_df["entry_score"].mean() if "entry_score" in trillion_df.columns else 0
+        st.metric("Avg Entry Score", f"{avg_score:.0f}")
+    with col4:
+        best_opp = trillion_df.iloc[0] if not trillion_df.empty else None
+        st.metric("Best Entry", best_opp["ticker"] if best_opp is not None else "N/A")
+
+    # Best entry opportunities highlight
+    st.markdown("---")
+    st.subheader("🎯 Best Entry Opportunities")
+    st.caption("Stocks with Entry Score ≥ 70 (pullback + oversold conditions)")
+
+    best_entries = trillion_df[trillion_df["entry_score"] >= 70] if "entry_score" in trillion_df.columns else pd.DataFrame()
+
+    if not best_entries.empty:
+        cols = st.columns(min(len(best_entries), 4))
+        for idx, (_, entry) in enumerate(best_entries.head(4).iterrows()):
+            with cols[idx]:
+                ticker = entry.get("ticker", "N/A")
+                score = entry.get("entry_score", 0)
+                price = entry.get("current_price", 0)
+                pct_from_high = entry.get("price_vs_30d_high_pct", 0)
+
+                st.markdown(f"""
+                <div style="background: #ecfdf5; padding: 15px; border-radius: 8px; border: 2px solid #22c55e; text-align: center;">
+                    <h2 style="margin: 0; color: #15803d;">{ticker}</h2>
+                    <p style="font-size: 24px; margin: 10px 0; color: #22c55e;">{score:.0f}</p>
+                    <p style="color: #6b7280; font-size: 14px;">${price:.2f}</p>
+                    <p style="color: #22c55e; font-size: 13px;">{pct_from_high:+.1f}% from high</p>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("No strong entry opportunities right now (all scores < 70). Check back when stocks pull back.")
+
+    # Category breakdown
+    st.markdown("---")
+    st.subheader("📁 Category Breakdown")
+
+    if "category" in trillion_df.columns:
+        category_counts = trillion_df.groupby("category").agg({
+            "ticker": ["count", lambda x: ", ".join(x.tolist()[:5])]
+        }).reset_index()
+        category_counts.columns = ["Category", "Count", "Tickers"]
+        st.dataframe(category_counts, use_container_width=True, hide_index=True)
+
+    # Main trillion club table
+    st.markdown("---")
+    st.subheader("💎 All Trillion+ Club Members")
+
+    # Add trend data
+    from stockpulse.scanner.ai_pulse import AIPulseScanner
+    scanner = AIPulseScanner()
+
+    # Enrich with trends
+    members = trillion_df.to_dict('records')
+    for member in members:
+        trend = scanner.get_trend_data(member["ticker"])
+        member["trend_symbol"] = trend["trend_symbol"]
+        member["consecutive_days"] = trend["consecutive_days"]
+        member["score_change_5d"] = trend["score_change_5d"]
+
+    trillion_df = pd.DataFrame(members)
+
+    # Format for display
+    display_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "category", "trend_symbol", "consecutive_days"]
+    available_cols = [c for c in display_cols if c in trillion_df.columns]
+    display_df = trillion_df[available_cols].copy()
+
+    # Format columns
+    if "market_cap" in display_df.columns:
+        display_df["market_cap"] = display_df["market_cap"].apply(lambda x: f"${x/1e9:.0f}B" if pd.notna(x) else "")
+    if "current_price" in display_df.columns:
+        display_df["current_price"] = display_df["current_price"].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "")
+    if "price_vs_30d_high_pct" in display_df.columns:
+        display_df["price_vs_30d_high_pct"] = display_df["price_vs_30d_high_pct"].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "")
+    if "entry_score" in display_df.columns:
+        display_df["entry_score"] = display_df["entry_score"].round(0).astype(int)
+
+    # Create trend column
+    def format_trend(row):
+        trend = row.get('trend_symbol', '➡️')
+        days = row.get('consecutive_days', 0)
+        return f"{trend} {days}d"
+
+    display_df['trend'] = display_df.apply(format_trend, axis=1)
+
+    # Select final columns
+    final_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "category", "trend"]
+    final_cols = [c for c in final_cols if c in display_df.columns]
+    display_df = display_df[final_cols]
+
+    display_df = display_df.rename(columns={
+        "ticker": "Ticker",
+        "market_cap": "Market Cap",
+        "current_price": "Price",
+        "price_vs_30d_high_pct": "vs 30d High",
+        "entry_score": "Entry Score",
+        "category": "Category",
+        "trend": "Trend"
+    })
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # Entry score legend
+    st.caption("**Entry Score:** 75+ = Strong Entry (pullback + oversold) | 65-74 = Good Entry | 55-64 = Neutral | <55 = Extended (wait for pullback)")
+    st.caption("**Trend:** 📈 Score improving | 📉 Score declining | ➡️ Stable | 🆕 New to list • **Xd** = days tracked")
+
+    # Detail view for selected ticker
+    st.markdown("---")
+    st.subheader("📊 Stock Details")
+
+    selected_ticker = st.selectbox("Select ticker for details", trillion_df["ticker"].unique())
+
+    if selected_ticker:
+        ticker_data = trillion_df[trillion_df["ticker"] == selected_ticker].iloc[0]
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            score = ticker_data.get('entry_score', 0)
+            score_label = "Strong" if score >= 75 else "Good" if score >= 65 else "Neutral" if score >= 55 else "Extended"
+            st.metric("Entry Score", f"{score:.0f} ({score_label})")
+        with col2:
+            st.metric("Price", f"${ticker_data.get('current_price', 0):.2f}")
+        with col3:
+            st.metric("vs 30d High", f"{ticker_data.get('price_vs_30d_high_pct', 0):+.1f}%")
+        with col4:
+            st.metric("Category", ticker_data.get('category', 'Unknown'))
+
+        # Price chart
+        st.markdown("#### Price History (3 Months)")
+        try:
+            price_data = services["ingestion"].get_daily_prices(
+                [selected_ticker],
+                start_date=date.today() - timedelta(days=90)
+            )
+
+            if not price_data.empty:
+                fig = create_price_chart(price_data, selected_ticker, show_volume=True)
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Could not load price chart: {e}")
+
+
+def render_ai_theses_page(services: dict):
+    """Render AI Investment Theses page."""
+    st.title("🧠 AI Investment Theses")
+    st.markdown("Track and research investment theses using AI-powered analysis.")
+
+    # Get theses from database
+    try:
+        db = services.get("db") or get_db()
+        theses_df = db.fetchdf("""
+            SELECT * FROM ai_theses ORDER BY updated_at DESC
+        """)
+    except Exception as e:
+        st.error(f"Error loading theses: {e}")
+        theses_df = pd.DataFrame()
+
+    if theses_df.empty:
+        st.warning("No investment theses tracked yet. Run `stockpulse ai-scan` to initialize default theses.")
+        return
+
+    # Summary metrics
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Active Theses", len(theses_df[theses_df["status"] == "active"]) if "status" in theses_df.columns else len(theses_df))
+    with col2:
+        bullish = len(theses_df[theses_df["recommendation"] == "bullish"]) if "recommendation" in theses_df.columns else 0
+        st.metric("Bullish", bullish)
+    with col3:
+        bearish = len(theses_df[theses_df["recommendation"] == "bearish"]) if "recommendation" in theses_df.columns else 0
+        st.metric("Bearish", bearish)
+    with col4:
+        avg_conf = theses_df["confidence"].mean() if "confidence" in theses_df.columns else 0
+        st.metric("Avg Confidence", f"{avg_conf:.0f}%")
+
+    # Thesis cards
+    st.markdown("---")
+    st.subheader("📋 Investment Theses")
+
+    for _, thesis in theses_df.iterrows():
+        name = thesis.get("thesis_name", "Unnamed")
+        description = thesis.get("description", "")
+        tickers = thesis.get("tickers", "").split(",") if thesis.get("tickers") else []
+        recommendation = thesis.get("recommendation", "neutral")
+        confidence = thesis.get("confidence", 50)
+        last_research = thesis.get("last_research", "")
+        updated_at = thesis.get("updated_at", "")
+
+        # Recommendation styling
+        rec_colors = {
+            "bullish": ("#22c55e", "📈"),
+            "bearish": ("#ef4444", "📉"),
+            "neutral": ("#6b7280", "➡️")
+        }
+        rec_color, rec_icon = rec_colors.get(recommendation, ("#6b7280", "➡️"))
+
+        with st.expander(f"{rec_icon} {name} — {recommendation.upper()} ({confidence:.0f}%)", expanded=True):
+            st.markdown(f"**Description:** {description}")
+            st.markdown(f"**Tickers:** {', '.join(tickers)}")
+
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.markdown(f"""
+                <div style="background: {rec_color}20; padding: 15px; border-radius: 8px; border-left: 4px solid {rec_color}; text-align: center;">
+                    <h3 style="margin: 0; color: {rec_color};">{recommendation.upper()}</h3>
+                    <p style="margin: 5px 0 0 0; font-size: 24px;">{confidence:.0f}%</p>
+                    <p style="color: #6b7280; font-size: 12px;">confidence</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col2:
+                if last_research:
+                    st.markdown("**Latest Research:**")
+                    st.info(last_research[:500] + "..." if len(last_research) > 500 else last_research)
+                else:
+                    st.caption("No research analysis yet. Run `stockpulse ai-scan` to generate.")
+
+            if updated_at:
+                st.caption(f"Last updated: {updated_at}")
+
+    # Research history
+    st.markdown("---")
+    st.subheader("📜 Research History")
+
+    try:
+        history_df = db.fetchdf("""
+            SELECT
+                t.thesis_name,
+                r.research_date,
+                r.recommendation,
+                r.confidence,
+                r.analysis
+            FROM thesis_research r
+            JOIN ai_theses t ON r.thesis_id = t.id
+            ORDER BY r.research_date DESC
+            LIMIT 20
+        """)
+
+        if not history_df.empty:
+            # Format for display
+            display_df = history_df.copy()
+            if "confidence" in display_df.columns:
+                display_df["confidence"] = display_df["confidence"].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else "")
+            if "analysis" in display_df.columns:
+                display_df["analysis"] = display_df["analysis"].apply(lambda x: x[:100] + "..." if x and len(x) > 100 else x)
+
+            display_df = display_df.rename(columns={
+                "thesis_name": "Thesis",
+                "research_date": "Date",
+                "recommendation": "Recommendation",
+                "confidence": "Confidence",
+                "analysis": "Summary"
+            })
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No research history yet. Research is generated when running `stockpulse ai-scan`.")
+    except Exception as e:
+        st.warning(f"Could not load research history: {e}")
+
+    # Add new thesis
+    st.markdown("---")
+    st.subheader("➕ Add New Thesis")
+
+    with st.form("add_thesis"):
+        thesis_name = st.text_input("Thesis Name", placeholder="e.g., Tesla Robot Thesis")
+        thesis_description = st.text_area("Description", placeholder="Describe the investment thesis...")
+        thesis_tickers = st.text_input("Related Tickers (comma-separated)", placeholder="e.g., TSLA, NVDA, ISRG")
+
+        if st.form_submit_button("Add Thesis"):
+            if thesis_name and thesis_description:
+                try:
+                    from stockpulse.scanner.ai_pulse import AIPulseScanner
+                    scanner = AIPulseScanner()
+                    tickers_list = [t.strip() for t in thesis_tickers.split(",") if t.strip()]
+                    scanner.add_thesis(thesis_name, thesis_description, tickers_list)
+                    st.success(f"Added thesis: {thesis_name}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error adding thesis: {e}")
+            else:
+                st.warning("Please provide both name and description")
 
 
 def render_settings_page(services: dict):

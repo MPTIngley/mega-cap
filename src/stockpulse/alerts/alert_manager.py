@@ -931,31 +931,22 @@ class AlertManager:
 
     def send_long_term_digest(
         self,
-        opportunities: list[dict],
-        trillion_club: list[dict] | None = None
+        opportunities: list[dict]
     ) -> bool:
         """
         Send daily long-term opportunities digest with trend analysis.
 
-        Now includes Trillion+ Club section for mega-cap entry point tracking.
-
         Args:
             opportunities: List of long-term investment opportunities
-            trillion_club: Optional list of Trillion+ Club members with entry scores
 
         Returns:
             True if sent successfully
         """
-        if not opportunities and not trillion_club:
+        if not opportunities:
             return False
 
         today = datetime.now().strftime('%Y-%m-%d')
-
-        # Update subject if we have trillion club data
-        if trillion_club:
-            subject = f"📈 StockPulse Long-Term + Trillion Club - {today}"
-        else:
-            subject = f"📈 StockPulse Long-Term Opportunities - {today}"
+        subject = f"📈 StockPulse Long-Term Opportunities - {today}"
 
         # Identify strong buys (score 68+, improving or stable, 3+ days)
         strong_buys = [
@@ -1084,100 +1075,6 @@ class AlertManager:
             </tr>
             """
 
-        # Build Trillion+ Club section if provided
-        trillion_club_html = ""
-        if trillion_club:
-            tc_rows = ""
-            for member in trillion_club[:10]:
-                ticker = member.get("ticker", "N/A")
-                company = member.get("company_name", ticker)
-                market_cap_b = member.get("market_cap_b", 0)
-                entry_score = member.get("entry_score", 50)
-                price = member.get("current_price", 0)
-                pct_from_high = member.get("price_vs_30d_high_pct", 0)
-                category = member.get("category", "Other")
-                trend = member.get("trend_symbol", "➡️")
-                days = member.get("consecutive_days", 0)
-
-                # Entry score color coding
-                if entry_score >= 75:
-                    score_color = "#22c55e"
-                    score_label = "Strong"
-                elif entry_score >= 65:
-                    score_color = "#84cc16"
-                    score_label = "Good"
-                elif entry_score >= 55:
-                    score_color = "#eab308"
-                    score_label = "Neutral"
-                else:
-                    score_color = "#f97316"
-                    score_label = "Wait"
-
-                tc_rows += f"""
-                <tr>
-                    <td>
-                        <strong>{ticker}</strong>
-                        <br/><span style="color: #6b7280; font-size: 11px;">{company[:22]}</span>
-                    </td>
-                    <td style="text-align: center;">${market_cap_b:.0f}B</td>
-                    <td style="text-align: center;">${price:.2f}</td>
-                    <td style="text-align: center; color: {'#22c55e' if pct_from_high <= -5 else '#6b7280'};">
-                        {pct_from_high:+.1f}%
-                    </td>
-                    <td style="text-align: center;">
-                        <span style="color: {score_color}; font-weight: bold;">{entry_score:.0f}</span>
-                        <span style="font-size: 10px; color: #6b7280;"> {score_label}</span>
-                    </td>
-                    <td style="font-size: 11px;">{category}</td>
-                    <td style="text-align: center;">{trend}{days}d</td>
-                </tr>
-                """
-
-            # Best entry opportunities highlight
-            best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70][:3]
-            best_entries_html = ""
-            if best_entries:
-                best_items = ""
-                for m in best_entries:
-                    best_items += f"""
-                    <div style="display: inline-block; margin: 5px 10px; padding: 10px 15px; background: #f0fdf4; border-radius: 6px; border: 1px solid #22c55e;">
-                        <strong style="color: #15803d; font-size: 16px;">{m['ticker']}</strong>
-                        <span style="color: #22c55e; font-size: 14px;"> {m['entry_score']:.0f}</span>
-                        <span style="color: #6b7280; font-size: 12px;"> ({m['price_vs_30d_high_pct']:+.1f}%)</span>
-                    </div>
-                    """
-                best_entries_html = f"""
-                <div style="margin-bottom: 15px;">
-                    <strong style="color: #15803d;">🎯 Best Entry Points:</strong>
-                    {best_items}
-                </div>
-                """
-
-            trillion_club_html = f"""
-            <div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
-                <h2 style="color: #1d4ed8; margin: 0 0 10px 0; font-size: 18px;">💎 Watching the Trillion+ Club ({len(trillion_club)} Members)</h2>
-                <p style="color: #1e40af; font-size: 12px; margin: 0 0 15px 0;">
-                    Stocks that hit $1T+ market cap in last 30 days. Looking for long-term entry points.
-                </p>
-                {best_entries_html}
-                <table style="width: 100%;">
-                    <tr>
-                        <th style="text-align: left; color: #1d4ed8;">Company</th>
-                        <th style="text-align: center; color: #1d4ed8;">Mkt Cap</th>
-                        <th style="text-align: center; color: #1d4ed8;">Price</th>
-                        <th style="text-align: center; color: #1d4ed8;">vs High</th>
-                        <th style="text-align: center; color: #1d4ed8;">Entry</th>
-                        <th style="color: #1d4ed8;">Category</th>
-                        <th style="text-align: center; color: #1d4ed8;">Trend</th>
-                    </tr>
-                    {tc_rows}
-                </table>
-                <p style="color: #64748b; font-size: 11px; margin: 10px 0 0 0;">
-                    Entry Score: 75+ Strong (pullback+oversold) | 65-74 Good | 55-64 Neutral | &lt;55 Extended
-                </p>
-            </div>
-            """
-
         body_html = f"""
         <html>
         <head>
@@ -1209,8 +1106,6 @@ class AlertManager:
                 <p style="color: #4b5563;">
                     {len(opportunities) if opportunities else 0} stocks identified. Ranked by composite score with trend analysis.
                 </p>
-
-                {trillion_club_html}
 
                 {strong_buys_html}
 
@@ -1313,6 +1208,226 @@ class AlertManager:
             None,
             subject,
             f"Opportunities: {len(opportunities)}",
+            success
+        )
+
+        return success
+
+    def send_trillion_club_digest(
+        self,
+        trillion_club: list[dict]
+    ) -> bool:
+        """
+        Send Trillion+ Club digest email with entry point tracking.
+
+        Dedicated email for mega-cap stocks ($1T+) and their entry scores.
+
+        Args:
+            trillion_club: List of Trillion+ Club members with entry scores
+
+        Returns:
+            True if sent successfully
+        """
+        if not trillion_club:
+            return False
+
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        # Find best entry
+        best_opp = max(trillion_club, key=lambda x: x.get("entry_score", 0)) if trillion_club else None
+        best_ticker = best_opp["ticker"] if best_opp else "N/A"
+        best_score = best_opp.get("entry_score", 0) if best_opp else 0
+
+        subject = f"💎 Trillion+ Club: {len(trillion_club)} Members | Best Entry: {best_ticker} ({best_score:.0f}) - {today}"
+
+        # Build best opportunities section
+        best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70][:3]
+        best_opps_html = ""
+        if best_entries:
+            best_rows = ""
+            for opp in best_entries:
+                ticker = opp.get("ticker", "")
+                company = opp.get("company_name", ticker)[:20]
+                score = opp.get("entry_score", 0)
+                pct_from_high = opp.get("price_vs_30d_high_pct", 0)
+                price = opp.get("current_price", 0)
+
+                best_rows += f"""
+                <div style="display: inline-block; margin: 10px; padding: 15px; background: #f0fdf4; border-radius: 8px; border: 2px solid #22c55e; text-align: center; min-width: 150px;">
+                    <div style="font-size: 24px; font-weight: bold; color: #15803d;">{ticker}</div>
+                    <div style="font-size: 12px; color: #166534;">{company}</div>
+                    <div style="margin-top: 10px;">
+                        <span style="font-size: 20px; color: #22c55e;">{score:.0f}</span>
+                        <span style="font-size: 12px; color: #6b7280;"> entry score</span>
+                    </div>
+                    <div style="font-size: 13px; color: #6b7280;">
+                        ${price:.2f} ({pct_from_high:+.1f}% from high)
+                    </div>
+                </div>
+                """
+
+            best_opps_html = f"""
+            <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
+                <h2 style="color: #15803d; margin: 0 0 15px 0; font-size: 18px;">🎯 Best Entry Opportunities Today</h2>
+                <div style="text-align: center;">
+                    {best_rows}
+                </div>
+            </div>
+            """
+
+        # Build main trillion club table
+        tc_rows = ""
+        for member in trillion_club[:15]:
+            ticker = member.get("ticker", "N/A")
+            company = member.get("company_name", ticker)
+            market_cap_b = member.get("market_cap_b", 0)
+            entry_score = member.get("entry_score", 50)
+            price = member.get("current_price", 0)
+            pct_from_high = member.get("price_vs_30d_high_pct", 0)
+            category = member.get("category", "Other")
+            trend = member.get("trend_symbol", "➡️")
+            days = member.get("consecutive_days", 0)
+
+            # Entry score color coding
+            if entry_score >= 75:
+                score_color = "#22c55e"
+                score_label = "Strong Entry"
+            elif entry_score >= 65:
+                score_color = "#84cc16"
+                score_label = "Good Entry"
+            elif entry_score >= 55:
+                score_color = "#eab308"
+                score_label = "Neutral"
+            else:
+                score_color = "#f97316"
+                score_label = "Extended"
+
+            tc_rows += f"""
+            <tr>
+                <td>
+                    <strong style="font-size: 16px;">{ticker}</strong>
+                    <br/><span style="color: #6b7280; font-size: 12px;">{company[:25]}</span>
+                </td>
+                <td style="text-align: center;">${market_cap_b:.0f}B</td>
+                <td style="text-align: center;">${price:.2f}</td>
+                <td style="text-align: center; color: {'#22c55e' if pct_from_high <= -5 else '#6b7280'};">
+                    {pct_from_high:+.1f}%
+                </td>
+                <td style="text-align: center;">
+                    <span style="color: {score_color}; font-weight: bold;">{entry_score:.0f}</span>
+                    <br/><span style="font-size: 10px; color: #6b7280;">{score_label}</span>
+                </td>
+                <td style="text-align: center; font-size: 12px;">{category}</td>
+                <td style="text-align: center;">{trend}{days}d</td>
+            </tr>
+            """
+
+        # Category summary
+        categories = {}
+        for member in trillion_club:
+            cat = member.get("category", "Other")
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(member["ticker"])
+
+        category_rows = ""
+        for cat, tickers in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True):
+            tickers_str = ", ".join(tickers[:5])
+            if len(tickers) > 5:
+                tickers_str += f" +{len(tickers) - 5} more"
+            category_rows += f"""
+            <tr>
+                <td><strong>{cat}</strong></td>
+                <td style="text-align: center;">{len(tickers)}</td>
+                <td style="font-size: 12px;">{tickers_str}</td>
+            </tr>
+            """
+
+        body_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #f9fafb; }}
+                .header {{ background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 25px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 24px; }}
+                .header p {{ margin: 5px 0 0 0; opacity: 0.9; }}
+                .content {{ padding: 25px; background: white; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+                th {{ background: #f3f4f6; color: #374151; font-size: 12px; text-transform: uppercase; }}
+                .section {{ margin-top: 30px; }}
+                .section h2 {{ font-size: 18px; padding-bottom: 8px; margin-bottom: 15px; }}
+                .footer {{ background: #f3f4f6; padding: 20px; border-radius: 0 0 8px 8px; font-size: 12px; color: #6b7280; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>💎 Trillion+ Club Daily Report</h1>
+                <p>{today} | Tracking {len(trillion_club)} Mega-Cap Stocks</p>
+            </div>
+            <div class="content">
+                <p style="color: #4b5563; font-size: 14px;">
+                    <strong>Core Thesis:</strong> Mega-cap tech companies will continue to dominate.
+                    We track stocks that have hit $1T+ market cap in the last 30 days and look for optimal entry points.
+                </p>
+
+                {best_opps_html}
+
+                <div class="section">
+                    <h2 style="color: #3b82f6; border-bottom: 2px solid #3b82f6;">💎 Trillion+ Club Members</h2>
+                    <p style="font-size: 13px; color: #6b7280;">Ranked by entry score. Higher scores = better entry opportunity.</p>
+                    <table>
+                        <tr>
+                            <th>Company</th>
+                            <th style="text-align: center;">Mkt Cap</th>
+                            <th style="text-align: center;">Price</th>
+                            <th style="text-align: center;">vs 30d High</th>
+                            <th style="text-align: center;">Entry Score</th>
+                            <th style="text-align: center;">Category</th>
+                            <th style="text-align: center;">Trend</th>
+                        </tr>
+                        {tc_rows}
+                    </table>
+                </div>
+
+                <div class="section">
+                    <h2 style="color: #0891b2; border-bottom: 2px solid #0891b2;">📁 Categories</h2>
+                    <table>
+                        <tr>
+                            <th>Category</th>
+                            <th style="text-align: center; width: 60px;">Count</th>
+                            <th>Members</th>
+                        </tr>
+                        {category_rows}
+                    </table>
+                </div>
+
+            </div>
+            <div class="footer">
+                <div style="margin-bottom: 15px;">
+                    <strong>Entry Score Guide:</strong><br/>
+                    75+ = Strong Entry (pullback + oversold) | 65-74 = Good Entry | 55-64 = Neutral | &lt;55 = Extended (wait for pullback)
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Trend:</strong> 📈 Score improving | 📉 Score declining | ➡️ Stable | 🆕 New to list<br/>
+                    <strong>Xd</strong> = Days tracked on the list
+                </div>
+                <strong>Disclaimer:</strong> This is not financial advice. These are automated screening results
+                for research purposes only. Always do your own due diligence before investing.
+                <br/><br/>
+                StockPulse Trillion+ Club Scanner | Runs daily at 5:30pm ET
+            </div>
+        </body>
+        </html>
+        """
+
+        success = self.email_sender.send_email(subject, body_html)
+
+        self._log_alert(
+            "trillion_club_digest",
+            None,
+            subject,
+            f"Trillion Club Members: {len(trillion_club)}",
             success
         )
 

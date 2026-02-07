@@ -53,7 +53,7 @@ def main():
 
     parser.add_argument(
         "command",
-        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "ai-scan", "ai-backfill"],
+        choices=["run", "dashboard", "backtest", "ingest", "scan", "init", "optimize", "reset", "test-email", "digest", "longterm-backtest", "longterm-scan", "longterm-backfill", "longterm-reset", "fundamentals-refresh", "pe-backfill", "add-holding", "close-holding", "holdings", "trillion-scan", "ai-scan", "ai-backfill"],
         help="Command to execute"
     )
 
@@ -195,6 +195,8 @@ def main():
         run_close_holding(args)
     elif args.command == "holdings":
         run_show_holdings(args)
+    elif args.command == "trillion-scan":
+        run_trillion_scan()
     elif args.command == "ai-scan":
         run_ai_scan()
     elif args.command == "ai-backfill":
@@ -671,6 +673,60 @@ def run_scheduler():
         """Callback for daily portfolio digest email."""
         alert_manager.send_daily_digest()
 
+    def on_trillion_scan():
+        """Callback for Trillion+ Club scanner."""
+        from stockpulse.scanner.ai_pulse import AIPulseScanner
+
+        print("\n" + "=" * 60)
+        print("  TRILLION+ CLUB SCAN RUNNING")
+        print("=" * 60)
+
+        ai_scanner = AIPulseScanner()
+        trillion_club = ai_scanner.get_trillion_club_members()
+        ai_scanner._store_scan_results(trillion_club)
+        trillion_club = ai_scanner._enrich_with_trends(trillion_club)
+
+        print(f"  Found {len(trillion_club)} Trillion+ Club members")
+
+        best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70]
+        if best_entries:
+            print("\n  🎯 Best Entry Opportunities:")
+            for opp in best_entries[:3]:
+                print(f"    {opp['ticker']}: Score {opp['entry_score']:.0f}")
+
+        # Send email
+        alert_manager.send_trillion_club_digest(trillion_club)
+        print("  ✅ Trillion+ Club digest email sent!")
+        print("=" * 60)
+
+    def on_ai_scan():
+        """Callback for AI thesis research scanner."""
+        from stockpulse.scanner.ai_pulse import AIPulseScanner
+
+        print("\n" + "=" * 60)
+        print("  AI THESIS SCAN RUNNING")
+        print("=" * 60)
+
+        ai_scanner = AIPulseScanner()
+        theses = ai_scanner._research_theses()
+
+        print(f"  Researched {len(theses)} investment theses")
+        for thesis in theses[:3]:
+            rec = thesis.get("recommendation", "neutral")
+            print(f"    {thesis['thesis_name']}: {rec.upper()}")
+
+        # Send email (theses-only)
+        scan_results = {
+            "theses": theses,
+            "market_pulse": ai_scanner.claude.generate_market_pulse({"theses": len(theses)}),
+            "trillion_club": [],
+            "categories": {},
+            "best_opportunities": []
+        }
+        alert_manager.send_ai_pulse_digest(scan_results, long_term_opportunities=None)
+        print("  ✅ AI Thesis email sent!")
+        print("=" * 60)
+
     # Timezone and job names for schedule display
     et = pytz.timezone("US/Eastern")
     job_names = {
@@ -681,6 +737,8 @@ def run_scheduler():
         "daily_scan": "Daily scan",
         "daily_digest": "Daily digest",
         "long_term_scan": "Long-term scan",
+        "trillion_club_scan": "Trillion+ Club scan",
+        "ai_thesis_scan": "AI Thesis research",
     }
 
     def print_schedule():
@@ -703,13 +761,15 @@ def run_scheduler():
 
         # Define the trading day order
         day_order = [
-            "intraday_open",    # 09:32
-            "intraday_first",   # 09:45
-            "intraday_scan",    # 10:00-15:45
-            "intraday_close",   # 15:58
-            "daily_scan",       # 16:30
-            "daily_digest",     # 17:00
-            "long_term_scan",   # 17:30
+            "intraday_open",       # 09:32
+            "intraday_first",      # 09:45
+            "intraday_scan",       # 10:00-15:45
+            "intraday_close",      # 15:58
+            "daily_scan",          # 16:30
+            "daily_digest",        # 17:00
+            "long_term_scan",      # 17:30
+            "trillion_club_scan",  # 17:31
+            "ai_thesis_scan",      # 17:32
         ]
 
         # Find the next job (soonest that is in the future)
@@ -749,10 +809,20 @@ def run_scheduler():
         on_daily_digest()
         print_schedule()
 
+    def on_trillion_scan_wrapper():
+        on_trillion_scan()
+        print_schedule()
+
+    def on_ai_scan_wrapper():
+        on_ai_scan()
+        print_schedule()
+
     scheduler.on_intraday_scan = on_intraday_scan_wrapper
     scheduler.on_daily_scan = on_daily_scan_wrapper
     scheduler.on_long_term_scan = on_long_term_scan_wrapper
     scheduler.on_daily_digest = on_daily_digest_wrapper
+    scheduler.on_trillion_scan = on_trillion_scan_wrapper
+    scheduler.on_ai_pulse_scan = on_ai_scan_wrapper
 
     scheduler.start()
 
@@ -1998,31 +2068,25 @@ def run_show_holdings(args):
         print_holdings_summary("active")
 
 
-def run_ai_scan():
-    """Run AI Pulse scanner and send daily digest email.
+def run_trillion_scan():
+    """Run Trillion+ Club scanner and send dedicated email.
 
-    The AI Pulse scanner tracks:
-    - Trillion+ Club: Stocks that hit $1T+ market cap in last 30 days
-    - Categories: Hyperscalers, Neoclouds, AI Infrastructure
-    - Entry Scores: Find optimal long-term entry points
-    - Thesis Research: AI-powered investment thesis tracking
-
-    This also integrates with the long-term scanner for a combined email.
+    Tracks mega-cap stocks ($1T+ market cap in last 30 days) and
+    calculates entry scores for optimal long-term entry points.
     """
     from stockpulse.scanner.ai_pulse import AIPulseScanner
-    from stockpulse.scanner.long_term_scanner import LongTermScanner
-    from stockpulse.data.universe import UniverseManager
     from stockpulse.alerts.alert_manager import AlertManager
 
     print("\n" + "=" * 70)
-    print("  AI PULSE SCANNER")
-    print("  Trillion+ Club Tracking & AI Investment Research")
+    print("  TRILLION+ CLUB SCANNER")
+    print("  Mega-Cap Entry Point Tracking")
     print("=" * 70)
 
-    # Check data quality first
+    # Initialize scanner
     ai_scanner = AIPulseScanner()
-    data_quality = ai_scanner.check_data_quality()
 
+    # Check data quality
+    data_quality = ai_scanner.check_data_quality()
     print("\n  Data Quality Check:")
     if data_quality["ok"]:
         print("  ✅ Data quality: OK")
@@ -2030,46 +2094,41 @@ def run_ai_scan():
         print(f"  ⚠️  Data quality: {data_quality['status'].upper()}")
         for issue in data_quality["issues"]:
             print(f"      - {issue}")
-        if data_quality["status"] == "error":
-            print("\n  Run 'stockpulse ingest' to populate price data first.")
 
-    # Run AI Pulse scan
+    # Get trillion club members (reads from cache/DB if available)
     print("\n  Scanning Trillion+ Club members...")
-    results = ai_scanner.run_scan()
+    trillion_club = ai_scanner.get_trillion_club_members()
 
-    trillion_club = results.get("trillion_club", [])
-    theses = results.get("theses", [])
-    best_opportunities = results.get("best_opportunities", [])
+    # Store results in DB
+    ai_scanner._store_scan_results(trillion_club)
+
+    # Enrich with trend data
+    trillion_club = ai_scanner._enrich_with_trends(trillion_club)
 
     print(f"\n  Found {len(trillion_club)} Trillion+ Club members")
 
     # Show categories
-    categories = results.get("categories", {})
-    print("\n  Categories:")
-    for cat, members in categories.items():
-        if members:
-            tickers = ", ".join([m["ticker"] for m in members[:5]])
-            print(f"    {cat}: {len(members)} ({tickers})")
+    categories = {}
+    for member in trillion_club:
+        cat = member.get("category", "Other")
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(member["ticker"])
 
-    # Show top entry opportunities
-    if best_opportunities:
-        print("\n  🎯 Best Entry Opportunities:")
-        for opp in best_opportunities[:5]:
+    print("\n  Categories:")
+    for cat, tickers in categories.items():
+        print(f"    {cat}: {len(tickers)} ({', '.join(tickers[:5])})")
+
+    # Show best entry opportunities
+    best_entries = [m for m in trillion_club if m.get("entry_score", 0) >= 70]
+    if best_entries:
+        print("\n  🎯 Best Entry Opportunities (Score >= 70):")
+        for opp in best_entries[:5]:
             ticker = opp["ticker"]
             score = opp["entry_score"]
             pct_from_high = opp.get("price_vs_30d_high_pct", 0)
             price = opp.get("current_price", 0)
             print(f"    {ticker}: Score {score:.0f} | ${price:.2f} ({pct_from_high:+.1f}% from high)")
-
-    # Show thesis research if available
-    if theses:
-        print("\n  🧠 Active Investment Theses:")
-        for thesis in theses[:3]:
-            name = thesis.get("thesis_name", "")
-            recommendation = thesis.get("recommendation", "neutral")
-            confidence = thesis.get("confidence", 50)
-            rec_symbol = {"bullish": "📈", "bearish": "📉", "neutral": "➡️"}.get(recommendation, "➡️")
-            print(f"    {rec_symbol} {name}: {recommendation.upper()} ({confidence:.0f}%)")
 
     # Show all trillion club members
     print("\n  💎 Trillion+ Club Members (by Entry Score):")
@@ -2086,40 +2145,104 @@ def run_ai_scan():
         category = member.get("category", "")[:13]
         print(f"  {ticker:<8} {company:<20} {mkt_cap:<10} {price:<10} {score:<8} {category:<15}")
 
-    # Also run long-term scanner to integrate results
-    print("\n" + "-" * 70)
-    print("  Running Long-Term Scanner for combined email...")
-
-    universe = UniverseManager()
-    tickers = universe.get_active_tickers()
-
-    long_term_scanner = LongTermScanner()
-    lt_opportunities = long_term_scanner.scan(tickers)
-    lt_opportunities = long_term_scanner.enrich_with_trends(lt_opportunities)
-
-    print(f"  Long-term opportunities: {len(lt_opportunities)}")
-
-    # Send combined AI Pulse email
-    print("\n  Sending AI Pulse digest email...")
+    # Send trillion club email
+    print("\n  Sending Trillion+ Club digest email...")
     alert_manager = AlertManager()
-    success = alert_manager.send_ai_pulse_digest(
-        scan_results=results,
-        long_term_opportunities=lt_opportunities[:15]
-    )
+    success = alert_manager.send_trillion_club_digest(trillion_club)
 
     if success:
-        print("  ✅ AI Pulse digest sent!")
+        print("  ✅ Trillion+ Club digest sent!")
     else:
-        print("  ❌ Failed to send AI Pulse digest. Check email configuration.")
+        print("  ❌ Failed to send digest. Check email configuration.")
 
-    # Show market pulse if available
-    market_pulse = results.get("market_pulse", "")
+    print("\n" + "=" * 70 + "\n")
+
+
+def run_ai_scan():
+    """Run AI investment thesis scanner and send research email.
+
+    Focuses on AI-powered investment thesis research using Claude:
+    - Thesis tracking and validation
+    - Research analysis for each thesis
+    - Market pulse generation
+
+    Note: Trillion+ Club tracking is now a separate command: stockpulse trillion-scan
+    """
+    from stockpulse.scanner.ai_pulse import AIPulseScanner
+    from stockpulse.alerts.alert_manager import AlertManager
+
+    print("\n" + "=" * 70)
+    print("  AI THESIS RESEARCH SCANNER")
+    print("  AI-Powered Investment Thesis Analysis")
+    print("=" * 70)
+
+    # Initialize scanner
+    ai_scanner = AIPulseScanner()
+
+    # Research theses using Claude
+    print("\n  🧠 Researching Investment Theses...")
+    theses = ai_scanner._research_theses()
+
+    if theses:
+        print(f"\n  Found {len(theses)} active theses:")
+        for thesis in theses:
+            name = thesis.get("thesis_name", "")
+            recommendation = thesis.get("recommendation", "neutral")
+            confidence = thesis.get("confidence", 50)
+            rec_symbol = {"bullish": "📈", "bearish": "📉", "neutral": "➡️"}.get(recommendation, "➡️")
+            print(f"    {rec_symbol} {name}: {recommendation.upper()} ({confidence:.0f}%)")
+
+            # Show brief analysis
+            analysis = thesis.get("analysis", "")
+            if analysis and "not configured" not in analysis.lower():
+                # Show first 150 chars
+                brief = analysis[:150] + "..." if len(analysis) > 150 else analysis
+                print(f"       {brief}")
+            print()
+    else:
+        print("\n  No active theses found. Run 'stockpulse ai-backfill' to create defaults.")
+
+    # Generate market pulse
+    print("\n  📡 Generating Market Pulse...")
+    market_data = {
+        "theses_count": len(theses),
+        "bullish_theses": len([t for t in theses if t.get("recommendation") == "bullish"]),
+        "bearish_theses": len([t for t in theses if t.get("recommendation") == "bearish"]),
+    }
+    market_pulse = ai_scanner.claude.generate_market_pulse(market_data)
+
     if market_pulse and "not configured" not in market_pulse.lower():
-        print("\n  📡 AI Market Pulse:")
+        print("\n  AI Market Pulse:")
         for line in market_pulse.split("\n")[:5]:
             if line.strip():
                 print(f"    {line.strip()}")
+    else:
+        print("  (Claude API not configured - add ANTHROPIC_API_KEY to .env)")
 
+    # Send AI theses email
+    print("\n  Sending AI Thesis Research email...")
+    alert_manager = AlertManager()
+
+    # Create simplified scan results for theses-only email
+    scan_results = {
+        "theses": theses,
+        "market_pulse": market_pulse,
+        "trillion_club": [],  # Empty - trillion data is now separate
+        "categories": {},
+        "best_opportunities": []
+    }
+
+    success = alert_manager.send_ai_pulse_digest(
+        scan_results=scan_results,
+        long_term_opportunities=None
+    )
+
+    if success:
+        print("  ✅ AI Thesis Research email sent!")
+    else:
+        print("  ❌ Failed to send email. Check email configuration.")
+
+    print("\n  Note: For Trillion+ Club tracking, run: stockpulse trillion-scan")
     print("\n" + "=" * 70 + "\n")
 
 

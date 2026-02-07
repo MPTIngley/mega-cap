@@ -35,6 +35,7 @@ class StockPulseScheduler:
         self.on_daily_scan: Callable | None = None
         self.on_long_term_scan: Callable | None = None
         self.on_daily_digest: Callable | None = None
+        self.on_trillion_scan: Callable | None = None
         self.on_ai_pulse_scan: Callable | None = None
 
     def _is_market_hours(self) -> bool:
@@ -132,17 +133,29 @@ class StockPulseScheduler:
         except Exception as e:
             logger.error(f"Error in daily digest job: {e}", exc_info=True)
 
+    def _run_trillion_scan_job(self) -> None:
+        """Run Trillion+ Club scanner."""
+        logger.info("Running Trillion+ Club scan job")
+
+        try:
+            if self.on_trillion_scan:
+                self.on_trillion_scan()
+            logger.info("Trillion+ Club scan job completed")
+
+        except Exception as e:
+            logger.error(f"Error in Trillion+ Club scan job: {e}", exc_info=True)
+
     def _run_ai_pulse_scan_job(self) -> None:
-        """Run AI Pulse scanner (Trillion+ Club & AI thesis tracking)."""
-        logger.info("Running AI Pulse scan job")
+        """Run AI Thesis scanner (AI-powered investment thesis research)."""
+        logger.info("Running AI Thesis scan job")
 
         try:
             if self.on_ai_pulse_scan:
                 self.on_ai_pulse_scan()
-            logger.info("AI Pulse scan job completed")
+            logger.info("AI Thesis scan job completed")
 
         except Exception as e:
-            logger.error(f"Error in AI Pulse scan job: {e}", exc_info=True)
+            logger.error(f"Error in AI Thesis scan job: {e}", exc_info=True)
 
     def start(self) -> None:
         """Start the scheduler with all jobs."""
@@ -258,20 +271,40 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
-        # AI Pulse scanner - 17:30 ET on weekdays (same time as long-term)
+        # Trillion+ Club scanner - 17:31 ET on weekdays (1 min after long-term)
+        trillion_config = self.config.get("trillion_club", {})
+        if trillion_config.get("enabled", True):
+            run_time = trillion_config.get("run_time", "17:31").split(":")
+            self.scheduler.add_job(
+                self._run_trillion_scan_job,
+                CronTrigger(
+                    hour=int(run_time[0]),
+                    minute=int(run_time[1]),
+                    day_of_week="mon-fri",
+                    timezone=self.timezone
+                ),
+                id="trillion_club_scan",
+                name="Trillion+ Club mega-cap scanner",
+                replace_existing=True,
+                misfire_grace_time=600,
+                coalesce=True,
+                max_instances=1
+            )
+
+        # AI Thesis scanner - 17:32 ET on weekdays (2 min after long-term)
         ai_config = self.config.get("ai_pulse", {})
         if ai_config.get("enabled", True):
-            run_time = ai_config.get("run_time", "17:30").split(":")
+            run_time = ai_config.get("run_time", "17:32").split(":")
             self.scheduler.add_job(
                 self._run_ai_pulse_scan_job,
                 CronTrigger(
                     hour=int(run_time[0]),
-                    minute=int(run_time[1]) + 1,  # Run 1 minute after long-term
+                    minute=int(run_time[1]),
                     day_of_week="mon-fri",
                     timezone=self.timezone
                 ),
-                id="ai_pulse_scan",
-                name="AI Pulse scanner (Trillion+ Club & AI theses)",
+                id="ai_thesis_scan",
+                name="AI Thesis research scanner",
                 replace_existing=True,
                 misfire_grace_time=600,
                 coalesce=True,
@@ -314,6 +347,8 @@ class StockPulseScheduler:
             self._run_daily_job()
         elif job_type == "long_term":
             self._run_long_term_scan_job()
+        elif job_type == "trillion":
+            self._run_trillion_scan_job()
         elif job_type == "ai_pulse":
             self._run_ai_pulse_scan_job()
         else:
