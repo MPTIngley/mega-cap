@@ -522,6 +522,10 @@ ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 4. **Never force push** or rewrite history
 5. **Update PROJECT_PLAN.md** at end of each session with work done
 
+### Permissions
+- **Martin has full push access to `main`** — can push directly after merging feature branch
+- Claude Code cannot push to `main` (403 protected) — works on feature branch only
+
 ### Workflow for Martin (local machine)
 ```bash
 # Pull latest from feature branch
