@@ -253,6 +253,7 @@ stockpulse reset            # Clear trading data (keeps prices)
 - [ ] Paid data source integration (Polygon.io, Alpaca)
 - [ ] Docker containerization for deployment
 - [ ] Cloud deployment (EC2 / GCP / Railway)
+- [ ] **Social Sentiment Integration** - See Phase 7 proposal below
 
 ### Long-Term Backtester Future Enhancements
 - [ ] Tax-loss harvesting simulation
@@ -266,6 +267,174 @@ stockpulse reset            # Clear trading data (keeps prices)
   - Sell covered calls on holdings for additional income
   - If called away, collect premium + profit
   - Wheel back into puts, repeat
+
+---
+
+## Phase 7 — Social Sentiment Integration (PROPOSED)
+
+**Goal:** Use internet chatter (Reddit, Twitter/X, StockTwits, news) to inform AI strategies with sentiment analysis via Claude API.
+
+### Research Summary (2026-02-07)
+
+#### Data Source Evaluation
+
+| Source | Access | Cost | Quality | Recommendation |
+|--------|--------|------|---------|----------------|
+| **StockGeist** | REST API | $0.0001/credit (~$10-50/mo) | High - aggregated Reddit+Twitter, 2000+ stocks | ✅ **PRIMARY** |
+| **ApeWisdom** | Free API | Free | Medium - Reddit/WSB focused, mention counts | ✅ **SECONDARY** |
+| **Alpaca News** | API (Benzinga) | Free tier available | High - 130+ articles/day, sentiment included | ✅ **NEWS SOURCE** |
+| **Reddit API** | Official API | $0.24/1000 requests (~$500+/mo) | Raw data, needs processing | ❌ Too expensive |
+| **Twitter/X API** | Tiered | $200/mo Basic, $5000/mo Pro | Raw data, needs processing | ❌ Too expensive |
+| **StockTwits** | Limited API | Free (limited) | Medium - bullish/bearish tags | ⚠️ Limited access |
+| **EODHD Sentiment** | REST API | Subscription required | Medium - aggregated news sentiment | ⚠️ Evaluate later |
+
+#### Recommended Architecture
+
+**Two-Tier Sentiment System:**
+
+1. **Tier 1: Aggregated Sentiment (Daily)**
+   - Source: StockGeist API + ApeWisdom API
+   - Data: Pre-calculated sentiment scores, mention volumes, trend direction
+   - Cost: ~$10-50/month
+   - Use: Daily overlay on AI Pulse scores, long-term scanner boost
+
+2. **Tier 2: Deep Analysis (On-Demand)**
+   - Source: Alpaca News API → Claude Haiku for analysis
+   - Data: Raw news articles about specific tickers
+   - Cost: ~$5-20/month (Claude tokens)
+   - Use: Thesis research, earnings reaction analysis, breaking news
+
+#### Cost Estimates
+
+| Component | Monthly Cost |
+|-----------|--------------|
+| StockGeist API (100 stocks × 30 days) | $10-50 |
+| Claude Haiku (100 articles/day × 1000 tokens) | $5-20 |
+| ApeWisdom API | Free |
+| Alpaca News (via existing infra) | Free |
+| **Total Estimated** | **$15-70/month** |
+
+### Integration Plan
+
+#### New Module: `src/stockpulse/sentiment/`
+
+```
+sentiment/
+├── __init__.py
+├── aggregator.py      # Combines multiple sentiment sources
+├── stockgeist.py      # StockGeist API client
+├── apewisdom.py       # ApeWisdom API client (Reddit/WSB)
+├── news_sentiment.py  # News → Claude analysis pipeline
+└── models.py          # Sentiment data models
+```
+
+#### Database Schema
+
+```sql
+CREATE TABLE sentiment_scores (
+    id INTEGER PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    scan_date TEXT NOT NULL,
+    source TEXT NOT NULL,  -- 'stockgeist', 'apewisdom', 'news', 'composite'
+    sentiment_score REAL,  -- -100 to +100
+    mention_count INTEGER,
+    mention_change_24h REAL,
+    bullish_pct REAL,
+    bearish_pct REAL,
+    trending_rank INTEGER,
+    raw_data TEXT,  -- JSON blob for source-specific data
+    UNIQUE (ticker, scan_date, source)
+);
+
+CREATE TABLE sentiment_alerts (
+    id INTEGER PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    alert_date TEXT NOT NULL,
+    alert_type TEXT,  -- 'spike', 'reversal', 'trending', 'news_break'
+    description TEXT,
+    sentiment_before REAL,
+    sentiment_after REAL
+);
+```
+
+#### Integration Points
+
+1. **AI Pulse Scanner Enhancement**
+   - Add sentiment_score column to AI stock rankings
+   - Weight sentiment in AI Score calculation (+/- 10 points based on sentiment)
+   - Flag stocks with sentiment/price divergence (bearish sentiment but stock rising = caution)
+
+2. **Long-Term Scanner Enhancement**
+   - Add sentiment filter: Skip stocks with strongly negative sentiment
+   - Boost score for stocks with positive sentiment + technical setup
+   - Track sentiment trend alongside price trend
+
+3. **Trading Strategies Enhancement**
+   - Optional sentiment filter for entry signals
+   - Sentiment confirmation required for high-conviction trades
+   - Avoid entries during negative sentiment spikes
+
+4. **New Email Section: "Sentiment Watch"**
+   - Top 5 most-mentioned stocks in AI universe
+   - Sentiment reversals (was bearish → now bullish)
+   - Trending on Reddit/StockTwits
+
+#### Scheduler Integration
+
+| Job | Time (ET) | Description |
+|-----|-----------|-------------|
+| Sentiment fetch | 6:00 AM | Pull daily sentiment from StockGeist/ApeWisdom |
+| News sentiment | 8:00 AM | Analyze overnight news via Claude |
+| Sentiment digest | 9:00 AM | Email with sentiment highlights |
+
+### Implementation Phases
+
+**Phase 7a: Foundation (1-2 sessions)**
+- [ ] Create `sentiment/` module structure
+- [ ] Implement StockGeist API client
+- [ ] Implement ApeWisdom API client
+- [ ] Create database tables
+- [ ] Add scheduler job for daily fetch
+- [ ] Store sentiment scores for AI universe
+
+**Phase 7b: Integration (1-2 sessions)**
+- [ ] Add sentiment to AI Pulse scanner
+- [ ] Add sentiment to Long-term scanner
+- [ ] Create "Sentiment Watch" email section
+- [ ] Dashboard tab: Sentiment overview
+
+**Phase 7c: Advanced (2-3 sessions)**
+- [ ] News → Claude sentiment pipeline
+- [ ] Sentiment alerts (spikes, reversals)
+- [ ] Strategy sentiment filters
+- [ ] Backtest sentiment as alpha factor
+- [ ] Sentiment divergence detection
+
+### API Keys Required
+
+```bash
+# Add to .env
+STOCKGEIST_API_KEY=your_key_here  # Get from stockgeist.ai
+# ApeWisdom is free, no key needed
+# ANTHROPIC_API_KEY already configured for Claude
+```
+
+### Risks & Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| API rate limits | Cache aggressively, batch requests |
+| Sentiment noise | Use 3-day rolling average, not single-day |
+| False signals | Sentiment is confirming factor only, not primary |
+| Cost overruns | Set daily API budget caps, alert on overage |
+| Data staleness | Mark data freshness, skip if >24h old |
+
+### Success Metrics
+
+- Sentiment data for 95%+ of AI universe daily
+- <$50/month total API costs
+- Measurable improvement in AI Pulse signal quality (backtest)
+- User finds "Sentiment Watch" email valuable
 
 ---
 
@@ -316,6 +485,7 @@ stockpulse reset            # Clear trading data (keeps prices)
 | 2026-02-07 | Trillion+ auto-backfill | Auto-detect gaps and backfill 3 weeks of historical data (like long-term) |
 | 2026-02-07 | AI Pulse email fixed | Now shows AI stocks table + theses (was blank) |
 | 2026-02-07 | Email format consistency | Trillion + AI emails reformatted to match longterm style (table layouts, reasoning rows, compact breakdowns) |
+| 2026-02-07 | Sentiment integration proposal | Phase 7 plan: StockGeist + ApeWisdom + Claude, $15-70/mo |
 
 ---
 
