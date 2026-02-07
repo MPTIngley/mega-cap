@@ -43,7 +43,7 @@ Then use `stockpulse <command>` from anywhere.
 | Command | What it does |
 |---------|--------------|
 | `stockpulse dashboard` | Launch the web dashboard (http://localhost:8501) |
-| `stockpulse run` | Start the scheduler (runs scans every 15 min during market hours) |
+| `stockpulse run` | Start the scheduler (runs all scans on schedule) |
 | `stockpulse scan` | Run a single signal scan now |
 | `stockpulse backtest` | Run backtests on all strategies |
 | `stockpulse optimize` | Run hyperparameter optimization for all 8 strategies |
@@ -51,6 +51,16 @@ Then use `stockpulse <command>` from anywhere.
 | `stockpulse reset --clear-all` | Reset ALL data including historical prices |
 | `stockpulse init` | Initialize DB and fetch 2 years of historical data |
 | `stockpulse ingest` | Refresh universe and fetch latest price data |
+
+## Long-Term & Research Commands
+
+| Command | What it does |
+|---------|--------------|
+| `stockpulse longterm-scan` | Run 8-component value scoring on all stocks + email |
+| `stockpulse trillion-scan` | Run Trillion+ Club mega-cap scanner + email |
+| `stockpulse ai-scan` | Run AI thesis research using Claude + email |
+| `stockpulse longterm-backfill` | Build 6 weeks of historical scan data for trends |
+| `stockpulse ai-backfill` | Initialize trillion club history and default theses |
 
 ---
 
@@ -242,10 +252,28 @@ STOCKPULSE_MAX_POSITIONS=20
 
 ## Schedule (When Things Run)
 
-| Job | Time (ET) | Frequency |
-|-----|-----------|-----------|
-| Intraday scan | 9:30 AM - 4:00 PM | Every 15 minutes |
-| Daily summary | 4:30 PM | Once per day (Mon-Fri) |
-| Long-term scan | 5:30 PM | Once per day (Mon-Fri) |
+| Job | Time (ET) | Frequency | Email |
+|-----|-----------|-----------|-------|
+| Intraday scan | 9:30 AM - 4:00 PM | Every 15 minutes | Signal alerts |
+| Daily summary | 4:30 PM | Once per day (Mon-Fri) | Portfolio digest |
+| Daily digest | 5:00 PM | Once per day (Mon-Fri) | Trading summary |
+| Long-term scan | 5:30 PM | Once per day (Mon-Fri) | Value opportunities |
+| Trillion+ Club | 5:31 PM | Once per day (Mon-Fri) | Mega-cap entry points |
+| AI Thesis | 5:32 PM | Once per day (Mon-Fri) | Research insights |
 
 Outside market hours, the scheduler runs but skips intraday scans.
+
+## Dashboard Tabs
+
+| Tab | What it shows |
+|-----|---------------|
+| Live Signals | Real-time trading signals from all 8 strategies |
+| Paper Portfolio | Simulated trades and P&L tracking |
+| Long-Term Holdings | Your actual investment positions |
+| Performance | Strategy performance metrics and analytics |
+| Backtests | Historical strategy backtesting results |
+| Long-Term Watchlist | 8-component value scoring opportunities |
+| Trillion Club | Mega-cap stocks ($1T+) with entry scores |
+| AI Theses | Investment thesis research from Claude |
+| Universe | All stocks being tracked |
+| Settings | Configuration and system status |
