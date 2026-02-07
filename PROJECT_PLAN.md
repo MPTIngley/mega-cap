@@ -49,6 +49,8 @@ Before writing any code, do the following:
 - ✅ **Trillion email trend column** matches long-term format
 - ✅ **AI Pulse email** now shows full AI stocks + theses
 - ✅ **Consistent email format** across longterm, trillion, AI (table layouts, reasoning rows, compact breakdowns)
+- ✅ **Sentiment integration in AI Pulse** — StockTwits + Haiku analysis in scheduler
+- ✅ **Git permissions documented** — Martin pushes to main, Claude works on feature branch
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
