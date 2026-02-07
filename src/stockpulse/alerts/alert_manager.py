@@ -1245,7 +1245,6 @@ class AlertManager:
         best_opps_html = ""
         if best_entries:
             best_rows = ""
-            breakdown_tables = ""
             for opp in best_entries:
                 ticker = opp.get("ticker", "")
                 company = opp.get("company_name", ticker)[:20]
@@ -1267,47 +1266,70 @@ class AlertManager:
                 </div>
                 """
 
-                # Build detailed breakdown table for each high-quality opportunity
-                breakdown = opp.get("score_breakdown", {})
-                if breakdown:
-                    breakdown_rows = ""
-                    for key, data in breakdown.items():
-                        if key in ("base", "total"):
-                            continue
-                        pts = data.get("points", 0)
-                        pts_color = "#22c55e" if pts > 0 else ("#ef4444" if pts < 0 else "#6b7280")
-                        pts_str = f"+{pts}" if pts > 0 else str(pts)
-                        breakdown_rows += f"""
-                        <tr>
-                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb;">{data.get('label', key)}</td>
-                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; font-family: monospace;">{data.get('raw_value', '-')}</td>
-                            <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; color: {pts_color}; font-weight: bold;">{pts_str}</td>
-                        </tr>
-                        """
-                    breakdown_tables += f"""
-                    <div style="display: inline-block; vertical-align: top; margin: 10px; min-width: 280px;">
-                        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <tr style="background: #15803d; color: white;">
-                                <th colspan="3" style="padding: 8px; text-align: center; border-radius: 6px 6px 0 0;">{ticker} Score Breakdown</th>
-                            </tr>
-                            <tr style="background: #f3f4f6;">
-                                <th style="padding: 6px 10px; text-align: left; font-size: 11px;">Factor</th>
-                                <th style="padding: 6px 10px; text-align: center; font-size: 11px;">Value</th>
-                                <th style="padding: 6px 10px; text-align: center; font-size: 11px;">Pts</th>
-                            </tr>
-                            <tr>
-                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb;">Base Score</td>
-                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">-</td>
-                                <td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: center; font-weight: bold;">50</td>
-                            </tr>
-                            {breakdown_rows}
-                            <tr style="background: #f0fdf4;">
-                                <td colspan="2" style="padding: 8px 10px; font-weight: bold;">TOTAL SCORE</td>
-                                <td style="padding: 8px 10px; text-align: center; font-weight: bold; font-size: 16px; color: #15803d;">{score:.0f}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    """
+            # Build consolidated score breakdown table for all best entries
+            # Define the standard factor order
+            factor_keys = ["distance_from_high", "rsi", "ma_50", "pe_ratio", "earnings_growth", "momentum_20d"]
+            factor_labels = {
+                "distance_from_high": "Distance from 30d High",
+                "rsi": "RSI (14)",
+                "ma_50": "50-Day MA Position",
+                "pe_ratio": "P/E Ratio",
+                "earnings_growth": "Earnings Growth",
+                "momentum_20d": "20-Day Momentum"
+            }
+
+            # Build header row with ticker columns
+            header_cols = "<th style='padding: 8px; text-align: left; font-size: 11px; min-width: 140px;'>Factor</th>"
+            for opp in best_entries:
+                header_cols += f"<th style='padding: 8px; text-align: center; font-size: 11px; min-width: 70px;' colspan='2'>{opp.get('ticker', '')}</th>"
+
+            # Build sub-header for Value/Pts
+            subheader_cols = "<th style='padding: 4px 8px; border-bottom: 2px solid #e5e7eb;'></th>"
+            for _ in best_entries:
+                subheader_cols += "<th style='padding: 4px 8px; text-align: center; font-size: 10px; color: #6b7280; border-bottom: 2px solid #e5e7eb;'>Value</th>"
+                subheader_cols += "<th style='padding: 4px 8px; text-align: center; font-size: 10px; color: #6b7280; border-bottom: 2px solid #e5e7eb;'>Pts</th>"
+
+            # Build base score row
+            base_row = "<td style='padding: 6px 8px; border-bottom: 1px solid #e5e7eb; font-weight: 500;'>Base Score</td>"
+            for _ in best_entries:
+                base_row += "<td style='padding: 6px 8px; text-align: center; border-bottom: 1px solid #e5e7eb;'>-</td>"
+                base_row += "<td style='padding: 6px 8px; text-align: center; border-bottom: 1px solid #e5e7eb; font-weight: bold;'>50</td>"
+
+            # Build factor rows
+            factor_rows = ""
+            for key in factor_keys:
+                row = f"<td style='padding: 6px 8px; border-bottom: 1px solid #e5e7eb; font-weight: 500;'>{factor_labels.get(key, key)}</td>"
+                for opp in best_entries:
+                    breakdown = opp.get("score_breakdown", {})
+                    data = breakdown.get(key, {})
+                    raw_value = data.get("raw_value", "-")
+                    pts = data.get("points", 0)
+                    pts_color = "#22c55e" if pts > 0 else ("#ef4444" if pts < 0 else "#6b7280")
+                    pts_str = f"+{pts}" if pts > 0 else str(pts)
+                    row += f"<td style='padding: 6px 8px; text-align: center; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-size: 11px;'>{raw_value}</td>"
+                    row += f"<td style='padding: 6px 8px; text-align: center; border-bottom: 1px solid #e5e7eb; color: {pts_color}; font-weight: bold;'>{pts_str}</td>"
+                factor_rows += f"<tr>{row}</tr>"
+
+            # Build total row
+            total_row = "<td style='padding: 8px; font-weight: bold; background: #f0fdf4;'>TOTAL SCORE</td>"
+            for opp in best_entries:
+                score = opp.get("entry_score", 0)
+                total_row += "<td style='padding: 8px; text-align: center; background: #f0fdf4;'></td>"
+                total_row += f"<td style='padding: 8px; text-align: center; font-weight: bold; font-size: 16px; color: #15803d; background: #f0fdf4;'>{score:.0f}</td>"
+
+            breakdown_tables = f"""
+            <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 12px;">
+                <tr style="background: #15803d; color: white;">
+                    {header_cols}
+                </tr>
+                <tr style="background: #f3f4f6;">
+                    {subheader_cols}
+                </tr>
+                <tr>{base_row}</tr>
+                {factor_rows}
+                <tr>{total_row}</tr>
+            </table>
+            """
 
             best_opps_html = f"""
             <div style="background: #ecfdf5; border: 2px solid #22c55e; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
@@ -1318,11 +1340,9 @@ class AlertManager:
                 <div style="margin-top: 20px;">
                     <h3 style="color: #166534; margin: 0 0 10px 0; font-size: 14px;">📊 Score Breakdown</h3>
                     <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px 0;">
-                        Detailed breakdown showing how each factor contributed to the entry score.
+                        Consolidated breakdown showing how each factor contributed to entry scores.
                     </p>
-                    <div style="text-align: center;">
-                        {breakdown_tables}
-                    </div>
+                    {breakdown_tables}
                 </div>
             </div>
             """
@@ -1970,6 +1990,9 @@ class AlertManager:
 
                 <div class="section">
                     <h2 style="color: #4f46e5; border-bottom: 2px solid #4f46e5;">📋 All AI Stocks (Top 20)</h2>
+                    <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px 0;">
+                        Full universe sorted by AI Score. All stocks shown regardless of score threshold.
+                    </p>
                     <table>
                         <tr>
                             <th>Company</th>

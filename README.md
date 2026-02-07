@@ -81,6 +81,9 @@ python -m stockpulse.main run
 | `stockpulse optimize` | Run hyperparameter optimization for all strategies |
 | `stockpulse longterm-scan` | Run long-term investment scanner (8 scoring components) |
 | `stockpulse longterm-backtest` | Backtest & optimize long-term scanner with 3-year hold strategy |
+| `stockpulse trillion-scan` | Run Trillion+ Club mega-cap scanner + email |
+| `stockpulse ai-scan` | Run AI Pulse scan (~70 AI stocks) + Claude thesis research + email |
+| `stockpulse ai-backfill` | Initialize trillion club history and default theses |
 | `stockpulse reset` | Reset trading data (keeps price history) |
 | `stockpulse reset --clear-all` | Reset ALL data including price history |
 | `stockpulse ingest` | Manually run data ingestion |

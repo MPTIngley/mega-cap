@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-05
+## Last Session: 2026-02-07
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -23,6 +23,8 @@ Before writing any code, do the following:
 - ✅ Consolidated scan emails (one per scan, only if changed)
 - ✅ Daily portfolio digest at 17:00 ET
 - ✅ Long-term scanner digest at 17:30 ET
+- ✅ Trillion+ Club scanner at 17:31 ET (mega-cap entry points)
+- ✅ AI Pulse scanner at 17:32 ET (~70 AI stocks + thesis research)
 - ✅ Auto-open/close paper positions
 - ✅ P&L tracking with transaction costs
 - ✅ Per-strategy signal breakdown in scan output
@@ -49,6 +51,8 @@ Before writing any code, do the following:
 |-----------|-------|---------|
 | 17:00 | Daily Portfolio Digest | Portfolio value, P&L, positions, activity |
 | 17:30 | Long-Term Opportunities | Value stocks near 52-week lows |
+| 17:31 | Trillion+ Club | Mega-cap entry points with consolidated score breakdown |
+| 17:32 | AI Pulse | AI universe stocks, thesis research, market pulse |
 | On signal change | Scan Alert | Consolidated BUY/SELL signals |
 
 ### Position Sizing Formula:
@@ -68,7 +72,10 @@ stockpulse run              # Start scheduler (continuous)
 stockpulse scan             # One-off scan
 stockpulse digest           # Send portfolio digest now
 stockpulse longterm-scan    # Run long-term scanner
+stockpulse trillion-scan    # Run Trillion+ Club scanner
+stockpulse ai-scan          # Run AI Pulse scan
 stockpulse longterm-backfill # Backfill 6 weeks trend data
+stockpulse ai-backfill      # Initialize trillion club and theses
 stockpulse pe-backfill      # Backfill historical P/E ratios
 stockpulse test-email       # Test email config
 stockpulse dashboard        # Launch Streamlit
@@ -299,6 +306,9 @@ stockpulse reset            # Clear trading data (keeps prices)
 | 2026-02-05 | Long-term trend tracking | Consecutive days on list, score trends, Strong Buy categories |
 | 2026-02-05 | Backfill command | `longterm-backfill` populates 6 weeks historical data |
 | 2026-02-05 | Compact scheduler output | Single-line status with countdown bar, ET times |
+| 2026-02-07 | Trillion+ Club scanner | Mega-cap entry point tracking with consolidated score breakdown |
+| 2026-02-07 | AI Pulse scanner | ~70 AI stocks, 7 categories, Claude thesis research |
+| 2026-02-07 | Email consolidation | Score breakdowns in single table for easy comparison |
 
 ---
 
