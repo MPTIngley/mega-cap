@@ -899,7 +899,7 @@ Provide:
 Be concise. Focus on actionable insights. Under 150 words total."""
 
             message = client.messages.create(
-                model="claude-3-5-haiku-latest",
+                model="claude-haiku-4-20250514",
                 max_tokens=300,
                 messages=[{"role": "user", "content": prompt}]
             )

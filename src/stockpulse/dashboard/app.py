@@ -2894,16 +2894,44 @@ def render_ai_stocks_page(services: dict):
         - ⚠️ **<55** = Wait for pullback
         """)
 
-    # Run AI scan to get current data
+    # Load AI stocks from database (no auto-scan)
     try:
         from stockpulse.scanner.ai_pulse import AIPulseScanner
         scanner = AIPulseScanner()
 
-        with st.spinner("Scanning AI universe stocks..."):
-            ai_stocks = scanner.get_ai_stocks()
+        # Try to get cached data first
+        ai_stocks, scan_timestamp = scanner.get_cached_ai_stocks(max_age_hours=48)
+
+        # Show data freshness and refresh option
+        col_fresh, col_refresh = st.columns([3, 1])
+        with col_fresh:
+            if scan_timestamp:
+                from datetime import datetime
+                try:
+                    scan_dt = datetime.fromisoformat(scan_timestamp.replace("Z", "+00:00")).replace(tzinfo=None)
+                    age = datetime.now() - scan_dt
+                    hours_ago = age.total_seconds() / 3600
+                    if hours_ago < 1:
+                        freshness = f"{int(age.total_seconds() / 60)} minutes ago"
+                    elif hours_ago < 24:
+                        freshness = f"{hours_ago:.1f} hours ago"
+                    else:
+                        freshness = f"{hours_ago / 24:.1f} days ago"
+                    st.caption(f"📅 Data from: {freshness}")
+                except Exception:
+                    st.caption(f"📅 Last scan: {scan_timestamp[:16]}")
+            else:
+                st.caption("📅 No cached data available")
+
+        with col_refresh:
+            if st.button("🔄 Refresh Data", key="refresh_ai_stocks"):
+                with st.spinner("Scanning AI universe stocks..."):
+                    ai_stocks = scanner.get_ai_stocks()
+                    scanner.save_ai_stocks(ai_stocks)
+                st.rerun()
 
         if not ai_stocks:
-            st.warning("No AI stocks data. Run `stockpulse ai-scan` to populate.")
+            st.warning("No AI stocks data. Run `stockpulse ai-scan` or click 'Refresh Data' to populate.")
             return
 
     except Exception as e:
@@ -3054,9 +3082,19 @@ def render_ai_stocks_page(services: dict):
                     trending = " 📈" if s["trending"] else ""
                     st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}{trending}")
                     st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
-                    if s["ai_summary"]:
-                        with st.expander("AI Analysis"):
-                            st.write(s["ai_summary"][:500])
+
+                    # Show AI analysis and sample quotes
+                    has_content = s["ai_summary"] or s.get("sample_messages")
+                    if has_content:
+                        with st.expander("Details"):
+                            if s["ai_summary"]:
+                                st.markdown("**AI Analysis:**")
+                                st.write(s["ai_summary"][:500])
+                            if s.get("sample_messages"):
+                                st.markdown("**Sample Posts:**")
+                                for msg in s["sample_messages"][:3]:
+                                    sentiment_icon = "🟢" if msg.get("sentiment") == "Bullish" else "🔴" if msg.get("sentiment") == "Bearish" else "🟡"
+                                    st.caption(f"{sentiment_icon} \"{msg.get('text', '')[:120]}...\"")
             else:
                 st.caption("No bullish stocks found")
 
@@ -3068,9 +3106,19 @@ def render_ai_stocks_page(services: dict):
                     trending = " 📈" if s["trending"] else ""
                     st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}{trending}")
                     st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
-                    if s["ai_summary"]:
-                        with st.expander("AI Analysis"):
-                            st.write(s["ai_summary"][:500])
+
+                    # Show AI analysis and sample quotes
+                    has_content = s["ai_summary"] or s.get("sample_messages")
+                    if has_content:
+                        with st.expander("Details"):
+                            if s["ai_summary"]:
+                                st.markdown("**AI Analysis:**")
+                                st.write(s["ai_summary"][:500])
+                            if s.get("sample_messages"):
+                                st.markdown("**Sample Posts:**")
+                                for msg in s["sample_messages"][:3]:
+                                    sentiment_icon = "🟢" if msg.get("sentiment") == "Bullish" else "🔴" if msg.get("sentiment") == "Bearish" else "🟡"
+                                    st.caption(f"{sentiment_icon} \"{msg.get('text', '')[:120]}...\"")
             else:
                 st.caption("No bearish stocks found")
 
@@ -3253,6 +3301,27 @@ def render_trillion_club_page(services: dict):
             st.info("Run in terminal: `stockpulse trillion-scan`")
         return
 
+    # Show data freshness
+    col_fresh, col_refresh = st.columns([3, 1])
+    with col_fresh:
+        if "scan_date" in trillion_df.columns:
+            latest_scan = trillion_df["scan_date"].max()
+            from datetime import datetime
+            try:
+                scan_dt = datetime.fromisoformat(str(latest_scan))
+                age = datetime.now() - scan_dt
+                hours_ago = age.total_seconds() / 3600
+                if hours_ago < 24:
+                    freshness = f"{hours_ago:.1f} hours ago"
+                else:
+                    freshness = f"{hours_ago / 24:.1f} days ago"
+                st.caption(f"📅 Data from: {freshness}")
+            except Exception:
+                st.caption(f"📅 Last scan: {latest_scan}")
+    with col_refresh:
+        if st.button("🔄 Refresh", key="refresh_trillion"):
+            st.info("Run in terminal: `stockpulse trillion-scan`")
+
     # Summary metrics
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
@@ -3357,7 +3426,8 @@ def render_trillion_club_page(services: dict):
                     "bullish": st_data.get("bullish_count", 0),
                     "bearish": st_data.get("bearish_count", 0),
                     "total": st_data.get("total_messages", 0),
-                    "ai_summary": ai_data.get("summary", "") if ai_data else ""
+                    "ai_summary": ai_data.get("summary", "") if ai_data else "",
+                    "sample_messages": st_data.get("sample_messages", [])
                 })
 
         if tc_sentiment:
@@ -3371,9 +3441,19 @@ def render_trillion_club_page(services: dict):
                     for s in bullish:
                         st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}")
                         st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
-                        if s["ai_summary"]:
-                            with st.expander("AI Analysis"):
-                                st.write(s["ai_summary"][:400])
+
+                        # Show AI analysis and sample quotes
+                        has_content = s["ai_summary"] or s.get("sample_messages")
+                        if has_content:
+                            with st.expander("Details"):
+                                if s["ai_summary"]:
+                                    st.markdown("**AI Analysis:**")
+                                    st.write(s["ai_summary"][:400])
+                                if s.get("sample_messages"):
+                                    st.markdown("**Sample Posts:**")
+                                    for msg in s["sample_messages"][:3]:
+                                        sentiment_icon = "🟢" if msg.get("sentiment") == "Bullish" else "🔴" if msg.get("sentiment") == "Bearish" else "🟡"
+                                        st.caption(f"{sentiment_icon} \"{msg.get('text', '')[:120]}...\"")
                 else:
                     st.caption("No bullish stocks")
 
@@ -3384,9 +3464,19 @@ def render_trillion_club_page(services: dict):
                     for s in bearish:
                         st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}")
                         st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
-                        if s["ai_summary"]:
-                            with st.expander("AI Analysis"):
-                                st.write(s["ai_summary"][:400])
+
+                        # Show AI analysis and sample quotes
+                        has_content = s["ai_summary"] or s.get("sample_messages")
+                        if has_content:
+                            with st.expander("Details"):
+                                if s["ai_summary"]:
+                                    st.markdown("**AI Analysis:**")
+                                    st.write(s["ai_summary"][:400])
+                                if s.get("sample_messages"):
+                                    st.markdown("**Sample Posts:**")
+                                    for msg in s["sample_messages"][:3]:
+                                        sentiment_icon = "🟢" if msg.get("sentiment") == "Bullish" else "🔴" if msg.get("sentiment") == "Bearish" else "🟡"
+                                        st.caption(f"{sentiment_icon} \"{msg.get('text', '')[:120]}...\"")
                 else:
                     st.caption("No bearish stocks")
 

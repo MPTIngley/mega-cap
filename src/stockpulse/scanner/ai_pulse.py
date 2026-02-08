@@ -449,6 +449,27 @@ class AIPulseScanner:
             )
         """)
 
+        # AI stocks daily cache
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_stocks_daily (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                scan_date TEXT NOT NULL,
+                company_name TEXT,
+                current_price REAL,
+                market_cap REAL,
+                pct_30d REAL,
+                pct_90d REAL,
+                ai_score REAL,
+                score_breakdown TEXT,
+                category TEXT,
+                subcategory TEXT,
+                sector TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE (ticker, scan_date)
+            )
+        """)
+
         # AI thesis tracker
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ai_theses (
@@ -1191,6 +1212,134 @@ class AIPulseScanner:
         logger.info(f"Scanned {len(stocks)} AI stocks")
         return stocks
 
+    def save_ai_stocks(self, stocks: list[dict]) -> int:
+        """
+        Save AI stocks scan results to database.
+
+        Args:
+            stocks: List of AI stock dicts from get_ai_stocks()
+
+        Returns:
+            Number of stocks saved
+        """
+        saved = 0
+        scan_date = date.today().isoformat()
+
+        for stock in stocks:
+            try:
+                # Convert score_breakdown to JSON string
+                breakdown_json = json.dumps(stock.get("score_breakdown", {}))
+
+                self.db.execute("""
+                    INSERT INTO ai_stocks_daily (
+                        ticker, scan_date, company_name, current_price, market_cap,
+                        pct_30d, pct_90d, ai_score, score_breakdown, category, subcategory, sector
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (ticker, scan_date) DO UPDATE SET
+                        company_name = excluded.company_name,
+                        current_price = excluded.current_price,
+                        market_cap = excluded.market_cap,
+                        pct_30d = excluded.pct_30d,
+                        pct_90d = excluded.pct_90d,
+                        ai_score = excluded.ai_score,
+                        score_breakdown = excluded.score_breakdown,
+                        category = excluded.category,
+                        subcategory = excluded.subcategory,
+                        sector = excluded.sector,
+                        created_at = datetime('now')
+                """, (
+                    stock["ticker"],
+                    scan_date,
+                    stock.get("company_name", ""),
+                    stock.get("current_price", 0),
+                    stock.get("market_cap", 0),
+                    stock.get("pct_30d", 0),
+                    stock.get("pct_90d", 0),
+                    stock.get("ai_score", 0),
+                    breakdown_json,
+                    stock.get("category", ""),
+                    stock.get("subcategory", ""),
+                    stock.get("sector", ""),
+                ))
+                saved += 1
+            except Exception as e:
+                logger.debug(f"Error saving AI stock {stock.get('ticker')}: {e}")
+
+        logger.info(f"Saved {saved} AI stocks to database")
+        return saved
+
+    def get_cached_ai_stocks(self, max_age_hours: int = 24) -> tuple[list[dict], str | None]:
+        """
+        Get cached AI stocks from database.
+
+        Args:
+            max_age_hours: Maximum age of cached data to return
+
+        Returns:
+            Tuple of (list of AI stocks, scan timestamp or None if no data)
+        """
+        try:
+            # Get the most recent scan
+            row = self.db.fetchone("""
+                SELECT scan_date, created_at FROM ai_stocks_daily
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+
+            if not row:
+                return [], None
+
+            scan_date, created_at = row
+
+            # Check if data is fresh enough
+            from datetime import datetime, timedelta
+            created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00")) if created_at else None
+            if created_dt:
+                age = datetime.now() - created_dt.replace(tzinfo=None)
+                if age > timedelta(hours=max_age_hours):
+                    return [], None
+
+            # Get all stocks from the most recent scan
+            df = self.db.fetchdf("""
+                SELECT * FROM ai_stocks_daily
+                WHERE scan_date = ?
+                ORDER BY ai_score DESC
+            """, (scan_date,))
+
+            if df.empty:
+                return [], None
+
+            stocks = []
+            for _, row in df.iterrows():
+                stock = {
+                    "ticker": row["ticker"],
+                    "company_name": row.get("company_name", ""),
+                    "current_price": row.get("current_price", 0),
+                    "market_cap": row.get("market_cap", 0),
+                    "market_cap_b": row.get("market_cap", 0) / 1_000_000_000 if row.get("market_cap") else 0,
+                    "pct_30d": row.get("pct_30d", 0),
+                    "pct_90d": row.get("pct_90d", 0),
+                    "ai_score": row.get("ai_score", 0),
+                    "category": row.get("category", ""),
+                    "subcategory": row.get("subcategory", ""),
+                    "sector": row.get("sector", ""),
+                }
+
+                # Parse score breakdown
+                try:
+                    if row.get("score_breakdown"):
+                        stock["score_breakdown"] = json.loads(row["score_breakdown"])
+                except Exception:
+                    stock["score_breakdown"] = {}
+
+                stocks.append(stock)
+
+            return stocks, created_at
+
+        except Exception as e:
+            logger.error(f"Error getting cached AI stocks: {e}")
+            return [], None
+
     def _get_ticker_performance(self, tickers: list[str]) -> dict[str, dict]:
         """
         Get price performance data for a list of tickers.
@@ -1251,6 +1400,9 @@ class AIPulseScanner:
 
         # 1. Scan all AI universe stocks
         ai_stocks = self.get_ai_stocks()
+
+        # 1.5 Save to database for dashboard caching
+        self.save_ai_stocks(ai_stocks)
 
         # 2. Categorize by AI category
         categories = {
