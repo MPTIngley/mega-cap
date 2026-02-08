@@ -2399,6 +2399,7 @@ def run_sentiment_scan():
 
     Can be run manually or scheduled daily before AI Pulse scan.
     """
+    from datetime import datetime
     from stockpulse.data.sentiment import run_daily_sentiment_scan
 
     print("\n" + "=" * 70)
@@ -2408,12 +2409,19 @@ def run_sentiment_scan():
 
     print("\n  Data Source: StockTwits (FREE, no API key required)")
     print("  Analyzing: AI Universe stocks (~80 tickers)")
-    print("\n  Starting scan...\n")
+
+    start_time = datetime.now()
+    print(f"\n  Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\n  Scanning...\n")
 
     results = run_daily_sentiment_scan(include_ai_analysis=True, max_tickers=80)
 
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+
     print("\n" + "-" * 70)
     print(f"  Scan Date: {results['scan_date']}")
+    print(f"  Completed: {end_time.strftime('%Y-%m-%d %H:%M:%S')} ({duration:.1f}s)")
     print(f"  Tickers Scanned: {results['tickers_scanned']}")
     print(f"  Successful: {results['successful']}")
     print(f"  Failed: {results['failed']}")
@@ -2437,6 +2445,7 @@ def run_sentiment_scan():
             print(f"    - {err}")
 
     print("\n" + "=" * 70)
+    print(f"  Data cached at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print("  Results stored in database. Run 'stockpulse ai-scan' to include")
     print("  sentiment in AI Pulse email.")
     print("=" * 70 + "\n")
@@ -2447,7 +2456,8 @@ def run_sentiment_check(args):
 
     Usage: stockpulse sentiment-check --ticker NVDA
     """
-    from stockpulse.data.sentiment import SentimentAnalyzer
+    from datetime import datetime
+    from stockpulse.data.sentiment import SentimentAnalyzer, SentimentStorage
 
     ticker = getattr(args, 'ticker', None)
     if not ticker:
@@ -2463,6 +2473,32 @@ def run_sentiment_check(args):
     print("\n" + "=" * 50)
     print(f"  {ticker.upper()} SENTIMENT")
     print("=" * 50)
+
+    # Show API fetch timestamp
+    fetched_at = result.get("fetched_at", "")
+    if fetched_at:
+        try:
+            dt = datetime.fromisoformat(fetched_at)
+            print(f"\n  API Fetched: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            print(f"\n  API Fetched: {fetched_at}")
+
+    # Check database for cached data
+    try:
+        storage = SentimentStorage()
+        cached = storage.get_cached_sentiment(ticker.upper(), max_age_hours=24)
+        if cached:
+            cached_at = cached.get("fetched_at", "")
+            if cached_at:
+                try:
+                    dt = datetime.fromisoformat(cached_at)
+                    print(f"  DB Cached:   {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                except Exception:
+                    print(f"  DB Cached:   {cached_at}")
+        else:
+            print("  DB Cached:   No cached data (run 'stockpulse sentiment-scan')")
+    except Exception:
+        pass
 
     score = result.get("aggregate_score", 50)
     label = result.get("aggregate_label", "neutral")
