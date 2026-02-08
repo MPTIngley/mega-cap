@@ -1606,6 +1606,27 @@ class AlertManager:
 
         subject = f"🤖 AI Pulse Investment Opportunities - {today}"
 
+        # Load sentiment data early (needed for strong buys section)
+        sentiment_data = {}  # ticker -> sentiment dict
+        category_sentiment = {}  # category -> list of sentiment scores
+        try:
+            from stockpulse.data.sentiment import SentimentStorage
+            storage = SentimentStorage()
+            ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
+            sentiment_data = storage.get_todays_sentiment(ai_tickers)
+
+            # Build category sentiment aggregation
+            for stock in ai_stocks:
+                ticker = stock.get("ticker", "")
+                cat = stock.get("category", "Other")
+                if ticker in sentiment_data:
+                    score = sentiment_data[ticker].get("aggregate_score", 50)
+                    if cat not in category_sentiment:
+                        category_sentiment[cat] = []
+                    category_sentiment[cat].append(score)
+        except Exception as e:
+            logger.debug(f"Sentiment data load skipped: {e}")
+
         # === BUILD EMAIL HTML ===
 
         # Identify strong buys (score 65+, pullback, 3+ days)
@@ -1983,26 +2004,11 @@ class AlertManager:
             """
 
         # Social sentiment section (Phase 7 - isolated module)
+        # sentiment_data already loaded at top of function
         sentiment_html = ""
-        sentiment_data = {}  # ticker -> sentiment dict
-        category_sentiment = {}  # category -> list of sentiment scores
         try:
-            from stockpulse.data.sentiment import SentimentStorage, get_sentiment_summary_for_email
-            storage = SentimentStorage()
+            from stockpulse.data.sentiment import get_sentiment_summary_for_email
             ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
-            sentiment_data = storage.get_todays_sentiment(ai_tickers)
-
-            # Build category sentiment aggregation
-            for stock in ai_stocks:
-                ticker = stock.get("ticker", "")
-                cat = stock.get("category", "Other")
-                if ticker in sentiment_data:
-                    score = sentiment_data[ticker].get("aggregate_score", 50)
-                    if cat not in category_sentiment:
-                        category_sentiment[cat] = []
-                    category_sentiment[cat].append(score)
-
-            # Get formatted sentiment summary for email
             sentiment_html = get_sentiment_summary_for_email(ai_tickers, max_display=10)
         except Exception as e:
             logger.debug(f"Sentiment section skipped: {e}")
