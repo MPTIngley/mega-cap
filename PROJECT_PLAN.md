@@ -367,27 +367,32 @@ FINNHUB_API_KEY=your_key_here  # Optional: https://finnhub.io/register (free)
 ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 ```
 
-### Phase 7b Roadmap: Enhanced Sentiment (PROPOSED)
+### Phase 7b: Enhanced Sentiment (IMPLEMENTED 2026-02-08)
 
-**Option A: Hourly Collection for Top 20 AI Stocks**
-```
-Schedule (market hours only):
-09:30-16:00 ET hourly: Collect StockTwits for top 20 AI stocks
-17:00 ET: Full scan of all 80 AI stocks
-17:05 ET: Aggregate hourly data, detect reversals
-17:30 ET: AI Pulse email with enhanced velocity/trend data
-```
-- Better message velocity calculation
-- Detect intraday sentiment shifts
-- ~520 additional calls/day (within limits)
+**What's New:**
+- ✅ Hourly sentiment scan for top 20 AI stocks (10:30-15:30 ET, every hour)
+- ✅ Finnhub analyst ratings integration (buy/hold/sell consensus)
+- ✅ Finnhub insider transactions integration (Form 4 data)
+- ✅ Sentiment integrated into Trillion+ Club emails
+- ✅ Sentiment integrated into Long-Term scanner emails
+- ✅ Enhanced score calculation (social 40% + analyst 35% + insider 25%)
 
-**Option B: Add More Data Sources (Same Schedule)**
-| Source | Data | Cost | Priority |
-|--------|------|------|----------|
-| Finnhub Analyst Ratings | Upgrades/downgrades | FREE | High |
-| Finnhub Insider Transactions | Form 4 filings | FREE | High |
-| SEC EDGAR | 8-K filings, material events | FREE | Medium |
-| Finnhub Earnings Surprises | EPS beat/miss | FREE | Medium |
+**New Schedule:**
+```
+10:30-15:30 ET hourly: Hourly sentiment for top 20 AI stocks (no Haiku)
+17:00 ET: Full daily sentiment scan (80 stocks + analyst + insider)
+17:15 ET: Long-Term scan (now with sentiment)
+17:20 ET: Trillion+ Club scan (now with sentiment)
+17:30 ET: AI Pulse email with all sentiment data
+```
+
+**Top 20 AI Stocks (hourly monitoring):**
+NVDA, MSFT, AAPL, GOOGL, AMZN, META, TSM, AVGO, ORCL, CRM,
+AMD, PLTR, SNOW, NOW, ADBE, IBM, INTC, MU, QCOM, ARM
+
+**Database Tables Added:**
+- `sentiment_hourly` - Hourly snapshots for top 20
+- `sentiment_signals` - Analyst ratings + insider transactions
 
 ### Future Enhancements (Phase 7c+)
 
@@ -475,6 +480,8 @@ Schedule (market hours only):
 | 2026-02-08 | API capacity analysis | Using <2% of available capacity; room for hourly collection |
 | 2026-02-08 | Alternative data sources identified | SEC EDGAR, Finnhub analyst ratings, insider transactions - all FREE |
 | 2026-02-08 | Phase 7b roadmap created | Hourly collection option + more data sources proposed |
+| 2026-02-08 | **Phase 7b implemented** | Hourly sentiment + analyst ratings + insider txns + Trillion/LT integration |
+| 2026-02-08 | Cost-conscious data strategy | Maximize FREE APIs, limit Haiku to 6 calls/day (top 3 bullish + top 3 bearish) |
 
 ---
 
@@ -556,6 +563,25 @@ Schedule (market hours only):
 - Use type hints. Write docstrings. Keep functions small and testable.
 - Config-driven everything. No magic numbers in strategy code.
 - **ALWAYS give pull/run/test commands** at end of changes. No comments in command blocks (Mac terminal hates them).
+
+### Cost-Conscious Data Strategy (IMPORTANT)
+
+**GOAL:** Maximize free data sources, minimize paid API calls (especially Claude/Anthropic).
+
+| Data Type | Source | Cost | Usage |
+|-----------|--------|------|-------|
+| Social Sentiment | StockTwits | FREE | Unlimited |
+| News Sentiment | Finnhub | FREE | 60/min |
+| Analyst Ratings | Finnhub | FREE | 60/min |
+| Insider Transactions | Finnhub | FREE | 60/min |
+| SEC Filings | SEC EDGAR | FREE | 10/sec |
+| AI Analysis | Claude Haiku | **PAID** | **LIMIT** |
+
+**Haiku Usage Rules:**
+- Only analyze top 3 bullish + top 3 bearish stocks per day (6 total)
+- Never run Haiku on hourly scans - only daily aggregation
+- Cache Haiku results for 24 hours - don't re-analyze same ticker
+- Target: <$5/month Anthropic spend
 
 ---
 

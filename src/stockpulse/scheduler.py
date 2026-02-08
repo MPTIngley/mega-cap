@@ -37,6 +37,7 @@ class StockPulseScheduler:
         self.on_daily_digest: Callable | None = None
         self.on_trillion_scan: Callable | None = None
         self.on_sentiment_scan: Callable | None = None
+        self.on_hourly_sentiment_scan: Callable | None = None
         self.on_ai_pulse_scan: Callable | None = None
 
     def _is_market_hours(self) -> bool:
@@ -147,16 +148,28 @@ class StockPulseScheduler:
             logger.error(f"Error in Trillion+ Club scan job: {e}", exc_info=True)
 
     def _run_sentiment_scan_job(self) -> None:
-        """Run sentiment scan for AI universe stocks."""
-        logger.info("Running sentiment scan job")
+        """Run daily sentiment scan for AI universe stocks."""
+        logger.info("Running daily sentiment scan job")
 
         try:
             if self.on_sentiment_scan:
                 self.on_sentiment_scan()
-            logger.info("Sentiment scan job completed")
+            logger.info("Daily sentiment scan job completed")
 
         except Exception as e:
             logger.error(f"Error in sentiment scan job: {e}", exc_info=True)
+
+    def _run_hourly_sentiment_job(self) -> None:
+        """Run hourly sentiment scan for top 20 AI stocks."""
+        logger.info("Running hourly sentiment scan (top 20 AI stocks)")
+
+        try:
+            if self.on_hourly_sentiment_scan:
+                self.on_hourly_sentiment_scan()
+            logger.info("Hourly sentiment scan completed")
+
+        except Exception as e:
+            logger.error(f"Error in hourly sentiment scan job: {e}", exc_info=True)
 
     def _run_ai_pulse_scan_job(self) -> None:
         """Run AI Thesis scanner (AI-powered investment thesis research)."""
@@ -264,9 +277,28 @@ class StockPulseScheduler:
             max_instances=1
         )
 
-        # Sentiment scan - 17:00 ET on weekdays (before AI Pulse to cache data)
-        # Runs for ~5-10 min scanning 80 tickers with rate limiting
+        # Hourly sentiment scan - Every hour during market hours (9:30-16:00 ET)
+        # Only scans top 20 AI stocks, NO Haiku (save costs)
         sentiment_config = self.config.get("sentiment", {})
+        if sentiment_config.get("hourly_enabled", True):
+            self.scheduler.add_job(
+                self._run_hourly_sentiment_job,
+                CronTrigger(
+                    hour="10-15",  # 10:00-15:00 (covers 10am-4pm market hours)
+                    minute=30,  # Run at :30 to avoid market open/close
+                    day_of_week="mon-fri",
+                    timezone=self.timezone
+                ),
+                id="sentiment_hourly",
+                name="Hourly sentiment for top 20 AI stocks",
+                replace_existing=True,
+                misfire_grace_time=300,
+                coalesce=True,
+                max_instances=1
+            )
+
+        # Daily sentiment scan - 17:00 ET on weekdays (before AI Pulse to cache data)
+        # Full scan of 80 tickers + analyst ratings + insider data
         if sentiment_config.get("enabled", True):
             run_time = sentiment_config.get("run_time", "17:00").split(":")
             self.scheduler.add_job(
@@ -278,7 +310,7 @@ class StockPulseScheduler:
                     timezone=self.timezone
                 ),
                 id="sentiment_scan",
-                name="Social sentiment scanner",
+                name="Daily sentiment scanner (full)",
                 replace_existing=True,
                 misfire_grace_time=600,
                 coalesce=True,

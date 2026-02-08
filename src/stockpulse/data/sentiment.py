@@ -456,6 +456,346 @@ class FinnhubFetcher:
 
 
 # ============================================================================
+# FINNHUB ANALYST RATINGS (FREE TIER)
+# ============================================================================
+
+@dataclass
+class AnalystRating:
+    """Container for analyst rating data."""
+    ticker: str
+    buy: int = 0
+    hold: int = 0
+    sell: int = 0
+    strong_buy: int = 0
+    strong_sell: int = 0
+    total_analysts: int = 0
+    consensus: str = "hold"  # strong_buy, buy, hold, sell, strong_sell
+    consensus_score: float = 50.0  # 0-100, higher = more bullish
+    period: str = ""  # e.g., "2026-02-01"
+    fetched_at: str = ""
+    error: str = ""
+
+    def __post_init__(self):
+        if not self.fetched_at:
+            self.fetched_at = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        return {
+            "ticker": self.ticker,
+            "buy": self.buy,
+            "hold": self.hold,
+            "sell": self.sell,
+            "strong_buy": self.strong_buy,
+            "strong_sell": self.strong_sell,
+            "total_analysts": self.total_analysts,
+            "consensus": self.consensus,
+            "consensus_score": self.consensus_score,
+            "period": self.period,
+            "fetched_at": self.fetched_at,
+            "error": self.error,
+        }
+
+
+class FinnhubAnalystRatings:
+    """
+    Fetch analyst recommendation trends from Finnhub.
+
+    FREE TIER: 60 requests/minute
+    API Docs: https://finnhub.io/docs/api/recommendation-trends
+
+    Returns Buy/Hold/Sell counts from analysts covering a stock.
+    """
+
+    BASE_URL = "https://finnhub.io/api/v1"
+
+    def __init__(self, api_key: str | None = None, max_retries: int = 3):
+        self.api_key = api_key or os.environ.get("FINNHUB_API_KEY", "")
+        self.is_configured = bool(self.api_key)
+        self.session = requests.Session()
+        self._last_request_time = 0
+        self._min_request_interval = 1.0
+        self._max_retries = max_retries
+
+    def _rate_limit(self):
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self._min_request_interval:
+            time.sleep(self._min_request_interval - elapsed)
+        self._last_request_time = time.time()
+
+    def _fetch_with_retry(self, url: str, params: dict) -> requests.Response | None:
+        """Fetch with retry logic."""
+        for attempt in range(self._max_retries):
+            try:
+                self._rate_limit()
+                response = self.session.get(url, params=params, timeout=10)
+                if response.status_code in (401, 429) or response.ok:
+                    return response
+                if response.status_code >= 500 and attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return response
+            except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+        return None
+
+    def get_ratings(self, ticker: str) -> AnalystRating:
+        """
+        Get analyst recommendation trends for a ticker.
+
+        Returns the most recent recommendation data.
+        """
+        if not self.is_configured:
+            return AnalystRating(ticker=ticker, error="FINNHUB_API_KEY not configured")
+
+        url = f"{self.BASE_URL}/stock/recommendation"
+        params = {"symbol": ticker.upper(), "token": self.api_key}
+
+        response = self._fetch_with_retry(url, params)
+        if response is None:
+            return AnalystRating(ticker=ticker, error="All retries failed")
+
+        try:
+            if response.status_code == 401:
+                return AnalystRating(ticker=ticker, error="Invalid API key")
+            if response.status_code == 429:
+                return AnalystRating(ticker=ticker, error="Rate limited")
+
+            response.raise_for_status()
+            data = response.json()
+
+            if not data:
+                return AnalystRating(ticker=ticker, error="No analyst data available")
+
+            # Get the most recent recommendation
+            latest = data[0] if data else {}
+
+            buy = latest.get("buy", 0)
+            hold = latest.get("hold", 0)
+            sell = latest.get("sell", 0)
+            strong_buy = latest.get("strongBuy", 0)
+            strong_sell = latest.get("strongSell", 0)
+            period = latest.get("period", "")
+
+            total = buy + hold + sell + strong_buy + strong_sell
+
+            # Calculate consensus score (0-100)
+            # Weight: strong_buy=5, buy=4, hold=3, sell=2, strong_sell=1
+            if total > 0:
+                weighted_sum = (strong_buy * 5 + buy * 4 + hold * 3 + sell * 2 + strong_sell * 1)
+                consensus_score = ((weighted_sum / total) - 1) / 4 * 100  # Normalize to 0-100
+            else:
+                consensus_score = 50.0
+
+            # Determine consensus label
+            if consensus_score >= 75:
+                consensus = "strong_buy"
+            elif consensus_score >= 60:
+                consensus = "buy"
+            elif consensus_score >= 40:
+                consensus = "hold"
+            elif consensus_score >= 25:
+                consensus = "sell"
+            else:
+                consensus = "strong_sell"
+
+            return AnalystRating(
+                ticker=ticker,
+                buy=buy,
+                hold=hold,
+                sell=sell,
+                strong_buy=strong_buy,
+                strong_sell=strong_sell,
+                total_analysts=total,
+                consensus=consensus,
+                consensus_score=round(consensus_score, 1),
+                period=period,
+            )
+
+        except Exception as e:
+            logger.debug(f"Finnhub analyst rating error for {ticker}: {e}")
+            return AnalystRating(ticker=ticker, error=str(e))
+
+
+# ============================================================================
+# FINNHUB INSIDER TRANSACTIONS (FREE TIER)
+# ============================================================================
+
+@dataclass
+class InsiderActivity:
+    """Container for insider transaction data."""
+    ticker: str
+    net_shares_30d: int = 0  # Net shares bought/sold in last 30 days
+    buy_transactions: int = 0
+    sell_transactions: int = 0
+    total_transactions: int = 0
+    net_value_30d: float = 0.0  # Approximate $ value
+    insider_sentiment: str = "neutral"  # bullish (net buying), bearish (net selling), neutral
+    insider_score: float = 50.0  # 0-100
+    notable_insiders: list = None  # List of recent insider names/titles
+    fetched_at: str = ""
+    error: str = ""
+
+    def __post_init__(self):
+        if self.notable_insiders is None:
+            self.notable_insiders = []
+        if not self.fetched_at:
+            self.fetched_at = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        return {
+            "ticker": self.ticker,
+            "net_shares_30d": self.net_shares_30d,
+            "buy_transactions": self.buy_transactions,
+            "sell_transactions": self.sell_transactions,
+            "total_transactions": self.total_transactions,
+            "net_value_30d": self.net_value_30d,
+            "insider_sentiment": self.insider_sentiment,
+            "insider_score": self.insider_score,
+            "notable_insiders": self.notable_insiders,
+            "fetched_at": self.fetched_at,
+            "error": self.error,
+        }
+
+
+class FinnhubInsiderTransactions:
+    """
+    Fetch insider transaction data from Finnhub.
+
+    FREE TIER: 60 requests/minute
+    API Docs: https://finnhub.io/docs/api/insider-transactions
+
+    Returns Form 4 filings showing insider buys/sells.
+    """
+
+    BASE_URL = "https://finnhub.io/api/v1"
+
+    def __init__(self, api_key: str | None = None, max_retries: int = 3):
+        self.api_key = api_key or os.environ.get("FINNHUB_API_KEY", "")
+        self.is_configured = bool(self.api_key)
+        self.session = requests.Session()
+        self._last_request_time = 0
+        self._min_request_interval = 1.0
+        self._max_retries = max_retries
+
+    def _rate_limit(self):
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self._min_request_interval:
+            time.sleep(self._min_request_interval - elapsed)
+        self._last_request_time = time.time()
+
+    def _fetch_with_retry(self, url: str, params: dict) -> requests.Response | None:
+        """Fetch with retry logic."""
+        for attempt in range(self._max_retries):
+            try:
+                self._rate_limit()
+                response = self.session.get(url, params=params, timeout=10)
+                if response.status_code in (401, 429) or response.ok:
+                    return response
+                if response.status_code >= 500 and attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return response
+            except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+        return None
+
+    def get_insider_activity(self, ticker: str) -> InsiderActivity:
+        """
+        Get insider transaction activity for a ticker.
+
+        Analyzes recent Form 4 filings to determine insider sentiment.
+        """
+        if not self.is_configured:
+            return InsiderActivity(ticker=ticker, error="FINNHUB_API_KEY not configured")
+
+        url = f"{self.BASE_URL}/stock/insider-transactions"
+        params = {"symbol": ticker.upper(), "token": self.api_key}
+
+        response = self._fetch_with_retry(url, params)
+        if response is None:
+            return InsiderActivity(ticker=ticker, error="All retries failed")
+
+        try:
+            if response.status_code == 401:
+                return InsiderActivity(ticker=ticker, error="Invalid API key")
+            if response.status_code == 429:
+                return InsiderActivity(ticker=ticker, error="Rate limited")
+
+            response.raise_for_status()
+            data = response.json()
+            transactions = data.get("data", [])
+
+            if not transactions:
+                return InsiderActivity(ticker=ticker, error="No insider data available")
+
+            # Filter to last 30 days
+            cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            recent = [t for t in transactions if t.get("transactionDate", "") >= cutoff]
+
+            # Analyze transactions
+            net_shares = 0
+            buy_count = 0
+            sell_count = 0
+            notable = []
+
+            for txn in recent[:20]:  # Limit to 20 most recent
+                change = txn.get("change", 0)
+                txn_type = txn.get("transactionCode", "")
+
+                # P = Purchase, S = Sale, A = Award/Grant
+                if txn_type == "P" or change > 0:
+                    net_shares += abs(change)
+                    buy_count += 1
+                elif txn_type == "S" or change < 0:
+                    net_shares -= abs(change)
+                    sell_count += 1
+
+                # Collect notable insiders
+                name = txn.get("name", "")
+                if name and len(notable) < 3:
+                    notable.append(name)
+
+            total = buy_count + sell_count
+
+            # Calculate insider sentiment
+            if total == 0:
+                insider_score = 50.0
+                sentiment = "neutral"
+            elif buy_count > sell_count * 2:
+                insider_score = 80.0
+                sentiment = "bullish"
+            elif sell_count > buy_count * 2:
+                insider_score = 20.0
+                sentiment = "bearish"
+            elif net_shares > 0:
+                insider_score = 60.0
+                sentiment = "bullish"
+            elif net_shares < 0:
+                insider_score = 40.0
+                sentiment = "bearish"
+            else:
+                insider_score = 50.0
+                sentiment = "neutral"
+
+            return InsiderActivity(
+                ticker=ticker,
+                net_shares_30d=net_shares,
+                buy_transactions=buy_count,
+                sell_transactions=sell_count,
+                total_transactions=total,
+                insider_sentiment=sentiment,
+                insider_score=insider_score,
+                notable_insiders=notable,
+            )
+
+        except Exception as e:
+            logger.debug(f"Finnhub insider transaction error for {ticker}: {e}")
+            return InsiderActivity(ticker=ticker, error=str(e))
+
+
+# ============================================================================
 # HAIKU-POWERED SENTIMENT ANALYSIS
 # ============================================================================
 
@@ -613,16 +953,21 @@ class SentimentAnalyzer:
     """
     Unified sentiment analyzer combining multiple data sources.
 
-    Sources:
+    Sources (all FREE except Haiku):
     1. StockTwits (FREE, no API key) - Retail trader sentiment
-    2. Finnhub (FREE tier, API key required) - News sentiment
-    3. Haiku AI (requires ANTHROPIC_API_KEY) - Intelligent summarization
+    2. Finnhub News (FREE tier, API key) - News sentiment
+    3. Finnhub Analyst Ratings (FREE tier) - Professional analyst consensus
+    4. Finnhub Insider Transactions (FREE tier) - Form 4 insider trading
+    5. Haiku AI (PAID - use sparingly) - Intelligent summarization
 
     Usage:
         analyzer = SentimentAnalyzer()
 
         # Get sentiment for one ticker
         result = analyzer.get_sentiment("NVDA")
+
+        # Get full data including analyst/insider (slower, more API calls)
+        result = analyzer.get_full_sentiment("NVDA")
 
         # Get sentiment for multiple tickers
         results = analyzer.get_bulk_sentiment(["NVDA", "AAPL", "MSFT"])
@@ -631,6 +976,8 @@ class SentimentAnalyzer:
     def __init__(self):
         self.stocktwits = StockTwitsFetcher()
         self.finnhub = FinnhubFetcher()
+        self.analyst_ratings = FinnhubAnalystRatings()
+        self.insider_txns = FinnhubInsiderTransactions()
         self.haiku = HaikuSentimentAnalyzer()
 
         # Cache results to avoid hammering APIs
@@ -716,6 +1063,101 @@ class SentimentAnalyzer:
 
         # Cache result
         self._cache[cache_key] = result
+        return result
+
+    def get_full_sentiment(
+        self,
+        ticker: str,
+        include_ai_analysis: bool = False,  # Default OFF to save Haiku costs
+        price_context: dict | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get comprehensive sentiment including analyst ratings and insider data.
+
+        This is slower (more API calls) but provides richer data.
+        Use for daily scans, not hourly.
+
+        Args:
+            ticker: Stock ticker symbol
+            include_ai_analysis: Whether to run Haiku (COSTLY - default OFF)
+            price_context: Optional price data for context
+
+        Returns:
+            Dict with all sentiment data including analyst/insider signals
+        """
+        # Get basic sentiment first
+        result = self.get_sentiment(ticker, include_ai_analysis=False, price_context=price_context)
+
+        # Add analyst ratings (FREE via Finnhub)
+        analyst_data = None
+        if self.analyst_ratings.is_configured:
+            try:
+                analyst = self.analyst_ratings.get_ratings(ticker)
+                if not analyst.error:
+                    analyst_data = analyst.to_dict()
+            except Exception as e:
+                logger.debug(f"Analyst rating error for {ticker}: {e}")
+
+        # Add insider transactions (FREE via Finnhub)
+        insider_data = None
+        if self.insider_txns.is_configured:
+            try:
+                insider = self.insider_txns.get_insider_activity(ticker)
+                if not insider.error:
+                    insider_data = insider.to_dict()
+            except Exception as e:
+                logger.debug(f"Insider transaction error for {ticker}: {e}")
+
+        # Calculate enhanced aggregate score
+        # Weight: Social 40%, Analyst 35%, Insider 25%
+        scores = []
+        weights = []
+
+        social_score = result.get("aggregate_score", 50)
+        if social_score != 50:  # Has real data
+            scores.append(social_score)
+            weights.append(0.4)
+
+        if analyst_data and analyst_data.get("total_analysts", 0) > 0:
+            scores.append(analyst_data.get("consensus_score", 50))
+            weights.append(0.35)
+
+        if insider_data and insider_data.get("total_transactions", 0) > 0:
+            scores.append(insider_data.get("insider_score", 50))
+            weights.append(0.25)
+
+        if scores and weights:
+            # Normalize weights to sum to 1
+            total_weight = sum(weights)
+            enhanced_score = sum(s * w for s, w in zip(scores, weights)) / total_weight
+        else:
+            enhanced_score = social_score
+
+        # Update result with enhanced data
+        result["analyst_ratings"] = analyst_data
+        result["insider_activity"] = insider_data
+        result["enhanced_score"] = round(enhanced_score, 1)
+
+        # Determine enhanced label
+        if enhanced_score >= 60:
+            result["enhanced_label"] = "bullish"
+        elif enhanced_score <= 40:
+            result["enhanced_label"] = "bearish"
+        else:
+            result["enhanced_label"] = "neutral"
+
+        # Only run Haiku if explicitly requested (SAVE COSTS)
+        if include_ai_analysis and self.haiku.is_configured:
+            try:
+                result["ai_analysis"] = self.haiku.analyze_sentiment(
+                    ticker=ticker,
+                    stocktwits_result=self.stocktwits.get_sentiment(ticker) if not result.get("stocktwits") else None,
+                    finnhub_result=None,
+                    price_context=price_context,
+                )
+            except Exception as e:
+                logger.debug(f"Haiku analysis error for {ticker}: {e}")
+
         return result
 
     def get_bulk_sentiment(
@@ -941,6 +1383,40 @@ class SentimentStorage:
             )
         """)
 
+        # Hourly sentiment snapshots (for top 20 AI stocks)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sentiment_hourly (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                scan_datetime TEXT NOT NULL,
+                source TEXT DEFAULT 'stocktwits',
+                bullish_count INTEGER DEFAULT 0,
+                bearish_count INTEGER DEFAULT 0,
+                neutral_count INTEGER DEFAULT 0,
+                total_messages INTEGER DEFAULT 0,
+                sentiment_score REAL DEFAULT 50.0,
+                sentiment_label TEXT DEFAULT 'neutral',
+                message_velocity REAL DEFAULT 0.0,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE (ticker, scan_datetime, source)
+            )
+        """)
+
+        # Enhanced signals (analyst ratings, insider transactions)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sentiment_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                scan_date TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                signal_data TEXT,
+                signal_score REAL DEFAULT 50.0,
+                signal_label TEXT DEFAULT 'neutral',
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE (ticker, scan_date, signal_type)
+            )
+        """)
+
         self.db.conn.commit()
         logger.debug("Sentiment tables initialized")
 
@@ -1098,6 +1574,125 @@ class SentimentStorage:
             logger.error(f"Error storing category sentiment for {category}: {e}")
             return False
 
+    def store_hourly_sentiment(self, ticker: str, sentiment_data: dict) -> bool:
+        """Store hourly sentiment snapshot for a ticker."""
+        try:
+            scan_time = datetime.now().strftime("%Y-%m-%d %H:00:00")
+            st = sentiment_data.get("stocktwits", {})
+
+            self.db.execute("""
+                INSERT INTO sentiment_hourly (
+                    ticker, scan_datetime, source,
+                    bullish_count, bearish_count, neutral_count, total_messages,
+                    sentiment_score, sentiment_label, message_velocity
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (ticker, scan_datetime, source) DO UPDATE SET
+                    bullish_count = excluded.bullish_count,
+                    bearish_count = excluded.bearish_count,
+                    neutral_count = excluded.neutral_count,
+                    total_messages = excluded.total_messages,
+                    sentiment_score = excluded.sentiment_score,
+                    sentiment_label = excluded.sentiment_label,
+                    message_velocity = excluded.message_velocity
+            """, (
+                ticker,
+                scan_time,
+                "stocktwits",
+                st.get("bullish_count", 0),
+                st.get("bearish_count", 0),
+                st.get("neutral_count", 0),
+                st.get("total_messages", 0),
+                sentiment_data.get("aggregate_score", 50.0),
+                sentiment_data.get("aggregate_label", "neutral"),
+                st.get("message_velocity", 0.0),
+            ))
+            return True
+
+        except Exception as e:
+            logger.debug(f"Error storing hourly sentiment for {ticker}: {e}")
+            return False
+
+    def store_signal(self, ticker: str, signal_type: str, signal_data: dict) -> bool:
+        """Store enhanced signal (analyst ratings, insider transactions)."""
+        try:
+            today = date.today().isoformat()
+
+            self.db.execute("""
+                INSERT INTO sentiment_signals (
+                    ticker, scan_date, signal_type,
+                    signal_data, signal_score, signal_label
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (ticker, scan_date, signal_type) DO UPDATE SET
+                    signal_data = excluded.signal_data,
+                    signal_score = excluded.signal_score,
+                    signal_label = excluded.signal_label
+            """, (
+                ticker,
+                today,
+                signal_type,
+                json.dumps(signal_data),
+                signal_data.get("consensus_score", signal_data.get("insider_score", 50.0)),
+                signal_data.get("consensus", signal_data.get("insider_sentiment", "neutral")),
+            ))
+            return True
+
+        except Exception as e:
+            logger.debug(f"Error storing {signal_type} for {ticker}: {e}")
+            return False
+
+    def get_hourly_trend(self, ticker: str, hours: int = 6) -> list[dict]:
+        """Get hourly sentiment trend for a ticker."""
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:00:00")
+
+            rows = self.db.fetchdf("""
+                SELECT scan_datetime, sentiment_score, sentiment_label, total_messages
+                FROM sentiment_hourly
+                WHERE ticker = ? AND scan_datetime >= ?
+                ORDER BY scan_datetime ASC
+            """, (ticker, cutoff))
+
+            if rows.empty:
+                return []
+
+            return rows.to_dict("records")
+
+        except Exception as e:
+            logger.debug(f"Error getting hourly trend for {ticker}: {e}")
+            return []
+
+    def get_signals(self, tickers: list[str]) -> dict[str, dict]:
+        """Get today's signals for tickers (analyst + insider)."""
+        try:
+            today = date.today().isoformat()
+            placeholders = ",".join(["?" for _ in tickers])
+
+            rows = self.db.fetchdf(f"""
+                SELECT ticker, signal_type, signal_data, signal_score, signal_label
+                FROM sentiment_signals
+                WHERE scan_date = ? AND ticker IN ({placeholders})
+            """, (today, *tickers))
+
+            results = {}
+            if not rows.empty:
+                for _, row in rows.iterrows():
+                    ticker = row["ticker"]
+                    if ticker not in results:
+                        results[ticker] = {}
+                    try:
+                        results[ticker][row["signal_type"]] = {
+                            "data": json.loads(row["signal_data"]) if row["signal_data"] else {},
+                            "score": row["signal_score"],
+                            "label": row["signal_label"],
+                        }
+                    except Exception:
+                        pass
+            return results
+
+        except Exception as e:
+            logger.debug(f"Error getting signals: {e}")
+            return {}
+
 
 # ============================================================================
 # DAILY SENTIMENT SCAN (CALLED BY SCHEDULER)
@@ -1183,11 +1778,31 @@ def run_daily_sentiment_scan(
             results["errors"].append(f"{ticker}: {str(e)}")
             logger.debug(f"Error scanning {ticker}: {e}")
 
-    # Run AI analysis on most extreme sentiment stocks
-    if include_ai_analysis and analyzer.haiku.is_configured:
-        logger.info("Running Haiku analysis on notable stocks...")
+    # Fetch enhanced signals for all scanned tickers (FREE via Finnhub)
+    logger.info("Fetching analyst ratings and insider data...")
+    for ticker in target_tickers[:max_tickers]:
+        try:
+            # Analyst ratings
+            if analyzer.analyst_ratings.is_configured:
+                analyst = analyzer.analyst_ratings.get_ratings(ticker)
+                if not analyst.error:
+                    storage.store_signal(ticker, "analyst_rating", analyst.to_dict())
 
-        # Analyze top bullish and bearish
+            # Insider transactions
+            if analyzer.insider_txns.is_configured:
+                insider = analyzer.insider_txns.get_insider_activity(ticker)
+                if not insider.error:
+                    storage.store_signal(ticker, "insider_txn", insider.to_dict())
+
+        except Exception as e:
+            logger.debug(f"Enhanced signal error for {ticker}: {e}")
+
+    # Run AI analysis on most extreme sentiment stocks (LIMIT TO SAVE COSTS)
+    # Only analyze top 3 bullish + top 3 bearish = 6 Haiku calls max
+    if include_ai_analysis and analyzer.haiku.is_configured:
+        logger.info("Running Haiku analysis on top 3 bullish + top 3 bearish stocks...")
+
+        # Analyze top bullish and bearish only
         notable_tickers = (
             [t["ticker"] for t in results["bullish"][:3]] +
             [t["ticker"] for t in results["bearish"][:3]]
@@ -1209,6 +1824,63 @@ def run_daily_sentiment_scan(
         f"Daily sentiment scan complete: {results['successful']}/{results['tickers_scanned']} successful, "
         f"{len(results['bullish'])} bullish, {len(results['bearish'])} bearish, "
         f"{len(results['trending'])} trending"
+    )
+
+    return results
+
+
+# Top 20 AI stocks for hourly monitoring (highest market cap / most important)
+TOP_20_AI_STOCKS = [
+    "NVDA", "MSFT", "AAPL", "GOOGL", "AMZN",
+    "META", "TSM", "AVGO", "ORCL", "CRM",
+    "AMD", "PLTR", "SNOW", "NOW", "ADBE",
+    "IBM", "INTC", "MU", "QCOM", "ARM",
+]
+
+
+def run_hourly_sentiment_scan() -> dict[str, Any]:
+    """
+    Run hourly sentiment scan for top 20 AI stocks.
+
+    This is a lightweight scan that only collects StockTwits data.
+    NO Haiku analysis (saves costs) - just raw social sentiment.
+
+    Called by scheduler every hour during market hours.
+
+    Returns:
+        Summary of scan results
+    """
+    logger.info("Starting hourly sentiment scan for top 20 AI stocks...")
+
+    analyzer = SentimentAnalyzer()
+    storage = SentimentStorage()
+
+    results = {
+        "scan_time": datetime.now().isoformat(),
+        "tickers_scanned": 0,
+        "successful": 0,
+        "failed": 0,
+    }
+
+    for ticker in TOP_20_AI_STOCKS:
+        try:
+            # Get sentiment WITHOUT AI analysis (save costs)
+            sentiment = analyzer.get_sentiment(ticker, include_ai_analysis=False)
+
+            # Store in hourly table
+            if storage.store_hourly_sentiment(ticker, sentiment):
+                results["successful"] += 1
+            else:
+                results["failed"] += 1
+
+            results["tickers_scanned"] += 1
+
+        except Exception as e:
+            results["failed"] += 1
+            logger.debug(f"Hourly scan error for {ticker}: {e}")
+
+    logger.info(
+        f"Hourly sentiment scan complete: {results['successful']}/{results['tickers_scanned']} successful"
     )
 
     return results

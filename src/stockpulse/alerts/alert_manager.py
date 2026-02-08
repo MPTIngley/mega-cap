@@ -948,6 +948,18 @@ class AlertManager:
         today = datetime.now().strftime('%Y-%m-%d')
         subject = f"📈 StockPulse Long-Term Opportunities - {today}"
 
+        # Load sentiment data for long-term tickers
+        sentiment_data = {}
+        signals_data = {}
+        try:
+            from stockpulse.data.sentiment import SentimentStorage
+            storage = SentimentStorage()
+            lt_tickers = [o.get("ticker") for o in opportunities if o.get("ticker")]
+            sentiment_data = storage.get_todays_sentiment(lt_tickers)
+            signals_data = storage.get_signals(lt_tickers)
+        except Exception as e:
+            logger.debug(f"Sentiment data load skipped for Long-Term: {e}")
+
         # Identify strong buys (score 68+, improving or stable, 3+ days)
         strong_buys = [
             opp for opp in opportunities
@@ -973,6 +985,19 @@ class AlertManager:
 
                 trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
 
+                # Get sentiment info
+                sent = sentiment_data.get(ticker, {})
+                sent_score = sent.get("aggregate_score", 0)
+                sent_label = sent.get("aggregate_label", "")
+                sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+                # Get analyst/insider signals
+                signals = signals_data.get(ticker, {})
+                analyst = signals.get("analyst_rating", {}).get("data", {})
+                insider = signals.get("insider_txn", {}).get("data", {})
+                analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
                 strong_rows += f"""
                 <tr style="background: #ecfdf5;">
                     <td>
@@ -985,9 +1010,10 @@ class AlertManager:
                     <td style="text-align: center;">{trend} {days}d</td>
                 </tr>
                 <tr style="background: #ecfdf5;">
-                    <td colspan="3" style="padding: 5px 15px 15px; color: #047857; font-size: 13px; border-bottom: 2px solid #059669;">
+                    <td colspan="4" style="padding: 5px 15px 15px; color: #047857; font-size: 13px; border-bottom: 2px solid #059669;">
                         <strong>Why:</strong> {reasoning}<br/>
-                        <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days
+                        <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days<br/>
+                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}
                     </td>
                 </tr>
                 """
@@ -1031,6 +1057,26 @@ class AlertManager:
                 sign = "+" if change_5d >= 0 else ""
                 trend_info = f"{trend} {days}d ({sign}{change_5d:.1f})"
 
+            # Get sentiment and signals for this ticker
+            sent = sentiment_data.get(ticker, {})
+            sent_score = sent.get("aggregate_score", 0)
+            sent_label = sent.get("aggregate_label", "")
+            sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+            signals = signals_data.get(ticker, {})
+            analyst = signals.get("analyst_rating", {}).get("data", {})
+            insider = signals.get("insider_txn", {}).get("data", {})
+            analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
+            sentiment_info = f"{sent_emoji} {sent_score:.0f}" if sent_score else "—"
+            signals_info = []
+            if analyst_consensus:
+                signals_info.append(f"Analysts: {analyst_consensus}")
+            if insider_sentiment:
+                signals_info.append(f"Insiders: {insider_sentiment}")
+            signals_text = " | ".join(signals_info) if signals_info else ""
+
             rows += f"""
             <tr>
                 <td>
@@ -1045,7 +1091,7 @@ class AlertManager:
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
-                    {reasoning}
+                    {reasoning}{f" | Sentiment: {sentiment_info}" if sent_score else ""}{f" | {signals_text}" if signals_text else ""}
                 </td>
             </tr>
             """
@@ -1234,6 +1280,18 @@ class AlertManager:
         today = datetime.now().strftime('%Y-%m-%d')
         subject = f"💎 Trillion+ Club Entry Opportunities - {today}"
 
+        # Load sentiment data for trillion club tickers
+        sentiment_data = {}
+        signals_data = {}
+        try:
+            from stockpulse.data.sentiment import SentimentStorage
+            storage = SentimentStorage()
+            tc_tickers = [m.get("ticker") for m in trillion_club if m.get("ticker")]
+            sentiment_data = storage.get_todays_sentiment(tc_tickers)
+            signals_data = storage.get_signals(tc_tickers)
+        except Exception as e:
+            logger.debug(f"Sentiment data load skipped for Trillion+: {e}")
+
         # Identify strong entries (score 70+, improving or stable, 3+ days)
         strong_entries = [
             m for m in trillion_club
@@ -1261,6 +1319,19 @@ class AlertManager:
                 trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
                 reasoning = f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high"
 
+                # Get sentiment info
+                sent = sentiment_data.get(ticker, {})
+                sent_score = sent.get("aggregate_score", 0)
+                sent_label = sent.get("aggregate_label", "")
+                sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+                # Get analyst/insider signals
+                signals = signals_data.get(ticker, {})
+                analyst = signals.get("analyst_rating", {}).get("data", {})
+                insider = signals.get("insider_txn", {}).get("data", {})
+                analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
                 strong_rows += f"""
                 <tr style="background: #eff6ff;">
                     <td>
@@ -1275,7 +1346,8 @@ class AlertManager:
                 <tr style="background: #eff6ff;">
                     <td colspan="4" style="padding: 5px 15px 15px; color: #1e40af; font-size: 13px; border-bottom: 2px solid #3b82f6;">
                         <strong>Why:</strong> {reasoning}<br/>
-                        <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days
+                        <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days<br/>
+                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}
                     </td>
                 </tr>
                 """
@@ -1323,6 +1395,26 @@ class AlertManager:
             # Build reasoning
             reasoning = f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high, {category}"
 
+            # Get sentiment and signals for this ticker
+            sent = sentiment_data.get(ticker, {})
+            sent_score = sent.get("aggregate_score", 0)
+            sent_label = sent.get("aggregate_label", "")
+            sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+            signals = signals_data.get(ticker, {})
+            analyst = signals.get("analyst_rating", {}).get("data", {})
+            insider = signals.get("insider_txn", {}).get("data", {})
+            analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
+            sentiment_info = f"{sent_emoji} {sent_score:.0f}" if sent_score else "—"
+            signals_info = []
+            if analyst_consensus:
+                signals_info.append(f"Analysts: {analyst_consensus}")
+            if insider_sentiment:
+                signals_info.append(f"Insiders: {insider_sentiment}")
+            signals_text = " | ".join(signals_info) if signals_info else ""
+
             tc_rows += f"""
             <tr>
                 <td>
@@ -1337,7 +1429,7 @@ class AlertManager:
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
-                    {reasoning}
+                    {reasoning}{f" | Sentiment: {sentiment_info}" if sent_score else ""}{f" | {signals_text}" if signals_text else ""}
                 </td>
             </tr>
             """

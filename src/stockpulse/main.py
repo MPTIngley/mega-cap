@@ -709,6 +709,19 @@ def run_scheduler():
         print("  ✅ Sentiment data cached for AI Pulse!")
         print("=" * 60)
 
+    def on_hourly_sentiment_scan():
+        """Callback for hourly sentiment scan - top 20 AI stocks only, no Haiku."""
+        from stockpulse.data.sentiment import run_hourly_sentiment_scan
+
+        print("\n" + "-" * 40)
+        print("  HOURLY SENTIMENT (Top 20 AI)")
+        print("-" * 40)
+
+        results = run_hourly_sentiment_scan()
+
+        print(f"  Scanned: {results['tickers_scanned']} | OK: {results['successful']}")
+        print("-" * 40)
+
     def on_trillion_scan():
         """Callback for Trillion+ Club scanner."""
         from stockpulse.scanner.ai_pulse import AIPulseScanner
@@ -852,6 +865,10 @@ def run_scheduler():
         on_sentiment_scan()
         print_schedule()
 
+    def on_hourly_sentiment_wrapper():
+        on_hourly_sentiment_scan()
+        print_schedule()
+
     def on_ai_scan_wrapper():
         on_ai_scan()
         print_schedule()
@@ -862,6 +879,7 @@ def run_scheduler():
     scheduler.on_daily_digest = on_daily_digest_wrapper
     scheduler.on_trillion_scan = on_trillion_scan_wrapper
     scheduler.on_sentiment_scan = on_sentiment_scan_wrapper
+    scheduler.on_hourly_sentiment_scan = on_hourly_sentiment_wrapper
     scheduler.on_ai_pulse_scan = on_ai_scan_wrapper
 
     scheduler.start()
