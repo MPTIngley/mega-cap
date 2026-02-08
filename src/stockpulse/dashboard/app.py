@@ -2985,16 +2985,116 @@ def render_ai_stocks_page(services: dict):
         avg_30d = sum(s.get("pct_30d", 0) for s in stocks) / len(stocks)
         top_pick = max(stocks, key=lambda s: s.get("ai_score", 0))
 
+        # Calculate category sentiment
+        cat_sent_scores = []
+        for s in stocks:
+            ticker = s.get("ticker", "")
+            sent = sentiment_data.get(ticker, {})
+            if sent.get("aggregate_score", 0) > 0:
+                cat_sent_scores.append(sent.get("aggregate_score", 50))
+
+        if cat_sent_scores:
+            avg_sent = sum(cat_sent_scores) / len(cat_sent_scores)
+            if avg_sent >= 60:
+                sent_display = f"🟢 {avg_sent:.0f}"
+            elif avg_sent <= 40:
+                sent_display = f"🔴 {avg_sent:.0f}"
+            else:
+                sent_display = f"🟡 {avg_sent:.0f}"
+        else:
+            sent_display = "—"
+
         cat_rows.append({
             "Category": cat,
             "Stocks": len(stocks),
             "Avg AI Score": f"{avg_score:.0f}",
+            "Sentiment": sent_display,
             "Avg 30d": f"{avg_30d:+.1f}%",
             "Top Pick": top_pick.get("ticker", "N/A")
         })
 
     if cat_rows:
         st.dataframe(pd.DataFrame(cat_rows), use_container_width=True, hide_index=True)
+
+    # Social Sentiment Summary section
+    st.markdown("---")
+    st.subheader("📊 Social Sentiment Summary")
+    st.caption("Sentiment from StockTwits - sorted by score. AI analysis available for top movers.")
+
+    # Get sentiment with details for display
+    sentiment_with_details = []
+    for ticker, sent in sentiment_data.items():
+        if sent.get("aggregate_score", 0) > 0:
+            st_data = sent.get("stocktwits", {})
+            ai_data = sent.get("ai_analysis", {})
+            sentiment_with_details.append({
+                "ticker": ticker,
+                "score": sent.get("aggregate_score", 50),
+                "label": sent.get("aggregate_label", "neutral"),
+                "bullish": st_data.get("bullish_count", 0),
+                "bearish": st_data.get("bearish_count", 0),
+                "total": st_data.get("total_messages", 0),
+                "trending": st_data.get("trending", False),
+                "ai_summary": ai_data.get("summary", "") if ai_data else "",
+                "sample_messages": st_data.get("sample_messages", [])
+            })
+
+    if sentiment_with_details:
+        # Sort by score
+        sentiment_with_details.sort(key=lambda x: x["score"], reverse=True)
+
+        # Show top bullish and bearish
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**🟢 Most Bullish**")
+            bullish = [s for s in sentiment_with_details if s["label"] == "bullish"][:5]
+            if bullish:
+                for s in bullish:
+                    trending = " 📈" if s["trending"] else ""
+                    st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}{trending}")
+                    st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
+                    if s["ai_summary"]:
+                        with st.expander("AI Analysis"):
+                            st.write(s["ai_summary"][:500])
+            else:
+                st.caption("No bullish stocks found")
+
+        with col2:
+            st.markdown("**🔴 Most Bearish**")
+            bearish = [s for s in sentiment_with_details if s["label"] == "bearish"][:5]
+            if bearish:
+                for s in bearish:
+                    trending = " 📈" if s["trending"] else ""
+                    st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}{trending}")
+                    st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
+                    if s["ai_summary"]:
+                        with st.expander("AI Analysis"):
+                            st.write(s["ai_summary"][:500])
+            else:
+                st.caption("No bearish stocks found")
+
+        # Full sentiment table
+        with st.expander("📋 Full Sentiment Data (click to expand)"):
+            sent_df = pd.DataFrame(sentiment_with_details)
+            sent_df = sent_df[["ticker", "score", "label", "bullish", "bearish", "total", "trending"]]
+            sent_df["score"] = sent_df["score"].round(0).astype(int)
+            sent_df["label"] = sent_df["label"].apply(lambda x: f"{'🟢' if x == 'bullish' else '🔴' if x == 'bearish' else '🟡'} {x.upper()}")
+            sent_df["trending"] = sent_df["trending"].apply(lambda x: "📈 Yes" if x else "")
+            sent_df = sent_df.rename(columns={
+                "ticker": "Ticker",
+                "score": "Score",
+                "label": "Sentiment",
+                "bullish": "↑ Bullish",
+                "bearish": "↓ Bearish",
+                "total": "Total",
+                "trending": "Trending"
+            })
+            st.dataframe(sent_df, use_container_width=True, hide_index=True)
+
+        st.caption("**Score:** 0-100 (50=neutral) | **Trending:** High message velocity on StockTwits")
+    else:
+        st.info("No sentiment data available. Run `stockpulse sentiment-scan` to fetch social sentiment.")
 
     # All AI stocks table
     st.markdown("---")
@@ -3072,6 +3172,42 @@ def render_ai_stocks_page(services: dict):
                             "Value": data.get("raw_value", "—")
                         })
                 st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+
+            # Sentiment Analysis section for selected stock
+            st.markdown("#### Social Sentiment")
+            ticker_sent = sentiment_data.get(selected_ticker, {})
+            if ticker_sent.get("aggregate_score", 0) > 0:
+                sent_score = ticker_sent.get("aggregate_score", 50)
+                sent_label = ticker_sent.get("aggregate_label", "neutral")
+                st_data = ticker_sent.get("stocktwits", {})
+                ai_data = ticker_sent.get("ai_analysis", {})
+
+                # Sentiment metrics
+                scol1, scol2, scol3, scol4 = st.columns(4)
+                with scol1:
+                    emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                    st.metric("Sentiment Score", f"{emoji} {sent_score:.0f}")
+                with scol2:
+                    st.metric("Bullish Messages", st_data.get("bullish_count", 0))
+                with scol3:
+                    st.metric("Bearish Messages", st_data.get("bearish_count", 0))
+                with scol4:
+                    trending = "📈 Yes" if st_data.get("trending", False) else "No"
+                    st.metric("Trending", trending)
+
+                # AI Analysis
+                if ai_data and ai_data.get("summary"):
+                    st.markdown("**AI Analysis:**")
+                    st.info(ai_data.get("summary", ""))
+
+                # Sample messages
+                sample_msgs = st_data.get("sample_messages", [])
+                if sample_msgs:
+                    with st.expander("📝 Sample Messages from StockTwits"):
+                        for msg in sample_msgs[:5]:
+                            st.caption(f"• {msg}")
+            else:
+                st.caption("No sentiment data available for this stock. Run `stockpulse sentiment-scan` to fetch.")
 
             # Price chart
             st.markdown("#### Price History (3 Months)")
@@ -3201,6 +3337,62 @@ def render_trillion_club_page(services: dict):
         member["sentiment"] = format_sentiment(sentiment_data, member["ticker"])
 
     trillion_df = pd.DataFrame(members)
+
+    # Sentiment Summary section for Trillion Club
+    if sentiment_data:
+        st.markdown("---")
+        st.subheader("📊 Social Sentiment - Trillion Club")
+        st.caption("Sentiment from StockTwits for mega-cap stocks")
+
+        # Build sentiment details
+        tc_sentiment = []
+        for ticker, sent in sentiment_data.items():
+            if sent.get("aggregate_score", 0) > 0:
+                st_data = sent.get("stocktwits", {})
+                ai_data = sent.get("ai_analysis", {})
+                tc_sentiment.append({
+                    "ticker": ticker,
+                    "score": sent.get("aggregate_score", 50),
+                    "label": sent.get("aggregate_label", "neutral"),
+                    "bullish": st_data.get("bullish_count", 0),
+                    "bearish": st_data.get("bearish_count", 0),
+                    "total": st_data.get("total_messages", 0),
+                    "ai_summary": ai_data.get("summary", "") if ai_data else ""
+                })
+
+        if tc_sentiment:
+            tc_sentiment.sort(key=lambda x: x["score"], reverse=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**🟢 Most Bullish**")
+                bullish = [s for s in tc_sentiment if s["label"] == "bullish"][:3]
+                if bullish:
+                    for s in bullish:
+                        st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}")
+                        st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
+                        if s["ai_summary"]:
+                            with st.expander("AI Analysis"):
+                                st.write(s["ai_summary"][:400])
+                else:
+                    st.caption("No bullish stocks")
+
+            with col2:
+                st.markdown("**🔴 Most Bearish**")
+                bearish = [s for s in tc_sentiment if s["label"] == "bearish"][:3]
+                if bearish:
+                    for s in bearish:
+                        st.markdown(f"**{s['ticker']}** - Score: {s['score']:.0f}")
+                        st.caption(f"↑{s['bullish']} ↓{s['bearish']} ({s['total']} messages)")
+                        if s["ai_summary"]:
+                            with st.expander("AI Analysis"):
+                                st.write(s["ai_summary"][:400])
+                else:
+                    st.caption("No bearish stocks")
+
+    # All Trillion Club table
+    st.markdown("---")
+    st.subheader("💎 All Trillion+ Club Members")
 
     # Format for display
     display_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "sentiment", "category", "trend_symbol", "consecutive_days"]
