@@ -781,12 +781,14 @@ def run_scheduler():
         "intraday_open": "Opening scan (09:32)",
         "intraday_first": "First 15-min (09:45)",
         "intraday_scan": "15-min scans (10:00-15:45)",
+        "sentiment_hourly": "Hourly sentiment (10:30-15:30)",
         "intraday_close": "Closing scan (15:58)",
-        "daily_scan": "Daily scan",
-        "daily_digest": "Daily digest",
-        "long_term_scan": "Long-term scan",
-        "trillion_club_scan": "Trillion+ Club scan",
-        "ai_thesis_scan": "AI Thesis research",
+        "daily_scan": "Daily scan (16:30)",
+        "sentiment_scan": "Sentiment scan (17:00)",
+        "daily_digest": "Daily digest email",
+        "long_term_scan": "Long-term scan (17:15)",
+        "trillion_club_scan": "Trillion+ Club scan (17:20)",
+        "ai_thesis_scan": "AI Thesis research (17:30)",
     }
 
     def print_schedule():
@@ -796,28 +798,28 @@ def run_scheduler():
         market_open, market_status = is_market_open()
 
         print("\n" + "-" * 50)
-        print(f"  Date: {now.strftime('%Y-%m-%d')}  Time: {now.strftime('%H:%M ET')}  Market: {'OPEN' if market_open else 'CLOSED'}")
+        print(f"  Date: {now.strftime('%Y-%m-%d')}  Time: {now.strftime('%H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
 
         # Check if weekend
         if now.weekday() >= 5:
             day_name = "Saturday" if now.weekday() == 5 else "Sunday"
             print(f"\n  📅 {day_name} - Markets closed until Monday 9:30 AM ET")
-            print("-" * 50 + "\n")
-            return
 
-        print("\n  Daily Schedule:")
+        print("\n  Upcoming Schedule:")
 
         # Define the trading day order
         day_order = [
             "intraday_open",       # 09:32
             "intraday_first",      # 09:45
             "intraday_scan",       # 10:00-15:45
+            "sentiment_hourly",    # 10:30-15:30 (hourly)
             "intraday_close",      # 15:58
             "daily_scan",          # 16:30
-            "daily_digest",        # 17:00
-            "long_term_scan",      # 17:30
-            "trillion_club_scan",  # 17:31
-            "ai_thesis_scan",      # 17:32
+            "sentiment_scan",      # 17:00
+            "daily_digest",        # 17:00 (configurable)
+            "long_term_scan",      # 17:15
+            "trillion_club_scan",  # 17:20
+            "ai_thesis_scan",      # 17:30
         ]
 
         # Find the next job (soonest that is in the future)
