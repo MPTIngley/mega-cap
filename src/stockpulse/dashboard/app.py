@@ -528,6 +528,29 @@ def debug_print(message: str, level: str = "INFO"):
     _debug_log.append({"time": timestamp, "level": level, "message": message})
 
 
+def format_sentiment(sentiment_data: dict, ticker: str) -> str:
+    """Format sentiment data for display in dashboard tables.
+
+    Args:
+        sentiment_data: Dict of ticker -> sentiment info from SentimentStorage
+        ticker: The ticker to get sentiment for
+
+    Returns:
+        Formatted string like "🟢 72" or "—" if no data
+    """
+    sent = sentiment_data.get(ticker, {})
+    sent_score = sent.get("aggregate_score", 0)
+    sent_label = sent.get("aggregate_label", "")
+    if sent_score > 0:
+        if sent_label == "bullish":
+            return f"🟢 {sent_score:.0f}"
+        elif sent_label == "bearish":
+            return f"🔴 {sent_score:.0f}"
+        else:
+            return f"🟡 {sent_score:.0f}"
+    return "—"
+
+
 @st.cache_resource
 def init_services():
     """Initialize services (cached)."""
@@ -719,7 +742,7 @@ def main():
     # Navigation
     page = st.sidebar.radio(
         "Navigation",
-        ["Live Signals", "Paper Portfolio", "Long-Term Holdings", "Performance", "Backtests", "Long-Term Watchlist", "Trillion Club", "AI Theses", "Universe", "Settings", "Debug"],
+        ["Live Signals", "Paper Portfolio", "Long-Term Holdings", "Performance", "Backtests", "Long-Term Watchlist", "AI Stocks", "Trillion Club", "AI Theses", "Universe", "Settings", "Debug"],
         label_visibility="collapsed"
     )
 
@@ -836,6 +859,8 @@ def main():
         render_backtests_page(services)
     elif page == "Long-Term Watchlist":
         render_watchlist_page(services)
+    elif page == "AI Stocks":
+        render_ai_stocks_page(services)
     elif page == "Trillion Club":
         render_trillion_club_page(services)
     elif page == "AI Theses":
@@ -2521,6 +2546,21 @@ def render_watchlist_page(services: dict):
         # Convert to list of dicts, enrich with trends, convert back
         opps = watchlist_df.to_dict('records')
         opps = scanner.enrich_with_trends(opps)
+
+        # Load sentiment data
+        sentiment_data = {}
+        try:
+            from stockpulse.data.sentiment import SentimentStorage
+            storage = SentimentStorage()
+            lt_tickers = [o.get("ticker") for o in opps if o.get("ticker")]
+            sentiment_data = storage.get_todays_sentiment(lt_tickers)
+        except Exception:
+            pass  # Sentiment optional
+
+        # Add sentiment to each opportunity
+        for opp in opps:
+            opp["sentiment"] = format_sentiment(sentiment_data, opp.get("ticker", ""))
+
         watchlist_df = pd.DataFrame(opps)
 
         # Create formatted trend column matching email format: "📈 11d (+2.4)"
@@ -2535,10 +2575,10 @@ def render_watchlist_page(services: dict):
 
         watchlist_df['trend_formatted'] = watchlist_df.apply(format_trend, axis=1)
 
-        # Better display with trend, company name, sector, and price info
+        # Better display with trend, company name, sector, sentiment, and price info
         display_cols = [
             "trend_formatted", "ticker", "company_name", "sector", "composite_score",
-            "current_price", "week52_low", "week52_high", "price_vs_52w_low_pct"
+            "sentiment", "current_price", "week52_low", "week52_high", "price_vs_52w_low_pct"
         ]
         available_cols = [c for c in display_cols if c in watchlist_df.columns]
         display_df = watchlist_df[available_cols].copy()
@@ -2562,6 +2602,7 @@ def render_watchlist_page(services: dict):
             "company_name": "Company",
             "sector": "Sector",
             "composite_score": "Score",
+            "sentiment": "Sentiment",
             "current_price": "Price",
             "week52_low": "52W Low",
             "week52_high": "52W High",
@@ -2824,6 +2865,229 @@ def render_longterm_holdings_page(services: dict):
             st.info("No closed positions yet.")
 
 
+def render_ai_stocks_page(services: dict):
+    """Render AI Stocks page showing AI universe stocks with scores."""
+    st.title("🤖 AI Stocks")
+    st.markdown("AI universe stocks ranked by opportunity score. Pullbacks + oversold = higher scores.")
+
+    # Scoring methodology
+    with st.expander("📊 Scoring Methodology (click to expand)"):
+        st.markdown("""
+        ### How AI Stocks Are Scored
+
+        Each stock receives an **AI Score (0-100)** based on weighted factors:
+
+        | Factor | Points | Description |
+        |--------|--------|-------------|
+        | **Base** | 50 | Starting point |
+        | **30d Performance** | ±20 | Pullbacks score higher (-20%: +20, +30%: -15) |
+        | **90d Performance** | ±15 | Medium-term trend |
+        | **AI Category** | +10 | Infra: +10, Hyperscaler: +8, Software: +7 |
+        | **RSI (14)** | ±15 | Oversold <30: +15, Overbought >70: -5 |
+        | **50-Day MA** | ±10 | Below MA = opportunity |
+        | **Valuation** | ±10 | PEG <1: +10, P/E <20: +8 |
+
+        **Score Interpretation:**
+        - 🔥 **75+** = Strong Buy
+        - ✅ **65-74** = Buy
+        - ➡️ **55-64** = Hold
+        - ⚠️ **<55** = Wait for pullback
+        """)
+
+    # Run AI scan to get current data
+    try:
+        from stockpulse.scanner.ai_pulse import AIPulseScanner
+        scanner = AIPulseScanner()
+
+        with st.spinner("Scanning AI universe stocks..."):
+            ai_stocks = scanner.get_ai_stocks()
+
+        if not ai_stocks:
+            st.warning("No AI stocks data. Run `stockpulse ai-scan` to populate.")
+            return
+
+    except Exception as e:
+        st.error(f"Error loading AI stocks: {e}")
+        return
+
+    # Load sentiment data
+    sentiment_data = {}
+    try:
+        from stockpulse.data.sentiment import SentimentStorage
+        storage = SentimentStorage()
+        ai_tickers = [s.get("ticker") for s in ai_stocks if s.get("ticker")]
+        sentiment_data = storage.get_todays_sentiment(ai_tickers)
+    except Exception:
+        pass
+
+    # Summary metrics
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("AI Stocks", len(ai_stocks))
+    with col2:
+        high_score = len([s for s in ai_stocks if s.get("ai_score", 0) >= 65])
+        st.metric("High Score (65+)", high_score)
+    with col3:
+        avg_30d = sum(s.get("pct_30d", 0) for s in ai_stocks) / len(ai_stocks) if ai_stocks else 0
+        st.metric("Avg 30d Return", f"{avg_30d:+.1f}%")
+    with col4:
+        best = ai_stocks[0] if ai_stocks else None
+        st.metric("Top Pick", best.get("ticker", "N/A") if best else "N/A")
+
+    # Top picks (Score 65+, pullback)
+    st.markdown("---")
+    st.subheader("🎯 Top AI Stock Picks")
+    st.caption("High AI score (65+) + Recent pullback = potential opportunity")
+
+    top_picks = [s for s in ai_stocks if s.get("ai_score", 0) >= 65 and s.get("pct_30d", 0) <= 0][:5]
+
+    if top_picks:
+        cols = st.columns(min(len(top_picks), 5))
+        for idx, stock in enumerate(top_picks):
+            with cols[idx]:
+                ticker = stock.get("ticker", "N/A")
+                score = stock.get("ai_score", 0)
+                price = stock.get("current_price", 0)
+                pct_30d = stock.get("pct_30d", 0)
+                sent_display = format_sentiment(sentiment_data, ticker)
+
+                st.markdown(f"""
+                <div style="background: #f5f3ff; padding: 15px; border-radius: 8px; border: 2px solid #7c3aed; text-align: center;">
+                    <h2 style="margin: 0; color: #6d28d9;">{ticker}</h2>
+                    <p style="font-size: 24px; margin: 10px 0; color: #7c3aed;">{score:.0f}</p>
+                    <p style="color: #6b7280; font-size: 14px;">${price:.2f}</p>
+                    <p style="color: #22c55e; font-size: 13px;">{pct_30d:+.1f}% (30d)</p>
+                    <p style="font-size: 12px;">{sent_display}</p>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("No strong picks right now. AI stocks may be extended - wait for a pullback.")
+
+    # Category breakdown
+    st.markdown("---")
+    st.subheader("📁 Category Performance")
+
+    # Group by category
+    categories = {}
+    for stock in ai_stocks:
+        cat = stock.get("category", "Other")
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(stock)
+
+    cat_rows = []
+    for cat, stocks in sorted(categories.items(), key=lambda x: -len(x[1])):
+        if not stocks:
+            continue
+        avg_score = sum(s.get("ai_score", 0) for s in stocks) / len(stocks)
+        avg_30d = sum(s.get("pct_30d", 0) for s in stocks) / len(stocks)
+        top_pick = max(stocks, key=lambda s: s.get("ai_score", 0))
+
+        cat_rows.append({
+            "Category": cat,
+            "Stocks": len(stocks),
+            "Avg AI Score": f"{avg_score:.0f}",
+            "Avg 30d": f"{avg_30d:+.1f}%",
+            "Top Pick": top_pick.get("ticker", "N/A")
+        })
+
+    if cat_rows:
+        st.dataframe(pd.DataFrame(cat_rows), use_container_width=True, hide_index=True)
+
+    # All AI stocks table
+    st.markdown("---")
+    st.subheader("🤖 All AI Universe Stocks")
+
+    # Add sentiment to stocks
+    for stock in ai_stocks:
+        stock["sentiment"] = format_sentiment(sentiment_data, stock.get("ticker", ""))
+
+    display_df = pd.DataFrame(ai_stocks)
+
+    # Select columns for display
+    display_cols = ["ticker", "company_name", "category", "current_price", "ai_score", "sentiment", "pct_30d", "pct_90d"]
+    available_cols = [c for c in display_cols if c in display_df.columns]
+    display_df = display_df[available_cols].copy()
+
+    # Format columns
+    if "current_price" in display_df.columns:
+        display_df["current_price"] = display_df["current_price"].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "")
+    if "ai_score" in display_df.columns:
+        display_df["ai_score"] = display_df["ai_score"].round(0).astype(int)
+    if "pct_30d" in display_df.columns:
+        display_df["pct_30d"] = display_df["pct_30d"].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "")
+    if "pct_90d" in display_df.columns:
+        display_df["pct_90d"] = display_df["pct_90d"].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "")
+
+    display_df = display_df.rename(columns={
+        "ticker": "Ticker",
+        "company_name": "Company",
+        "category": "Category",
+        "current_price": "Price",
+        "ai_score": "AI Score",
+        "sentiment": "Sentiment",
+        "pct_30d": "30d",
+        "pct_90d": "90d"
+    })
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    st.caption("**Score:** 75+ = Strong Buy | 65-74 = Buy | 55-64 = Hold | <55 = Wait")
+    st.caption("**Sentiment:** 🟢 Bullish | 🔴 Bearish | 🟡 Neutral (from StockTwits)")
+
+    # Detail view for selected ticker
+    st.markdown("---")
+    st.subheader("📊 Stock Details")
+
+    ticker_list = [s.get("ticker") for s in ai_stocks if s.get("ticker")]
+    selected_ticker = st.selectbox("Select ticker for details", ticker_list)
+
+    if selected_ticker:
+        stock_data = next((s for s in ai_stocks if s.get("ticker") == selected_ticker), None)
+        if stock_data:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                score = stock_data.get('ai_score', 0)
+                score_label = "Strong Buy" if score >= 75 else "Buy" if score >= 65 else "Hold" if score >= 55 else "Wait"
+                st.metric("AI Score", f"{score:.0f} ({score_label})")
+            with col2:
+                st.metric("Price", f"${stock_data.get('current_price', 0):.2f}")
+            with col3:
+                st.metric("30d Return", f"{stock_data.get('pct_30d', 0):+.1f}%")
+            with col4:
+                st.metric("Category", stock_data.get('category', 'Unknown'))
+
+            # Score breakdown
+            st.markdown("#### Score Breakdown")
+            breakdown = stock_data.get("score_breakdown", {})
+            if breakdown:
+                breakdown_rows = []
+                for factor, data in breakdown.items():
+                    if factor != "total":
+                        breakdown_rows.append({
+                            "Factor": data.get("label", factor),
+                            "Points": f"{data.get('points', 0):+d}",
+                            "Value": data.get("raw_value", "—")
+                        })
+                st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+
+            # Price chart
+            st.markdown("#### Price History (3 Months)")
+            try:
+                price_data = services["ingestion"].get_daily_prices(
+                    [selected_ticker],
+                    start_date=date.today() - timedelta(days=90)
+                )
+
+                if not price_data.empty:
+                    fig = create_price_chart(price_data, selected_ticker, show_volume=True)
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not load price chart: {e}")
+
+
 def render_trillion_club_page(services: dict):
     """Render Trillion Club page showing mega-cap stocks and entry scores."""
     st.title("💎 Trillion+ Club")
@@ -2915,7 +3179,17 @@ def render_trillion_club_page(services: dict):
     from stockpulse.scanner.ai_pulse import AIPulseScanner
     scanner = AIPulseScanner()
 
-    # Enrich with trends
+    # Load sentiment data
+    sentiment_data = {}
+    try:
+        from stockpulse.data.sentiment import SentimentStorage
+        storage = SentimentStorage()
+        tc_tickers = trillion_df["ticker"].tolist()
+        sentiment_data = storage.get_todays_sentiment(tc_tickers)
+    except Exception as e:
+        pass  # Sentiment optional
+
+    # Enrich with trends and sentiment
     members = trillion_df.to_dict('records')
     for member in members:
         trend = scanner.get_trend_data(member["ticker"])
@@ -2923,10 +3197,13 @@ def render_trillion_club_page(services: dict):
         member["consecutive_days"] = trend["consecutive_days"]
         member["score_change_5d"] = trend["score_change_5d"]
 
+        # Add sentiment
+        member["sentiment"] = format_sentiment(sentiment_data, member["ticker"])
+
     trillion_df = pd.DataFrame(members)
 
     # Format for display
-    display_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "category", "trend_symbol", "consecutive_days"]
+    display_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "sentiment", "category", "trend_symbol", "consecutive_days"]
     available_cols = [c for c in display_cols if c in trillion_df.columns]
     display_df = trillion_df[available_cols].copy()
 
@@ -2949,7 +3226,7 @@ def render_trillion_club_page(services: dict):
     display_df['trend'] = display_df.apply(format_trend, axis=1)
 
     # Select final columns
-    final_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "category", "trend"]
+    final_cols = ["ticker", "market_cap", "current_price", "price_vs_30d_high_pct", "entry_score", "sentiment", "category", "trend"]
     final_cols = [c for c in final_cols if c in display_df.columns]
     display_df = display_df[final_cols]
 
@@ -2959,6 +3236,7 @@ def render_trillion_club_page(services: dict):
         "current_price": "Price",
         "price_vs_30d_high_pct": "vs 30d High",
         "entry_score": "Entry Score",
+        "sentiment": "Sentiment",
         "category": "Category",
         "trend": "Trend"
     })
