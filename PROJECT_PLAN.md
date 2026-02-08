@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-07
+## Last Session: 2026-02-08
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -280,6 +280,16 @@ stockpulse reset            # Clear trading data (keeps prices)
 
 **Status:** ACTIVE - AI Pulse integration only (Trillion+/Long-Term deferred)
 
+### Review & Bug Fixes (2026-02-08)
+
+**Bugs Fixed:**
+- [x] Cache key truncation bug (wasn't creating proper 5-min buckets)
+- [x] Added retry logic with exponential backoff to StockTwits & Finnhub fetchers
+- [x] Added error handling wrapper around Haiku AI analysis
+- [x] Added `json.JSONDecodeError` handling for malformed API responses
+
+**See:** `docs/SENTIMENT_REVIEW.md` for full analysis and enhancement roadmap
+
 ### Implementation Summary (2026-02-07)
 
 #### Approach: Start Free, Scale Later
@@ -297,7 +307,9 @@ Instead of paid APIs, we're starting with **FREE data sources** that require no 
 **New Module:** `src/stockpulse/data/sentiment.py`
 
 - `StockTwitsFetcher` - Fetches last 30 messages with sentiment (bullish/bearish/neutral)
+  - Now with retry logic (3 retries, exponential backoff)
 - `FinnhubFetcher` - News sentiment (requires free API key)
+  - Now with retry logic (3 retries, exponential backoff)
 - `HaikuSentimentAnalyzer` - Claude Haiku for intelligent summarization
 - `SentimentAnalyzer` - Unified interface combining all sources
 - `SentimentStorage` - Database caching for daily scans
@@ -323,9 +335,9 @@ stockpulse sentiment-check --ticker NVDA  # Quick check single ticker
 
 #### Daily Workflow
 
-1. Run `stockpulse sentiment-scan` before AI Pulse (or add to scheduler)
+1. 17:00 ET: Scheduler runs sentiment-scan (caches for AI Pulse)
 2. Results cached in `sentiment_daily` table
-3. AI Pulse email includes "Social Sentiment" section
+3. 17:30 ET: AI Pulse email includes "Social Sentiment" section
 4. Haiku analyzes top bullish/bearish tickers
 
 #### Cost Estimates (Current)
@@ -333,9 +345,19 @@ stockpulse sentiment-check --ticker NVDA  # Quick check single ticker
 | Component | Monthly Cost |
 |-----------|--------------|
 | StockTwits API | **$0** (free) |
-| Claude Haiku (~100 analyses/day) | ~$5 |
+| Claude Haiku (~6 analyses/day) | ~$2 |
 | Finnhub (optional) | **$0** (free tier) |
-| **Total** | **~$5/month** |
+| **Total** | **~$2/month** |
+
+### API Capacity Analysis
+
+**Current usage vs limits:**
+| API | Rate Limit | Current Use | Daily Capacity | Utilization |
+|-----|------------|-------------|----------------|-------------|
+| StockTwits | ~200/hour | 80/day | 4,800/day | **1.7%** |
+| Finnhub | 60/min | 80/day | 86,400/day | **0.1%** |
+
+**Conclusion:** We're using <2% of available API capacity. Room for hourly collection.
 
 ### API Keys Required
 
@@ -345,23 +367,45 @@ FINNHUB_API_KEY=your_key_here  # Optional: https://finnhub.io/register (free)
 ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 ```
 
-### Future Enhancements (Phase 7b+)
+### Phase 7b Roadmap: Enhanced Sentiment (PROPOSED)
+
+**Option A: Hourly Collection for Top 20 AI Stocks**
+```
+Schedule (market hours only):
+09:30-16:00 ET hourly: Collect StockTwits for top 20 AI stocks
+17:00 ET: Full scan of all 80 AI stocks
+17:05 ET: Aggregate hourly data, detect reversals
+17:30 ET: AI Pulse email with enhanced velocity/trend data
+```
+- Better message velocity calculation
+- Detect intraday sentiment shifts
+- ~520 additional calls/day (within limits)
+
+**Option B: Add More Data Sources (Same Schedule)**
+| Source | Data | Cost | Priority |
+|--------|------|------|----------|
+| Finnhub Analyst Ratings | Upgrades/downgrades | FREE | High |
+| Finnhub Insider Transactions | Form 4 filings | FREE | High |
+| SEC EDGAR | 8-K filings, material events | FREE | Medium |
+| Finnhub Earnings Surprises | EPS beat/miss | FREE | Medium |
+
+### Future Enhancements (Phase 7c+)
 
 **Deferred for later:**
 - [ ] Trillion+ Club sentiment integration
 - [ ] Long-Term scanner sentiment integration
 - [ ] Sentiment alerts (spikes, reversals)
-- [ ] Strategy sentiment filters
+- [ ] Insider buying alerts for thesis stocks
+- [ ] Analyst upgrade/downgrade alerts
+- [ ] Sentiment divergence detection (price vs sentiment)
 - [ ] Backtest sentiment as alpha factor
-- [ ] Sentiment divergence detection
-- [ ] Reddit API integration (if needed)
-- [ ] StockGeist paid tier (if free tier insufficient)
 
 ### Risks & Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| StockTwits rate limits | 500ms delay between requests, cache daily |
+| StockTwits rate limits | 500ms delay, retry logic, cache daily |
+| API failures | Exponential backoff retries (3 attempts) |
 | Sentiment noise | Use as confirming factor only, not primary |
 | Module not working | **Isolated code** - can be removed cleanly |
 | Cost overruns | Start free, only add paid if value proven |
@@ -370,6 +414,7 @@ ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 
 - Sentiment data for 80%+ of AI universe daily
 - <$10/month total API costs
+- API failure rate <5% (with retries)
 - User finds sentiment section valuable in AI Pulse email
 - No impact on existing scanner reliability
 
@@ -426,6 +471,10 @@ ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 | 2026-02-07 | **Sentiment MVP implemented** | StockTwits (free) + Haiku, ~$5/mo, AI Pulse only |
 | 2026-02-07 | Sentiment isolation | Code in `data/sentiment.py` can be removed if not working |
 | 2026-02-07 | Trillion+/Long-Term deferred | Sentiment integration for other scanners is future work |
+| 2026-02-08 | **Sentiment review complete** | Fixed cache key bug, added retry logic, error handling |
+| 2026-02-08 | API capacity analysis | Using <2% of available capacity; room for hourly collection |
+| 2026-02-08 | Alternative data sources identified | SEC EDGAR, Finnhub analyst ratings, insider transactions - all FREE |
+| 2026-02-08 | Phase 7b roadmap created | Hourly collection option + more data sources proposed |
 
 ---
 

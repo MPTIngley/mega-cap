@@ -109,13 +109,14 @@ class StockTwitsFetcher:
 
     BASE_URL = "https://api.stocktwits.com/api/2"
 
-    def __init__(self):
+    def __init__(self, max_retries: int = 3):
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "StockPulse/1.0 (Sentiment Analyzer)"
         })
         self._last_request_time = 0
         self._min_request_interval = 0.5  # 500ms between requests to be nice
+        self._max_retries = max_retries
 
     def _rate_limit(self):
         """Simple rate limiting to avoid hammering the API."""
@@ -123,6 +124,34 @@ class StockTwitsFetcher:
         if elapsed < self._min_request_interval:
             time.sleep(self._min_request_interval - elapsed)
         self._last_request_time = time.time()
+
+    def _fetch_with_retry(self, url: str) -> requests.Response | None:
+        """Fetch URL with exponential backoff retry logic."""
+        last_error = None
+        for attempt in range(self._max_retries):
+            try:
+                self._rate_limit()
+                response = self.session.get(url, timeout=10)
+                # Don't retry on 404 or 429 - those are valid responses
+                if response.status_code in (404, 429) or response.ok:
+                    return response
+                # Retry on 5xx errors
+                if response.status_code >= 500:
+                    last_error = f"HTTP {response.status_code}"
+                    if attempt < self._max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                        continue
+                return response
+            except requests.exceptions.Timeout:
+                last_error = "timeout"
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+        logger.debug(f"All {self._max_retries} retries failed for {url}: {last_error}")
+        return None
 
     def get_sentiment(self, ticker: str) -> SentimentResult:
         """
@@ -134,13 +163,19 @@ class StockTwitsFetcher:
         Returns:
             SentimentResult with sentiment data
         """
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/streams/symbol/{ticker.upper()}.json"
 
-        try:
-            response = self.session.get(url, timeout=10)
+        # Use retry logic for resilient fetching
+        response = self._fetch_with_retry(url)
 
+        if response is None:
+            return SentimentResult(
+                ticker=ticker,
+                source="stocktwits",
+                error="All retries failed - network error"
+            )
+
+        try:
             if response.status_code == 404:
                 return SentimentResult(
                     ticker=ticker,
@@ -241,17 +276,17 @@ class StockTwitsFetcher:
                 sample_messages=sample_messages,
             )
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.HTTPError as e:
             return SentimentResult(
                 ticker=ticker,
                 source="stocktwits",
-                error="Request timed out"
+                error=f"HTTP error: {str(e)}"
             )
-        except requests.exceptions.RequestException as e:
+        except json.JSONDecodeError:
             return SentimentResult(
                 ticker=ticker,
                 source="stocktwits",
-                error=f"Request error: {str(e)}"
+                error="Invalid JSON response"
             )
         except Exception as e:
             logger.error(f"StockTwits error for {ticker}: {e}")
@@ -280,7 +315,7 @@ class FinnhubFetcher:
 
     BASE_URL = "https://finnhub.io/api/v1"
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, max_retries: int = 3):
         self.api_key = api_key or os.environ.get("FINNHUB_API_KEY", "")
         self.is_configured = bool(self.api_key)
 
@@ -293,6 +328,7 @@ class FinnhubFetcher:
         self.session = requests.Session()
         self._last_request_time = 0
         self._min_request_interval = 1.0  # 1 second between requests (60/min limit)
+        self._max_retries = max_retries
 
     def _rate_limit(self):
         """Rate limiting for Finnhub's 60 req/min limit."""
@@ -300,6 +336,34 @@ class FinnhubFetcher:
         if elapsed < self._min_request_interval:
             time.sleep(self._min_request_interval - elapsed)
         self._last_request_time = time.time()
+
+    def _fetch_with_retry(self, url: str, params: dict) -> requests.Response | None:
+        """Fetch URL with exponential backoff retry logic."""
+        last_error = None
+        for attempt in range(self._max_retries):
+            try:
+                self._rate_limit()
+                response = self.session.get(url, params=params, timeout=10)
+                # Don't retry on auth errors or rate limits
+                if response.status_code in (401, 429) or response.ok:
+                    return response
+                # Retry on 5xx errors
+                if response.status_code >= 500:
+                    last_error = f"HTTP {response.status_code}"
+                    if attempt < self._max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                return response
+            except requests.exceptions.Timeout:
+                last_error = "timeout"
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                if attempt < self._max_retries - 1:
+                    time.sleep(2 ** attempt)
+        logger.debug(f"All {self._max_retries} retries failed for Finnhub {url}: {last_error}")
+        return None
 
     def get_social_sentiment(self, ticker: str) -> SentimentResult:
         """
@@ -315,8 +379,6 @@ class FinnhubFetcher:
                 error="FINNHUB_API_KEY not configured"
             )
 
-        self._rate_limit()
-
         # Try news sentiment (available on free tier)
         url = f"{self.BASE_URL}/news-sentiment"
         params = {
@@ -324,9 +386,17 @@ class FinnhubFetcher:
             "token": self.api_key
         }
 
-        try:
-            response = self.session.get(url, params=params, timeout=10)
+        # Use retry logic for resilient fetching
+        response = self._fetch_with_retry(url, params)
 
+        if response is None:
+            return SentimentResult(
+                ticker=ticker,
+                source="finnhub",
+                error="All retries failed - network error"
+            )
+
+        try:
             if response.status_code == 401:
                 return SentimentResult(
                     ticker=ticker,
@@ -568,7 +638,10 @@ class SentimentAnalyzer:
         self._cache_ttl = 300  # 5 minutes
 
     def _cache_key(self, ticker: str) -> str:
-        return f"{ticker}_{datetime.now().strftime('%Y%m%d%H%M')[:11]}"  # 5-min buckets
+        """Generate cache key with proper 5-minute buckets."""
+        now = datetime.now()
+        bucket = now.minute // 5  # 0-11 for each 5-min window in an hour
+        return f"{ticker}_{now.strftime('%Y%m%d%H')}_{bucket}"
 
     def get_sentiment(
         self,
@@ -612,15 +685,24 @@ class SentimentAnalyzer:
         else:
             aggregate_label = "neutral"
 
-        # Get AI analysis if requested
+        # Get AI analysis if requested (with error handling)
         ai_analysis = None
         if include_ai_analysis and self.haiku.is_configured:
-            ai_analysis = self.haiku.analyze_sentiment(
-                ticker=ticker,
-                stocktwits_result=stocktwits_result,
-                finnhub_result=finnhub_result,
-                price_context=price_context,
-            )
+            try:
+                ai_analysis = self.haiku.analyze_sentiment(
+                    ticker=ticker,
+                    stocktwits_result=stocktwits_result,
+                    finnhub_result=finnhub_result,
+                    price_context=price_context,
+                )
+            except Exception as e:
+                logger.debug(f"Haiku analysis error for {ticker}: {e}")
+                ai_analysis = {
+                    "ticker": ticker,
+                    "summary": f"Analysis unavailable: {str(e)}",
+                    "recommendation": "neutral",
+                    "confidence": 0,
+                }
 
         result = {
             "ticker": ticker,
