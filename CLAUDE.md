@@ -22,10 +22,29 @@ stockpulse reset
 
 ## Git Hygiene
 
+### Claude Code Workflow
 - Always work on branch: `claude/init-repo-setup-maaOL`
 - Pull before starting work: `git pull origin claude/init-repo-setup-maaOL`
 - Commit with clear, descriptive messages
 - Push with: `git push -u origin claude/init-repo-setup-maaOL`
+- Claude cannot push to `main` (403 protected)
+
+### Martin's Workflow (Update Main)
+When ready to update main with Claude's changes:
+
+```
+git fetch origin claude/init-repo-setup-maaOL
+git checkout main
+git merge origin/claude/init-repo-setup-maaOL
+git push origin main
+```
+
+Then sync the feature branch:
+```
+git checkout claude/init-repo-setup-maaOL
+git pull origin main
+git push origin claude/init-repo-setup-maaOL
+```
 
 ## Project Structure
 
