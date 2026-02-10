@@ -996,7 +996,7 @@ def run_scheduler():
                 # Don't let display errors freeze the loop
                 logger.debug(f"Display update error: {e}")
 
-            time.sleep(5)  # Update every 5 seconds
+            time.sleep(30)  # Update every 30 seconds
     except KeyboardInterrupt:
         print()  # New line after countdown
         logger.info("Shutting down...")
