@@ -30,8 +30,13 @@ stockpulse reset
 - Claude cannot push to `main` (403 protected)
 
 ### Martin's Workflow (Update Main)
-When ready to update main with Claude's changes:
 
+**Quick version - merge Claude's work to main:**
+```
+git fetch origin claude/init-repo-setup-maaOL && git checkout main && git merge origin/claude/init-repo-setup-maaOL && git push origin main
+```
+
+**Step-by-step version:**
 ```
 git fetch origin claude/init-repo-setup-maaOL
 git checkout main
@@ -39,7 +44,7 @@ git merge origin/claude/init-repo-setup-maaOL
 git push origin main
 ```
 
-Then sync the feature branch:
+**Optional - sync Claude's branch with main (only if needed):**
 ```
 git checkout claude/init-repo-setup-maaOL
 git pull origin main
