@@ -1543,6 +1543,39 @@ class SentimentStorage:
             logger.error(f"Error getting today's sentiment: {e}")
             return {}
 
+    def has_fresh_sentiment(self, tickers: list[str], min_coverage: float = 0.5) -> bool:
+        """
+        Check if we have fresh sentiment data for today.
+
+        Args:
+            tickers: List of tickers to check
+            min_coverage: Minimum fraction of tickers that must have data (0.5 = 50%)
+
+        Returns:
+            True if sufficient fresh data exists, False otherwise
+        """
+        try:
+            if not tickers:
+                return False
+
+            today = date.today().isoformat()
+            placeholders = ",".join(["?" for _ in tickers])
+
+            row = self.db.fetchone(f"""
+                SELECT COUNT(DISTINCT ticker) FROM sentiment_daily
+                WHERE scan_date = ? AND ticker IN ({placeholders})
+            """, (today, *tickers))
+
+            count = row[0] if row else 0
+            coverage = count / len(tickers)
+
+            logger.debug(f"Sentiment freshness check: {count}/{len(tickers)} tickers ({coverage:.0%})")
+            return coverage >= min_coverage
+
+        except Exception as e:
+            logger.error(f"Error checking sentiment freshness: {e}")
+            return False
+
     def store_category_sentiment(self, category: str, data: dict) -> bool:
         """Store aggregated category sentiment."""
         try:

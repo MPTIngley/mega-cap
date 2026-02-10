@@ -1874,6 +1874,18 @@ def run_longterm_scan():
     print(f"  Scan complete. {len(opportunities)} opportunities saved to database.")
     print("=" * 70 + "\n")
 
+    # Check sentiment freshness and run scan if needed
+    try:
+        from stockpulse.data.sentiment import SentimentStorage, run_daily_sentiment_scan
+        storage = SentimentStorage()
+        lt_tickers = [o.get("ticker") for o in opportunities[:20] if o.get("ticker")]
+        if lt_tickers and not storage.has_fresh_sentiment(lt_tickers):
+            print("  📊 Sentiment data is stale, fetching fresh sentiment...")
+            run_daily_sentiment_scan(tickers=lt_tickers, include_ai_analysis=False, max_tickers=len(lt_tickers))
+            print("  ✅ Sentiment data refreshed")
+    except Exception as e:
+        print(f"  ⚠️  Could not refresh sentiment: {e}")
+
     # Send digest if configured
     scanner_config = scanner.config.get("long_term_scanner", {})
     if scanner_config.get("send_digest", True):
@@ -2190,6 +2202,18 @@ def run_trillion_scan():
         category = member.get("category", "")[:13]
         print(f"  {ticker:<8} {company:<20} {mkt_cap:<10} {price:<10} {score:<8} {category:<15}")
 
+    # Check sentiment freshness and run scan if needed
+    try:
+        from stockpulse.data.sentiment import SentimentStorage, run_daily_sentiment_scan
+        storage = SentimentStorage()
+        tc_tickers = [m.get("ticker") for m in trillion_club if m.get("ticker")]
+        if tc_tickers and not storage.has_fresh_sentiment(tc_tickers):
+            print("\n  📊 Sentiment data is stale, fetching fresh sentiment...")
+            run_daily_sentiment_scan(tickers=tc_tickers, include_ai_analysis=False, max_tickers=len(tc_tickers))
+            print("  ✅ Sentiment data refreshed")
+    except Exception as e:
+        print(f"\n  ⚠️  Could not refresh sentiment: {e}")
+
     # Send trillion club email
     print("\n  Sending Trillion+ Club digest email...")
     alert_manager = AlertManager()
@@ -2283,6 +2307,20 @@ def run_ai_scan():
     top_picks = scan_results.get("top_picks", [])
     category_scores = scan_results.get("category_scores", {})
 
+    # Check sentiment freshness and refresh if needed (do this early for display)
+    sentiment_data = {}
+    try:
+        from stockpulse.data.sentiment import SentimentStorage, run_daily_sentiment_scan
+        storage = SentimentStorage()
+        ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
+        if ai_tickers and not storage.has_fresh_sentiment(ai_tickers):
+            print("\n  📊 Sentiment data is stale, fetching fresh sentiment...")
+            run_daily_sentiment_scan(tickers=ai_tickers, include_ai_analysis=False, max_tickers=len(ai_tickers))
+            print("  ✅ Sentiment data refreshed")
+        sentiment_data = storage.get_todays_sentiment(ai_tickers)
+    except Exception as e:
+        print(f"\n  ⚠️  Could not refresh sentiment: {e}")
+
     # Display AI stocks summary
     print(f"\n  📊 Scanned {len(ai_stocks)} AI Universe stocks")
     if top_picks:
@@ -2292,7 +2330,15 @@ def run_ai_scan():
             score = pick.get("ai_score", 0)
             pct_30d = pick.get("pct_30d", 0)
             category = pick.get("category", "")
-            print(f"    {ticker}: Score {score:.0f} | 30d: {pct_30d:+.1f}% | {category}")
+            sent = sentiment_data.get(ticker, {})
+            sent_score = sent.get("aggregate_score", 0)
+            sent_label = sent.get("aggregate_label", "")
+            if sent_score > 0:
+                sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                sent_display = f" | Sent: {sent_emoji}{sent_score:.0f}"
+            else:
+                sent_display = ""
+            print(f"    {ticker}: Score {score:.0f} | 30d: {pct_30d:+.1f}%{sent_display} | {category}")
 
     # Display category summary
     if category_scores:
