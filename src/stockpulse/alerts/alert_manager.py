@@ -985,11 +985,24 @@ class AlertManager:
 
                 trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
 
-                # Get sentiment info
+                # Get sentiment info with diagnostics
                 sent = sentiment_data.get(ticker, {})
                 sent_score = sent.get("aggregate_score", 0)
                 sent_label = sent.get("aggregate_label", "")
                 sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+                # Get StockTwits breakdown
+                st = sent.get("stocktwits", {})
+                st_bullish = st.get("bullish_count", 0)
+                st_bearish = st.get("bearish_count", 0)
+                st_neutral = st.get("neutral_count", 0)
+                st_total = st.get("total_messages", 0)
+                sample_msgs = st.get("sample_messages", [])
+
+                # Build sentiment breakdown text
+                sent_breakdown = ""
+                if st_total > 0:
+                    sent_breakdown = f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
 
                 # Get analyst/insider signals
                 signals = signals_data.get(ticker, {})
@@ -997,6 +1010,19 @@ class AlertManager:
                 insider = signals.get("insider_txn", {}).get("data", {})
                 analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
                 insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
+                # Build sample posts HTML (up to 2 samples)
+                sample_html = ""
+                if sample_msgs:
+                    sample_items = []
+                    for msg in sample_msgs[:2]:
+                        msg_text = msg.get("text", "")[:80]
+                        msg_sent = msg.get("sentiment", "")
+                        msg_emoji = "🟢" if msg_sent == "Bullish" else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        if msg_text:
+                            sample_items.append(f'{msg_emoji} "{msg_text}..."')
+                    if sample_items:
+                        sample_html = f"<br/><span style='color: #6b7280; font-size: 11px; font-style: italic;'>Sample posts: {' | '.join(sample_items)}</span>"
 
                 strong_rows += f"""
                 <tr style="background: #ecfdf5;">
@@ -1013,7 +1039,7 @@ class AlertManager:
                     <td colspan="4" style="padding: 5px 15px 15px; color: #047857; font-size: 13px; border-bottom: 2px solid #059669;">
                         <strong>Why:</strong> {reasoning}<br/>
                         <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days<br/>
-                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}
+                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{sent_breakdown}{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}{sample_html}
                     </td>
                 </tr>
                 """
@@ -1063,13 +1089,27 @@ class AlertManager:
             sent_label = sent.get("aggregate_label", "")
             sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
 
+            # Get StockTwits breakdown
+            st = sent.get("stocktwits", {})
+            st_bullish = st.get("bullish_count", 0)
+            st_bearish = st.get("bearish_count", 0)
+            st_neutral = st.get("neutral_count", 0)
+            st_total = st.get("total_messages", 0)
+
             signals = signals_data.get(ticker, {})
             analyst = signals.get("analyst_rating", {}).get("data", {})
             insider = signals.get("insider_txn", {}).get("data", {})
             analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
             insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
-            sentiment_info = f"{sent_emoji} {sent_score:.0f}" if sent_score else "—"
+            # Build sentiment info with breakdown
+            if sent_score and st_total > 0:
+                sentiment_info = f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+            elif sent_score:
+                sentiment_info = f"{sent_emoji} {sent_score:.0f}"
+            else:
+                sentiment_info = "—"
+
             signals_info = []
             if analyst_consensus:
                 signals_info.append(f"Analysts: {analyst_consensus}")
@@ -1319,11 +1359,24 @@ class AlertManager:
                 trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
                 reasoning = f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high"
 
-                # Get sentiment info
+                # Get sentiment info with diagnostics
                 sent = sentiment_data.get(ticker, {})
                 sent_score = sent.get("aggregate_score", 0)
                 sent_label = sent.get("aggregate_label", "")
                 sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+
+                # Get StockTwits breakdown
+                st = sent.get("stocktwits", {})
+                st_bullish = st.get("bullish_count", 0)
+                st_bearish = st.get("bearish_count", 0)
+                st_neutral = st.get("neutral_count", 0)
+                st_total = st.get("total_messages", 0)
+                sample_msgs = st.get("sample_messages", [])
+
+                # Build sentiment breakdown text
+                sent_breakdown = ""
+                if st_total > 0:
+                    sent_breakdown = f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
 
                 # Get analyst/insider signals
                 signals = signals_data.get(ticker, {})
@@ -1331,6 +1384,19 @@ class AlertManager:
                 insider = signals.get("insider_txn", {}).get("data", {})
                 analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
                 insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
+
+                # Build sample posts HTML (up to 2 samples)
+                sample_html = ""
+                if sample_msgs:
+                    sample_items = []
+                    for msg in sample_msgs[:2]:
+                        msg_text = msg.get("text", "")[:80]
+                        msg_sent = msg.get("sentiment", "")
+                        msg_emoji = "🟢" if msg_sent == "Bullish" else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        if msg_text:
+                            sample_items.append(f'{msg_emoji} "{msg_text}..."')
+                    if sample_items:
+                        sample_html = f"<br/><span style='color: #6b7280; font-size: 11px; font-style: italic;'>Sample posts: {' | '.join(sample_items)}</span>"
 
                 strong_rows += f"""
                 <tr style="background: #eff6ff;">
@@ -1347,7 +1413,7 @@ class AlertManager:
                     <td colspan="4" style="padding: 5px 15px 15px; color: #1e40af; font-size: 13px; border-bottom: 2px solid #3b82f6;">
                         <strong>Why:</strong> {reasoning}<br/>
                         <strong>Trend:</strong> {trend_text}, on list for {days} consecutive days<br/>
-                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}
+                        <strong>Sentiment:</strong> {sent_emoji} {sent_score:.0f}/100{sent_breakdown}{f" | Analysts: {analyst_consensus}" if analyst_consensus else ""}{f" | Insiders: {insider_sentiment}" if insider_sentiment else ""}{sample_html}
                     </td>
                 </tr>
                 """
@@ -1401,13 +1467,27 @@ class AlertManager:
             sent_label = sent.get("aggregate_label", "")
             sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
 
+            # Get StockTwits breakdown
+            st = sent.get("stocktwits", {})
+            st_bullish = st.get("bullish_count", 0)
+            st_bearish = st.get("bearish_count", 0)
+            st_neutral = st.get("neutral_count", 0)
+            st_total = st.get("total_messages", 0)
+
             signals = signals_data.get(ticker, {})
             analyst = signals.get("analyst_rating", {}).get("data", {})
             insider = signals.get("insider_txn", {}).get("data", {})
             analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
             insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
-            sentiment_info = f"{sent_emoji} {sent_score:.0f}" if sent_score else "—"
+            # Build sentiment info with breakdown
+            if sent_score and st_total > 0:
+                sentiment_info = f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+            elif sent_score:
+                sentiment_info = f"{sent_emoji} {sent_score:.0f}"
+            else:
+                sentiment_info = "—"
+
             signals_info = []
             if analyst_consensus:
                 signals_info.append(f"Analysts: {analyst_consensus}")

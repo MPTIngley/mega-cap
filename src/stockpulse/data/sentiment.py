@@ -1955,12 +1955,15 @@ def get_sentiment_summary_for_email(tickers: list[str], max_display: int = 10) -
         <h3 style="color: #00d9ff; margin: 0 0 15px 0; border-bottom: 1px solid #1e3a5f; padding-bottom: 10px;">
             📊 Social Sentiment (StockTwits)
         </h3>
-        <table style="width: 100%; font-size: 12px;">
+        <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
             <tr>
-                <th style="text-align: left; color: #94a3b8; padding: 5px;">Ticker</th>
-                <th style="text-align: center; color: #94a3b8; padding: 5px;">Score</th>
-                <th style="text-align: center; color: #94a3b8; padding: 5px;">Sentiment</th>
-                <th style="text-align: right; color: #94a3b8; padding: 5px;">Messages</th>
+                <th style="text-align: left; color: #94a3b8; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">Ticker</th>
+                <th style="text-align: center; color: #94a3b8; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">Score</th>
+                <th style="text-align: center; color: #94a3b8; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">Sentiment</th>
+                <th style="text-align: center; color: #4ade80; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">🟢 Bull</th>
+                <th style="text-align: center; color: #f87171; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">🔴 Bear</th>
+                <th style="text-align: center; color: #94a3b8; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">⚪ Neut</th>
+                <th style="text-align: right; color: #94a3b8; padding: 8px 5px; border-bottom: 1px solid #1e3a5f;">Total</th>
             </tr>
     """]
 
@@ -1969,6 +1972,9 @@ def get_sentiment_summary_for_email(tickers: list[str], max_display: int = 10) -
         label = data.get("aggregate_label", "neutral")
         st = data.get("stocktwits", {})
         total = st.get("total_messages", 0)
+        bullish = st.get("bullish_count", 0)
+        bearish = st.get("bearish_count", 0)
+        neutral = st.get("neutral_count", 0)
 
         # Color and emoji based on sentiment
         if label == "bullish":
@@ -1983,17 +1989,20 @@ def get_sentiment_summary_for_email(tickers: list[str], max_display: int = 10) -
 
         html_parts.append(f"""
             <tr>
-                <td style="padding: 5px; color: #e2e8f0;">{ticker}</td>
-                <td style="padding: 5px; text-align: center; color: {color}; font-weight: bold;">{score:.0f}</td>
-                <td style="padding: 5px; text-align: center;">{emoji} {label.upper()}</td>
-                <td style="padding: 5px; text-align: right; color: #94a3b8;">{total}</td>
+                <td style="padding: 6px 5px; color: #e2e8f0; font-weight: bold;">{ticker}</td>
+                <td style="padding: 6px 5px; text-align: center; color: {color}; font-weight: bold;">{score:.0f}</td>
+                <td style="padding: 6px 5px; text-align: center; color: {color};">{emoji} {label.upper()}</td>
+                <td style="padding: 6px 5px; text-align: center; color: #4ade80;">{bullish}</td>
+                <td style="padding: 6px 5px; text-align: center; color: #f87171;">{bearish}</td>
+                <td style="padding: 6px 5px; text-align: center; color: #94a3b8;">{neutral}</td>
+                <td style="padding: 6px 5px; text-align: right; color: #cbd5e1;">{total}</td>
             </tr>
         """)
 
     html_parts.append("""
         </table>
         <p style="color: #64748b; font-size: 10px; margin: 10px 0 0 0; text-align: right;">
-            Data from StockTwits • Score: 0-100 (50=neutral)
+            Data from StockTwits • Score: 0-100 (50=neutral) • Bull/Bear/Neut = post counts with tagged sentiment
         </p>
     </div>
     """)
