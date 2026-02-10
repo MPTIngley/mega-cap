@@ -791,6 +791,9 @@ def run_scheduler():
         "ai_thesis_scan": "AI Thesis research (17:30)",
     }
 
+    # Track the last completed job
+    last_run = {"job_id": None, "time": None}
+
     def print_schedule():
         """Print full schedule after scan completes."""
         next_runs = scheduler.get_next_run_times()
@@ -799,6 +802,12 @@ def run_scheduler():
 
         print("\n" + "-" * 50)
         print(f"  Date: {now.strftime('%Y-%m-%d')}  Time: {now.strftime('%H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
+
+        # Show last run info
+        if last_run["job_id"] and last_run["time"]:
+            last_job_name = job_names.get(last_run["job_id"], last_run["job_id"])
+            last_time_str = last_run["time"].strftime('%H:%M')
+            print(f"  Last run: {last_job_name} at {last_time_str} ET")
 
         # Check if weekend
         if now.weekday() >= 5:
@@ -842,37 +851,53 @@ def run_scheduler():
 
         print("-" * 50 + "\n")
 
-    # Wrap callbacks to print schedule after completion
+    # Wrap callbacks to print schedule after completion and track last run
     def on_intraday_scan_wrapper(tickers):
         on_intraday_scan(tickers)
+        last_run["job_id"] = "intraday_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_daily_scan_wrapper(tickers):
         on_daily_scan(tickers)
+        last_run["job_id"] = "daily_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_long_term_scan_wrapper(tickers):
         on_long_term_scan(tickers)
+        last_run["job_id"] = "long_term_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_daily_digest_wrapper():
         on_daily_digest()
+        last_run["job_id"] = "daily_digest"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_trillion_scan_wrapper():
         on_trillion_scan()
+        last_run["job_id"] = "trillion_club_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_sentiment_scan_wrapper():
         on_sentiment_scan()
+        last_run["job_id"] = "sentiment_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_hourly_sentiment_wrapper():
         on_hourly_sentiment_scan()
+        last_run["job_id"] = "sentiment_hourly"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     def on_ai_scan_wrapper():
         on_ai_scan()
+        last_run["job_id"] = "ai_thesis_scan"
+        last_run["time"] = datetime.now(et)
         print_schedule()
 
     scheduler.on_intraday_scan = on_intraday_scan_wrapper
@@ -936,10 +961,15 @@ def run_scheduler():
                         next_job_name = job_names.get(next_job, next_job)
                         next_time_str = next_job_time.strftime('%H:%M')
 
+                        # Build last run indicator
+                        last_run_str = ""
+                        if last_run["job_id"] and last_run["time"]:
+                            last_run_str = f" | Last: {last_run['time'].strftime('%H:%M')}"
+
                         # Build compact status line
                         status = (
                             f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                            f"Market: {'OPEN' if market_open else 'CLOSED'} | "
+                            f"Market: {'OPEN' if market_open else 'CLOSED'}{last_run_str} | "
                             f"Next: {next_job_name} @ {next_time_str} ET "
                             f"({hours}h {minutes}m) [{bar}]  "
                         )
@@ -949,9 +979,15 @@ def run_scheduler():
                     else:
                         # Job is running or overdue, show that
                         next_job_name = job_names.get(next_job, next_job)
+
+                        # Build last run indicator
+                        last_run_str = ""
+                        if last_run["job_id"] and last_run["time"]:
+                            last_run_str = f" | Last: {last_run['time'].strftime('%H:%M')}"
+
                         status = (
                             f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                            f"Market: {'OPEN' if market_open else 'CLOSED'} | "
+                            f"Market: {'OPEN' if market_open else 'CLOSED'}{last_run_str} | "
                             f"Running: {next_job_name}...                              "
                         )
                         print(status, end="", flush=True)
