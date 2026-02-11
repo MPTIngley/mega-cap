@@ -801,7 +801,7 @@ def run_scheduler():
         market_open, market_status = is_market_open()
 
         print("\n" + "-" * 50)
-        print(f"  Date: {now.strftime('%Y-%m-%d')}  Time: {now.strftime('%H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
+        print(f"  Schedule refreshed: {now.strftime('%Y-%m-%d %H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
 
         # Show last run info
         if last_run["job_id"] and last_run["time"]:
