@@ -272,7 +272,7 @@ class StockPulseScheduler:
             id="daily_scan",
             name="Daily data ingestion and scan",
             replace_existing=True,
-            misfire_grace_time=600,
+            misfire_grace_time=7200,  # 2 hours - allow late start
             coalesce=True,
             max_instances=1
         )
@@ -312,7 +312,7 @@ class StockPulseScheduler:
                 id="sentiment_scan",
                 name="Daily sentiment scanner (full)",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=7200,  # 2 hours - allow late start
                 coalesce=True,
                 max_instances=1
             )
@@ -332,7 +332,7 @@ class StockPulseScheduler:
                 id="long_term_scan",
                 name="Long-term investment scanner",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=7200,  # 2 hours - allow late start
                 coalesce=True,
                 max_instances=1
             )
@@ -352,7 +352,7 @@ class StockPulseScheduler:
                 id="trillion_club_scan",
                 name="Trillion+ Club mega-cap scanner",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=7200,  # 2 hours - allow late start
                 coalesce=True,
                 max_instances=1
             )
@@ -372,7 +372,7 @@ class StockPulseScheduler:
                 id="ai_thesis_scan",
                 name="AI Thesis research scanner",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=7200,  # 2 hours - allow late start
                 coalesce=True,
                 max_instances=1
             )
@@ -392,7 +392,7 @@ class StockPulseScheduler:
                 id="daily_digest",
                 name="Daily portfolio digest email",
                 replace_existing=True,
-                misfire_grace_time=600,
+                misfire_grace_time=7200,  # 2 hours - allow late start
                 coalesce=True,
                 max_instances=1
             )
