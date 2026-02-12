@@ -1,0 +1,27 @@
+[Unit]
+Description=StockPulse Automated Stock Scanning & Trading Signal System
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/home/user/mega-cap
+Environment="PATH=/home/user/mega-cap/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/user/mega-cap/venv/bin/stockpulse run
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=append:/home/user/mega-cap/logs/stockpulse.log
+StandardError=append:/home/user/mega-cap/logs/stockpulse.log
+
+# Process limits
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
