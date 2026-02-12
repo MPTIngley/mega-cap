@@ -19,6 +19,51 @@ The scheduler writes to the database. The dashboard reads from it. Both can run 
 
 ---
 
+## Quick Start
+
+### macOS (Two Terminals)
+
+**Terminal 1 - Scheduler:**
+```bash
+stockpulse run
+```
+
+**Terminal 2 - Dashboard:**
+```bash
+stockpulse dashboard
+```
+
+Stop with `Ctrl+C` in each terminal.
+
+### Linux Server (Systemd)
+
+**Start both services:**
+```bash
+sudo systemctl start stockpulse stockpulse-dashboard
+```
+
+**Stop both services:**
+```bash
+sudo systemctl stop stockpulse stockpulse-dashboard
+```
+
+**Restart both services:**
+```bash
+sudo systemctl restart stockpulse stockpulse-dashboard
+```
+
+**Check status:**
+```bash
+sudo systemctl status stockpulse stockpulse-dashboard
+```
+
+**View live logs:**
+```bash
+sudo journalctl -u stockpulse -f
+```
+
+---
+
 ## Quick Setup (One-Time)
 
 Add this to your `~/.zshrc` for easy access from any terminal:

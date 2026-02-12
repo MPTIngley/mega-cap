@@ -14,6 +14,51 @@ stockpulse init
 stockpulse reset
 ```
 
+## Running StockPulse
+
+### macOS (Local Development)
+
+Run in two separate terminal windows:
+
+**Terminal 1 - Scheduler:**
+```
+stockpulse run
+```
+
+**Terminal 2 - Dashboard:**
+```
+stockpulse dashboard
+```
+
+Stop with `Ctrl+C` in each terminal.
+
+### Linux Server (Systemd)
+
+**Start services:**
+```
+sudo systemctl start stockpulse stockpulse-dashboard
+```
+
+**Stop services:**
+```
+sudo systemctl stop stockpulse stockpulse-dashboard
+```
+
+**Restart services:**
+```
+sudo systemctl restart stockpulse stockpulse-dashboard
+```
+
+**Check status:**
+```
+sudo systemctl status stockpulse stockpulse-dashboard
+```
+
+**View live logs:**
+```
+sudo journalctl -u stockpulse -f
+```
+
 ## Code Block Rules
 
 - NEVER use inline `#` comments in bash code blocks - they break shell commands
