@@ -38,6 +38,43 @@ Then use `stockpulse <command>` from anywhere.
 
 ---
 
+## Process Management
+
+### Starting Processes
+
+```bash
+stockpulse run         # Start scheduler (Terminal 1)
+stockpulse dashboard   # Start dashboard (Terminal 2)
+```
+
+### Stopping Processes
+
+| Method | Command | When to use |
+|--------|---------|-------------|
+| **Graceful stop** | `Ctrl+C` | Normal shutdown (recommended) |
+| **Find processes** | `ps aux \| grep stockpulse` | See what's running |
+| **Kill by PID** | `kill <PID>` | Stop a specific process |
+| **Force kill** | `kill -9 <PID>` | Process won't stop normally |
+| **Kill all Python** | `pkill -f stockpulse` | Stop all stockpulse processes |
+
+### Quick Commands
+
+```bash
+# See what's running
+ps aux | grep stockpulse
+
+# Kill everything stockpulse-related
+pkill -f stockpulse
+
+# Kill stuck Streamlit dashboard specifically
+pkill -f streamlit
+
+# Kill stuck scheduler specifically
+pkill -f "stockpulse.main run"
+```
+
+---
+
 ## Main Commands
 
 | Command | What it does |
