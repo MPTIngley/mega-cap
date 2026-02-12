@@ -53,12 +53,27 @@ launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
+### Check Status
+
+```bash
+launchctl list | grep stockpulse
+```
+
 ### View Logs
 
 ```bash
 tail -f ~/Documents/AIGames/mega-cap/logs/stockpulse.log
 tail -f ~/Documents/AIGames/mega-cap/logs/dashboard.log
 ```
+
+### Kill Processes (force stop)
+
+```bash
+pkill -f "stockpulse run"
+pkill -f "stockpulse dashboard"
+```
+
+Note: With `KeepAlive` enabled, launchd will restart killed processes. Use `launchctl unload` to fully stop.
 
 ---
 

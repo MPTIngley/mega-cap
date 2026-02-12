@@ -48,11 +48,24 @@ launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
+### Check Status
+
+```
+launchctl list | grep stockpulse
+```
+
 ### View Logs
 
 ```
 tail -f ~/Documents/AIGames/mega-cap/logs/stockpulse.log
 tail -f ~/Documents/AIGames/mega-cap/logs/dashboard.log
+```
+
+### Kill Processes
+
+```
+pkill -f "stockpulse run"
+pkill -f "stockpulse dashboard"
 ```
 
 ### Quick Reference
