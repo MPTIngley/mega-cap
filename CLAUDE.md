@@ -14,50 +14,55 @@ stockpulse init
 stockpulse reset
 ```
 
-## Running StockPulse
+## Running StockPulse (macOS)
 
-### macOS (Local Development)
+### One-Time Setup
 
-Run in two separate terminal windows:
+Install the launchd services (auto-restart, survives reboots):
 
-**Terminal 1 - Scheduler:**
 ```
-stockpulse run
-```
-
-**Terminal 2 - Dashboard:**
-```
-stockpulse dashboard
+cp deploy/com.stockpulse.scheduler.plist ~/Library/LaunchAgents/
+cp deploy/com.stockpulse.dashboard.plist ~/Library/LaunchAgents/
 ```
 
-Stop with `Ctrl+C` in each terminal.
+### Start Services
 
-### Linux Server (Systemd)
-
-**Start services:**
 ```
-sudo systemctl start stockpulse stockpulse-dashboard
+launchctl load ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-**Stop services:**
+### Stop Services
+
 ```
-sudo systemctl stop stockpulse stockpulse-dashboard
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-**Restart services:**
+### Restart Services
+
 ```
-sudo systemctl restart stockpulse stockpulse-dashboard
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-**Check status:**
+### View Logs
+
 ```
-sudo systemctl status stockpulse stockpulse-dashboard
+tail -f ~/Documents/AIGames/mega-cap/logs/stockpulse.log
+tail -f ~/Documents/AIGames/mega-cap/logs/dashboard.log
 ```
 
-**View live logs:**
-```
-sudo journalctl -u stockpulse -f
-```
+### Quick Reference
+
+| Action | Command |
+|--------|---------|
+| Start scheduler | `launchctl load ~/Library/LaunchAgents/com.stockpulse.scheduler.plist` |
+| Stop scheduler | `launchctl unload ~/Library/LaunchAgents/com.stockpulse.scheduler.plist` |
+| Start dashboard | `launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist` |
+| Stop dashboard | `launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist` |
 
 ## Code Block Rules
 

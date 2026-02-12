@@ -19,47 +19,45 @@ The scheduler writes to the database. The dashboard reads from it. Both can run 
 
 ---
 
-## Quick Start
+## Quick Start (macOS with launchd)
 
-### macOS (Two Terminals)
+These commands run StockPulse as background services that auto-restart and survive reboots.
 
-**Terminal 1 - Scheduler:**
+### One-Time Setup
+
 ```bash
-stockpulse run
+cp deploy/com.stockpulse.scheduler.plist ~/Library/LaunchAgents/
+cp deploy/com.stockpulse.dashboard.plist ~/Library/LaunchAgents/
 ```
 
-**Terminal 2 - Dashboard:**
+### Start Services
+
 ```bash
-stockpulse dashboard
+launchctl load ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-Stop with `Ctrl+C` in each terminal.
+### Stop Services
 
-### Linux Server (Systemd)
-
-**Start both services:**
 ```bash
-sudo systemctl start stockpulse stockpulse-dashboard
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-**Stop both services:**
+### Restart Services
+
 ```bash
-sudo systemctl stop stockpulse stockpulse-dashboard
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.scheduler.plist
+launchctl unload ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
+launchctl load ~/Library/LaunchAgents/com.stockpulse.dashboard.plist
 ```
 
-**Restart both services:**
-```bash
-sudo systemctl restart stockpulse stockpulse-dashboard
-```
+### View Logs
 
-**Check status:**
 ```bash
-sudo systemctl status stockpulse stockpulse-dashboard
-```
-
-**View live logs:**
-```bash
-sudo journalctl -u stockpulse -f
+tail -f ~/Documents/AIGames/mega-cap/logs/stockpulse.log
+tail -f ~/Documents/AIGames/mega-cap/logs/dashboard.log
 ```
 
 ---
@@ -407,68 +405,11 @@ Outside market hours, the scheduler runs but skips intraday scans.
 
 ---
 
-## Systemd Deployment (Linux Server)
+## Launchd Resilience Features (macOS)
 
-Run StockPulse as persistent background services that auto-restart on failure and start on boot.
+The launchd services provide:
 
-### Initial Setup
-
-```bash
-sudo cp deploy/stockpulse.service /etc/systemd/system/
-sudo cp deploy/stockpulse-dashboard.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable stockpulse stockpulse-dashboard
-```
-
-### Service Management
-
-| Action | Command |
-|--------|---------|
-| **Start both** | `sudo systemctl start stockpulse stockpulse-dashboard` |
-| **Stop both** | `sudo systemctl stop stockpulse stockpulse-dashboard` |
-| **Restart both** | `sudo systemctl restart stockpulse stockpulse-dashboard` |
-| **Check status** | `sudo systemctl status stockpulse stockpulse-dashboard` |
-| **View logs** | `sudo journalctl -u stockpulse -f` |
-| **View dashboard logs** | `sudo journalctl -u stockpulse-dashboard -f` |
-
-### Quick Commands
-
-```bash
-# Start everything
-sudo systemctl start stockpulse stockpulse-dashboard
-
-# Stop everything
-sudo systemctl stop stockpulse stockpulse-dashboard
-
-# Check if running
-sudo systemctl is-active stockpulse stockpulse-dashboard
-
-# View live scheduler logs
-sudo journalctl -u stockpulse -f
-
-# View last 100 lines of logs
-sudo journalctl -u stockpulse -n 100
-
-# View logs from application log files
-tail -f logs/stockpulse.log
-tail -f logs/dashboard.log
-```
-
-### Resilience Features
-
-The systemd services include:
-
-- **Auto-restart**: Restarts within 10 seconds if process dies
-- **Restart limits**: Max 10 restarts per 10 minutes (prevents crash loops)
-- **Memory limits**: Scheduler 2GB, Dashboard 1GB max
-- **CPU limits**: Scheduler 80%, Dashboard 50% max
-- **Graceful shutdown**: SIGTERM with timeout before SIGKILL
-- **Boot persistence**: Starts automatically on system boot
-
-### Disable Services
-
-```bash
-# Stop and disable (won't start on boot)
-sudo systemctl stop stockpulse stockpulse-dashboard
-sudo systemctl disable stockpulse stockpulse-dashboard
-```
+- **Auto-restart**: Restarts immediately if process crashes (`KeepAlive`)
+- **Boot persistence**: Starts automatically on login (`RunAtLoad`)
+- **Background operation**: Runs without needing a terminal open
+- **Log files**: Output captured in `logs/` directory
