@@ -159,6 +159,64 @@ AI_EDGE_CONSUMER = {
     "LOGI": {"name": "Logitech", "notes": "AI peripherals, collaboration devices"},
 }
 
+# AI-Adjacent: Crypto/Blockchain - exponential industry accelerated by AI
+AI_ADJACENT_CRYPTO = {
+    "COIN": {"name": "Coinbase", "notes": "Largest US crypto exchange, institutional onramp"},
+    "MSTR": {"name": "MicroStrategy", "notes": "Bitcoin treasury company, leveraged BTC play"},
+    "MARA": {"name": "Marathon Digital", "notes": "Bitcoin mining at scale, energy arbitrage"},
+    "RIOT": {"name": "Riot Platforms", "notes": "Bitcoin mining, data center infrastructure"},
+    "SQ": {"name": "Block (Square)", "notes": "Bitcoin payments, Cash App, TBD web5"},
+    "HOOD": {"name": "Robinhood", "notes": "Retail crypto trading, AI-powered fintech"},
+}
+
+# AI-Adjacent: Biotech - AI-accelerated drug discovery and genomics
+AI_ADJACENT_BIOTECH = {
+    "MRNA": {"name": "Moderna", "notes": "mRNA platform, AI-designed vaccines and therapeutics"},
+    "CRSP": {"name": "CRISPR Therapeutics", "notes": "Gene editing, AI-guided CRISPR targets"},
+    "NTLA": {"name": "Intellia Therapeutics", "notes": "In vivo CRISPR gene editing"},
+    "BEAM": {"name": "Beam Therapeutics", "notes": "Base editing, precision gene modification"},
+    "RXRX": {"name": "Recursion Pharma", "notes": "AI drug discovery platform, massive bio data"},
+    "EXAI": {"name": "Exscientia", "notes": "AI-designed drug candidates, clinical trials"},
+    "SDGR": {"name": "Schrodinger", "notes": "Computational drug discovery, physics-based AI"},
+    "TWST": {"name": "Twist Bioscience", "notes": "Synthetic biology, DNA data storage"},
+    "DNLI": {"name": "Denali Therapeutics", "notes": "Neurodegeneration, AI-driven biomarkers"},
+    "ABBV": {"name": "AbbVie", "notes": "AI pharma R&D, Humira successor pipeline"},
+    "LLY": {"name": "Eli Lilly", "notes": "AI drug discovery, GLP-1 dominance, largest pharma"},
+    "NVO": {"name": "Novo Nordisk", "notes": "GLP-1 leader (Ozempic/Wegovy), AI manufacturing"},
+}
+
+# AI-Adjacent: Space - AI-enabled space economy
+AI_ADJACENT_SPACE = {
+    "RKLB": {"name": "Rocket Lab", "notes": "Small launch vehicle, Neutron rocket, space systems"},
+    "LUNR": {"name": "Intuitive Machines", "notes": "Lunar landers, NASA commercial lunar program"},
+    "ASTS": {"name": "AST SpaceMobile", "notes": "Space-based cellular broadband, direct-to-phone"},
+    "RDW": {"name": "Redwire", "notes": "Space manufacturing, 3D printing in orbit"},
+    "MNTS": {"name": "Momentus", "notes": "In-space transportation, last-mile delivery"},
+    "BA": {"name": "Boeing", "notes": "Space launch (SLS/Starliner), defense AI"},
+    "LMT": {"name": "Lockheed Martin", "notes": "Space systems, AI defense, satellite tech"},
+    "NOC": {"name": "Northrop Grumman", "notes": "Space systems, autonomous defense, JWST"},
+    "IRDM": {"name": "Iridium", "notes": "Satellite communications, IoT connectivity"},
+    "SPCE": {"name": "Virgin Galactic", "notes": "Space tourism, suborbital flights"},
+}
+
+# AI Supply Chain: Compute, Energy, Materials - the picks and shovels
+AI_SUPPLY_CHAIN = {
+    "VST": {"name": "Vistra", "notes": "Power generation for AI data centers, nuclear fleet"},
+    "CEG": {"name": "Constellation Energy", "notes": "Nuclear power for hyperscaler data centers"},
+    "NRG": {"name": "NRG Energy", "notes": "Power generation, data center energy supplier"},
+    "NEE": {"name": "NextEra Energy", "notes": "Largest renewable energy, wind/solar for data centers"},
+    "SMR": {"name": "NuScale Power", "notes": "Small modular nuclear reactors for AI data centers"},
+    "OKLO": {"name": "Oklo", "notes": "Advanced fission power, Sam Altman backed, data center power"},
+    "FSLR": {"name": "First Solar", "notes": "US solar manufacturing, data center renewable power"},
+    "UEC": {"name": "Uranium Energy Corp", "notes": "Uranium mining, nuclear fuel for AI power demand"},
+    "CCJ": {"name": "Cameco", "notes": "Uranium production, nuclear fuel supply chain"},
+    "EQIX": {"name": "Equinix", "notes": "Largest data center REIT, AI colocation"},
+    "DLR": {"name": "Digital Realty", "notes": "AI-ready data centers, hyperscaler partnerships"},
+    "ALB": {"name": "Albemarle", "notes": "Lithium production, battery materials for AI/EV"},
+    "MP": {"name": "MP Materials", "notes": "Rare earth mining, magnets for EVs and robotics"},
+    "FCX": {"name": "Freeport-McMoRan", "notes": "Copper mining, essential for electrification"},
+}
+
 # All AI Universe tickers (for scanning)
 AI_UNIVERSE = set(
     list(HYPERSCALERS.keys()) +
@@ -167,7 +225,11 @@ AI_UNIVERSE = set(
     list(AI_SOFTWARE.keys()) +
     list(ROBOTICS_THESIS.keys()) +
     list(AI_HEALTHCARE.keys()) +
-    list(AI_EDGE_CONSUMER.keys())
+    list(AI_EDGE_CONSUMER.keys()) +
+    list(AI_ADJACENT_CRYPTO.keys()) +
+    list(AI_ADJACENT_BIOTECH.keys()) +
+    list(AI_ADJACENT_SPACE.keys()) +
+    list(AI_SUPPLY_CHAIN.keys())
 )
 
 # Known trillion dollar club members (current and recent)
@@ -556,6 +618,39 @@ class AIPulseScanner:
                 "description": "New AI-native cloud providers could take share from "
                               "hyperscalers for GPU-intensive AI workloads.",
                 "tickers": "CRWV",
+            },
+            {
+                "name": "AI Proliferation Direct",
+                "description": "Invest directly in the companies building and deploying AI. "
+                              "The imminent takeoff thesis: AI capabilities are accelerating "
+                              "faster than markets price in. These are the primary beneficiaries.",
+                "tickers": "TSLA,NVDA,PLTR,GOOGL,MSFT,META",
+            },
+            {
+                "name": "AI-Adjacent Exponentials",
+                "description": "AI accelerates adjacent exponential industries: robotics, "
+                              "biotech/genomics, crypto/blockchain, and space. These sectors "
+                              "compound with AI progress - genomics gets AI-designed drugs, "
+                              "crypto gets AI agents, space gets autonomous systems.",
+                "tickers": "TSLA,MRNA,CRSP,COIN,RKLB,LLY",
+            },
+            {
+                "name": "AI Supply Chain (Picks & Shovels)",
+                "description": "The AI buildout requires massive compute, energy, and materials. "
+                              "Nuclear/power for data centers, uranium for reactors, copper for "
+                              "electrification, rare earths for robotics. Infrastructure always "
+                              "gets paid regardless of which AI company wins.",
+                "tickers": "CEG,OKLO,SMR,CCJ,FCX,MP,NEE",
+            },
+            {
+                "name": "Liquidity Over Lockup",
+                "description": "In an AI-accelerated world, capital locked in 30-40 year retirement "
+                              "vehicles (401k, Roth IRA) carries opportunity cost risk. These vehicles "
+                              "assume a predictable world with long time horizons. Prefer liquid, "
+                              "accessible positions in high-conviction AI plays over tax-deferred "
+                              "lockups that may be irrelevant when they mature. This thesis tracks "
+                              "liquid AI positions vs broad market index benchmarks.",
+                "tickers": "NVDA,TSLA,GOOGL,COIN,PLTR,MSFT",
             },
         ]
 
@@ -1012,12 +1107,24 @@ class AIPulseScanner:
         elif ticker in AI_SOFTWARE:
             category_pts = 7  # AI software is growth area
             category_name = "AI Software"
+        elif ticker in AI_SUPPLY_CHAIN:
+            category_pts = 7  # Supply chain (energy, materials) = essential infrastructure
+            category_name = "AI Supply Chain"
         elif ticker in ROBOTICS_THESIS:
             category_pts = 6  # Robotics is emerging
             category_name = "Robotics/Physical AI"
         elif ticker in AI_EDGE_CONSUMER:
             category_pts = 6  # Edge AI is growing
             category_name = "AI Edge/Consumer"
+        elif ticker in AI_ADJACENT_BIOTECH:
+            category_pts = 6  # AI-accelerated biotech
+            category_name = "AI-Adjacent: Biotech"
+        elif ticker in AI_ADJACENT_SPACE:
+            category_pts = 5  # AI-enabled space economy
+            category_name = "AI-Adjacent: Space"
+        elif ticker in AI_ADJACENT_CRYPTO:
+            category_pts = 5  # AI + crypto convergence
+            category_name = "AI-Adjacent: Crypto"
         elif ticker in AI_HEALTHCARE:
             category_pts = 5
             category_name = "AI Healthcare"
@@ -1409,8 +1516,12 @@ class AIPulseScanner:
             "Hyperscaler": [],
             "AI Infrastructure": [],
             "AI Software": [],
+            "AI Supply Chain": [],
             "Robotics/Physical AI": [],
             "AI Edge/Consumer": [],
+            "AI-Adjacent: Biotech": [],
+            "AI-Adjacent: Space": [],
+            "AI-Adjacent: Crypto": [],
             "AI Healthcare": [],
             "Neocloud": [],
             "Other": [],

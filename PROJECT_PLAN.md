@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-08
+## Last Session: 2026-02-13
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -24,7 +24,7 @@ Before writing any code, do the following:
 - ✅ Daily portfolio digest at 17:00 ET
 - ✅ Long-term scanner digest at 17:30 ET
 - ✅ Trillion+ Club scanner at 17:31 ET (mega-cap entry points)
-- ✅ AI Pulse scanner at 17:32 ET (~70 AI stocks + thesis research)
+- ✅ AI Pulse scanner at 17:32 ET (~120 AI + adjacent stocks + thesis research)
 - ✅ Auto-open/close paper positions
 - ✅ P&L tracking with transaction costs
 - ✅ Per-strategy signal breakdown in scan output
@@ -51,6 +51,9 @@ Before writing any code, do the following:
 - ✅ **Consistent email format** across longterm, trillion, AI (table layouts, reasoning rows, compact breakdowns)
 - ✅ **Sentiment integration in AI Pulse** — StockTwits + Haiku analysis in scheduler
 - ✅ **Git permissions documented** — Martin pushes to main, Claude works on feature branch
+- ✅ **AI thesis expansion** — 4 new theses (AI Proliferation, AI-Adjacent Exponentials, Supply Chain, Liquidity Over Lockup)
+- ✅ **AI-adjacent categories** — Crypto (6 stocks), Biotech (12 stocks), Space (10 stocks), Supply Chain (14 stocks)
+- ✅ **Universe expanded** — ~120 total AI + adjacent stocks scanned (was ~70)
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -482,6 +485,11 @@ AMD, PLTR, SNOW, NOW, ADBE, IBM, INTC, MU, QCOM, ARM
 | 2026-02-08 | Phase 7b roadmap created | Hourly collection option + more data sources proposed |
 | 2026-02-08 | **Phase 7b implemented** | Hourly sentiment + analyst ratings + insider txns + Trillion/LT integration |
 | 2026-02-08 | Cost-conscious data strategy | Maximize FREE APIs, limit Haiku to 6 calls/day (top 3 bullish + top 3 bearish) |
+| 2026-02-13 | **AI thesis expansion** | 4 new theses: AI Proliferation Direct, AI-Adjacent Exponentials, Supply Chain (Picks & Shovels), Liquidity Over Lockup |
+| 2026-02-13 | AI-adjacent categories added | Crypto (COIN, MSTR, MARA, RIOT, SQ, HOOD), Biotech (MRNA, CRSP, LLY, NVO, etc), Space (RKLB, LUNR, ASTS, LMT, etc) |
+| 2026-02-13 | AI Supply Chain category | Energy (CEG, OKLO, SMR, NEE), uranium (CCJ, UEC), materials (FCX, MP, ALB), data centers (EQIX, DLR) |
+| 2026-02-13 | Universe expanded to ~120 stocks | From ~70 AI stocks to ~120 with AI-adjacent exponential industries |
+| 2026-02-13 | Liquidity thesis added | Anti-401k thesis: prefer liquid AI positions over tax-deferred lockups with 30-40yr horizons in unpredictable AI world |
 
 ---
 

@@ -2882,7 +2882,7 @@ def render_ai_stocks_page(services: dict):
         | **Base** | 50 | Starting point |
         | **30d Performance** | ±20 | Pullbacks score higher (-20%: +20, +30%: -15) |
         | **90d Performance** | ±15 | Medium-term trend |
-        | **AI Category** | +10 | Infra: +10, Hyperscaler: +8, Software: +7 |
+        | **AI Category** | +10 | Infra: +10, Hyperscaler: +8, Software/Supply Chain: +7, Robotics/Biotech: +6, Space/Crypto: +5 |
         | **RSI (14)** | ±15 | Oversold <30: +15, Overbought >70: -5 |
         | **50-Day MA** | ±10 | Below MA = opportunity |
         | **Valuation** | ±10 | PEG <1: +10, P/E <20: +8 |
