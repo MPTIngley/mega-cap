@@ -828,13 +828,14 @@ def run_scheduler():
 
     # Run callbacks quietly (suppress verbose prints, detail goes to log file)
     def _run_quiet(func, *args):
-        """Run function with stdout suppressed. Logger file handler still works."""
-        old = sys.stdout
+        """Run function with stdout+stderr suppressed. Logger file handler still works."""
+        old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
         try:
             return func(*args)
         finally:
-            sys.stdout = old
+            sys.stdout, sys.stderr = old_out, old_err
 
     def _finish_job(job_id):
         """Record completion and print schedule."""
