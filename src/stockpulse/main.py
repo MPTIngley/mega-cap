@@ -305,6 +305,10 @@ def run_test_email():
 def run_scheduler():
     """Run the scheduler for continuous scanning."""
     from datetime import datetime
+    import io
+    import logging as _logging
+    import os
+    import sys
     import time
     import pytz
     from stockpulse.scheduler import StockPulseScheduler
@@ -314,8 +318,12 @@ def run_scheduler():
     from stockpulse.alerts.alert_manager import AlertManager
     from stockpulse.strategies.base import SignalDirection
     from stockpulse.utils.config import get_config
+    from stockpulse.utils.logging import set_console_level
 
     logger.info("Starting StockPulse scheduler...")
+
+    # Suppress console logger noise (details still go to log file)
+    set_console_level(_logging.WARNING)
 
     scheduler = StockPulseScheduler()
     signal_generator = SignalGenerator()
@@ -795,110 +803,79 @@ def run_scheduler():
     last_run = {"job_id": None, "time": None}
 
     def print_schedule():
-        """Print full schedule with last completed activity and sorted by time."""
+        """Print compact schedule sorted by time (today only)."""
         next_runs = scheduler.get_next_run_times()
         now = datetime.now(et)
-        market_open, market_status = is_market_open()
+        market_open, _ = is_market_open()
 
-        print("\n" + "-" * 50)
-        print(f"  Schedule refreshed: {now.strftime('%Y-%m-%d %H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
-
-        # Show last completed activity
-        if last_run["job_id"] and last_run["time"]:
-            last_job_name = job_names.get(last_run["job_id"], last_run["job_id"])
-            last_time_str = last_run["time"].strftime('%H:%M')
-            print(f"  Last completed: {last_job_name} at {last_time_str} ET")
-        else:
-            print("  Last completed: None (scheduler just started)")
-
-        # Check if weekend
-        if now.weekday() >= 5:
-            day_name = "Saturday" if now.weekday() == 5 else "Sunday"
-            print(f"\n  {day_name} - Markets closed until Monday 9:30 AM ET")
-
-        print("\n  Upcoming Schedule:")
-
-        # Collect and sort all jobs by actual next_run_time
+        # Collect and sort today's remaining jobs
+        today_date = now.date()
         sorted_jobs = []
         for job_id, next_time in next_runs.items():
-            if next_time:
+            if next_time and next_time > now and next_time.date() == today_date:
                 sorted_jobs.append((job_id, next_time))
         sorted_jobs.sort(key=lambda x: x[1])
 
-        # Find next future job (first one after now)
-        next_future_id = None
-        for job_id, next_time in sorted_jobs:
-            if next_time > now:
-                next_future_id = job_id
-                break
+        next_id = sorted_jobs[0][0] if sorted_jobs else None
 
-        today_date = now.date()
+        mkt = "OPEN" if market_open else "CLOSED"
+        print(f"  --- {now.strftime('%H:%M')} ET | {mkt} | {len(sorted_jobs)} jobs remaining ---")
         for job_id, next_time in sorted_jobs:
             name = job_names.get(job_id, job_id)
-            is_today = next_time.date() == today_date
-            time_str = next_time.strftime('%H:%M ET')
+            marker = "→" if job_id == next_id else " "
+            print(f"  {marker} {next_time.strftime('%H:%M')}  {name}")
+        print()
 
-            if next_time <= now:
-                marker = ">"  # Overdue / currently running
-            elif job_id == next_future_id:
-                marker = "→"  # Next up
-            else:
-                marker = " "
+    # Run callbacks quietly (suppress verbose prints, detail goes to log file)
+    def _run_quiet(func, *args):
+        """Run function with stdout suppressed. Logger file handler still works."""
+        old = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            return func(*args)
+        finally:
+            sys.stdout = old
 
-            day_label = "" if is_today else f" ({next_time.strftime('%a')})"
-            overdue_note = " [RUNNING/OVERDUE]" if next_time <= now else ""
-            print(f"  {marker} {time_str}  {name}{day_label}{overdue_note}")
-
-        print("-" * 50 + "\n")
-
-    # Wrap callbacks to print schedule after completion and track last run
-    def on_intraday_scan_wrapper(tickers):
-        on_intraday_scan(tickers)
-        last_run["job_id"] = "intraday_scan"
-        last_run["time"] = datetime.now(et)
+    def _finish_job(job_id):
+        """Record completion and print schedule."""
+        now_et = datetime.now(et)
+        name = job_names.get(job_id, job_id)
+        last_run["job_id"] = job_id
+        last_run["time"] = now_et
+        print(f"\n  ✓ {now_et.strftime('%H:%M')}  {name} completed")
         print_schedule()
+
+    def on_intraday_scan_wrapper(tickers):
+        _run_quiet(on_intraday_scan, tickers)
+        _finish_job("intraday_scan")
 
     def on_daily_scan_wrapper(tickers):
-        on_daily_scan(tickers)
-        last_run["job_id"] = "daily_scan"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_daily_scan, tickers)
+        _finish_job("daily_scan")
 
     def on_long_term_scan_wrapper(tickers):
-        on_long_term_scan(tickers)
-        last_run["job_id"] = "long_term_scan"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_long_term_scan, tickers)
+        _finish_job("long_term_scan")
 
     def on_daily_digest_wrapper():
-        on_daily_digest()
-        last_run["job_id"] = "daily_digest"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_daily_digest)
+        _finish_job("daily_digest")
 
     def on_trillion_scan_wrapper():
-        on_trillion_scan()
-        last_run["job_id"] = "trillion_club_scan"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_trillion_scan)
+        _finish_job("trillion_club_scan")
 
     def on_sentiment_scan_wrapper():
-        on_sentiment_scan()
-        last_run["job_id"] = "sentiment_scan"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_sentiment_scan)
+        _finish_job("sentiment_scan")
 
     def on_hourly_sentiment_wrapper():
-        on_hourly_sentiment_scan()
-        last_run["job_id"] = "sentiment_hourly"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_hourly_sentiment_scan)
+        _finish_job("sentiment_hourly")
 
     def on_ai_scan_wrapper():
-        on_ai_scan()
-        last_run["job_id"] = "ai_thesis_scan"
-        last_run["time"] = datetime.now(et)
-        print_schedule()
+        _run_quiet(on_ai_scan)
+        _finish_job("ai_thesis_scan")
 
     scheduler.on_intraday_scan = on_intraday_scan_wrapper
     scheduler.on_daily_scan = on_daily_scan_wrapper
@@ -914,8 +891,6 @@ def run_scheduler():
     logger.info("Scheduler started. Press Ctrl+C to stop.")
 
     try:
-        last_status = ""
-
         # Show schedule at startup
         print_schedule()
 
@@ -928,75 +903,44 @@ def run_scheduler():
                 # Check market status
                 market_open, market_status = is_market_open()
 
-                # Separate overdue/running jobs from upcoming jobs
+                # Get terminal width for clean overwrite
+                try:
+                    term_width = os.get_terminal_size().columns
+                except OSError:
+                    term_width = 80
+
+                # Find next upcoming job and any overdue/running job
                 overdue_job = None
-                overdue_time = None
                 next_job = None
                 next_job_time = None
 
                 for job_id, next_time in next_runs.items():
                     if next_time:
                         if next_time <= now:
-                            # Track latest overdue (most likely currently running)
-                            if overdue_time is None or next_time > overdue_time:
-                                overdue_time = next_time
-                                overdue_job = job_id
-                        else:
-                            # Track soonest upcoming
-                            if next_job_time is None or next_time < next_job_time:
-                                next_job_time = next_time
-                                next_job = job_id
+                            overdue_job = job_id
+                        elif next_job_time is None or next_time < next_job_time:
+                            next_job_time = next_time
+                            next_job = job_id
 
-                # Build last completed indicator (shows job name + time)
-                last_run_str = ""
-                if last_run["job_id"] and last_run["time"]:
-                    last_name = job_names.get(last_run["job_id"], last_run["job_id"])
-                    last_run_str = f" | Last: {last_name} @ {last_run['time'].strftime('%H:%M')}"
+                # Build compact status line (fits in one terminal line)
+                parts = [f"{now.strftime('%H:%M:%S')}"]
+                parts.append("OPEN" if market_open else "CLOSED")
 
-                # Build running/overdue indicator
-                running_str = ""
                 if overdue_job:
-                    overdue_name = job_names.get(overdue_job, overdue_job)
-                    overdue_mins = int((now - overdue_time).total_seconds() / 60)
-                    running_str = f" | Running: {overdue_name} ({overdue_mins}m)"
+                    parts.append(f"Running: {job_names.get(overdue_job, overdue_job)}")
+                elif last_run["job_id"] and last_run["time"]:
+                    parts.append(f"Last: {job_names.get(last_run['job_id'], '?')} {last_run['time'].strftime('%H:%M')}")
 
-                # Calculate countdown to next upcoming job
                 if next_job_time:
                     delta = next_job_time - now
-                    total_seconds = int(delta.total_seconds())
-                    hours, remainder = divmod(max(0, total_seconds), 3600)
-                    minutes, _ = divmod(remainder, 60)
+                    mins = max(0, int(delta.total_seconds()) // 60)
+                    next_name = job_names.get(next_job, next_job)
+                    parts.append(f"Next: {next_name} {next_job_time.strftime('%H:%M')} ({mins}m)")
 
-                    # Build progress bar (24 chars)
-                    total_minutes = hours * 60 + minutes
-                    if total_minutes <= 15:
-                        filled = min(24, int(total_minutes * 24 / 15))
-                        bar = "█" * filled + "░" * (24 - filled)
-                    elif hours < 24:
-                        filled = min(24, hours)
-                        bar = "█" * filled + "░" * (24 - filled)
-                    else:
-                        bar = "█" * 24
-
-                    next_job_name = job_names.get(next_job, next_job)
-                    next_time_str = next_job_time.strftime('%H:%M')
-
-                    status = (
-                        f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                        f"Market: {'OPEN' if market_open else 'CLOSED'}"
-                        f"{last_run_str}{running_str} | "
-                        f"Next: {next_job_name} @ {next_time_str} ET "
-                        f"({hours}h {minutes}m) [{bar}]  "
-                    )
-                    print(status, end="", flush=True)
-                elif overdue_job:
-                    # No upcoming jobs, but one is running
-                    status = (
-                        f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                        f"Market: {'OPEN' if market_open else 'CLOSED'}"
-                        f"{last_run_str}{running_str}                                "
-                    )
-                    print(status, end="", flush=True)
+                status = "  " + " | ".join(parts)
+                # Pad to terminal width to clear previous line, then \r
+                status = f"\r{status:<{term_width}}"
+                print(status, end="", flush=True)
 
             except Exception as e:
                 # Don't let display errors freeze the loop
