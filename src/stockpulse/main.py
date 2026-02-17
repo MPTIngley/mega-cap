@@ -826,57 +826,82 @@ def run_scheduler():
             print(f"  {marker} {next_time.strftime('%H:%M')}  {name}")
         print()
 
-    # Run callbacks quietly (suppress verbose prints, detail goes to log file)
+    # Run callbacks quietly, capture warnings/errors for brief display
     def _run_quiet(func, *args):
-        """Run function with stdout+stderr suppressed. Logger file handler still works."""
+        """Run with stdout+stderr captured. Returns (warnings_text, error_msg)."""
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
+        sys.stderr = captured_err = io.StringIO()
+        error = None
         try:
-            return func(*args)
+            func(*args)
+        except Exception as e:
+            error = str(e)
+            logger.error(f"Job error: {e}", exc_info=True)
         finally:
             sys.stdout, sys.stderr = old_out, old_err
+        stderr_text = captured_err.getvalue().strip()
+        return stderr_text or None, error
 
-    def _finish_job(job_id):
-        """Record completion and print schedule."""
+    def _finish_job(job_id, warnings=None, error=None):
+        """Record completion and print schedule with brief issue summary."""
         now_et = datetime.now(et)
         name = job_names.get(job_id, job_id)
         last_run["job_id"] = job_id
         last_run["time"] = now_et
-        print(f"\n  ✓ {now_et.strftime('%H:%M')}  {name} completed")
+
+        # Build status suffix
+        if error:
+            print(f"\n  ✗ {now_et.strftime('%H:%M')}  {name} FAILED: {error[:80]}")
+        elif warnings:
+            # Deduplicate: keep unique $TICKER lines (yfinance format)
+            unique = list(dict.fromkeys(
+                l.strip() for l in warnings.split('\n')
+                if l.strip() and l.strip()[0] == '$'
+            ))
+            if unique:
+                print(f"\n  ✓ {now_et.strftime('%H:%M')}  {name} completed ({len(unique)} warnings)")
+                for w in unique[:3]:
+                    print(f"    ⚠ {w[:70]}")
+                if len(unique) > 3:
+                    print(f"    ... +{len(unique) - 3} more (see log)")
+            else:
+                print(f"\n  ✓ {now_et.strftime('%H:%M')}  {name} completed")
+        else:
+            print(f"\n  ✓ {now_et.strftime('%H:%M')}  {name} completed")
         print_schedule()
 
     def on_intraday_scan_wrapper(tickers):
-        _run_quiet(on_intraday_scan, tickers)
-        _finish_job("intraday_scan")
+        warnings, error = _run_quiet(on_intraday_scan, tickers)
+        _finish_job("intraday_scan", warnings, error)
 
     def on_daily_scan_wrapper(tickers):
-        _run_quiet(on_daily_scan, tickers)
-        _finish_job("daily_scan")
+        warnings, error = _run_quiet(on_daily_scan, tickers)
+        _finish_job("daily_scan", warnings, error)
 
     def on_long_term_scan_wrapper(tickers):
-        _run_quiet(on_long_term_scan, tickers)
-        _finish_job("long_term_scan")
+        warnings, error = _run_quiet(on_long_term_scan, tickers)
+        _finish_job("long_term_scan", warnings, error)
 
     def on_daily_digest_wrapper():
-        _run_quiet(on_daily_digest)
-        _finish_job("daily_digest")
+        warnings, error = _run_quiet(on_daily_digest)
+        _finish_job("daily_digest", warnings, error)
 
     def on_trillion_scan_wrapper():
-        _run_quiet(on_trillion_scan)
-        _finish_job("trillion_club_scan")
+        warnings, error = _run_quiet(on_trillion_scan)
+        _finish_job("trillion_club_scan", warnings, error)
 
     def on_sentiment_scan_wrapper():
-        _run_quiet(on_sentiment_scan)
-        _finish_job("sentiment_scan")
+        warnings, error = _run_quiet(on_sentiment_scan)
+        _finish_job("sentiment_scan", warnings, error)
 
     def on_hourly_sentiment_wrapper():
-        _run_quiet(on_hourly_sentiment_scan)
-        _finish_job("sentiment_hourly")
+        warnings, error = _run_quiet(on_hourly_sentiment_scan)
+        _finish_job("sentiment_hourly", warnings, error)
 
     def on_ai_scan_wrapper():
-        _run_quiet(on_ai_scan)
-        _finish_job("ai_thesis_scan")
+        warnings, error = _run_quiet(on_ai_scan)
+        _finish_job("ai_thesis_scan", warnings, error)
 
     scheduler.on_intraday_scan = on_intraday_scan_wrapper
     scheduler.on_daily_scan = on_daily_scan_wrapper
