@@ -11,7 +11,7 @@ Before writing any code, do the following:
 ---
 
 ## Current Phase: **6 — Live Paper Trading (ACTIVE)**
-## Last Session: 2026-02-13
+## Last Session: 2026-02-17
 ## Status: RUNNING IN PRODUCTION
 
 ### What's Working:
@@ -54,6 +54,7 @@ Before writing any code, do the following:
 - ✅ **AI thesis expansion** — 4 new theses (AI Proliferation, AI-Adjacent Exponentials, Supply Chain, Liquidity Over Lockup)
 - ✅ **AI-adjacent categories** — Crypto (6 stocks), Biotech (12 stocks), Space (10 stocks), Supply Chain (14 stocks)
 - ✅ **Universe expanded** — ~120 total AI + adjacent stocks scanned (was ~70)
+- ✅ **Scheduler display fixes** — overdue/running job visibility, sorted by actual time, last completed activity with name
 
 ### Email Schedule:
 | Time (ET) | Email | Content |
@@ -384,8 +385,8 @@ ANTHROPIC_API_KEY=already_set  # Required for Haiku analysis
 ```
 10:30-15:30 ET hourly: Hourly sentiment for top 20 AI stocks (no Haiku)
 17:00 ET: Full daily sentiment scan (80 stocks + analyst + insider)
-17:15 ET: Long-Term scan (now with sentiment)
 17:20 ET: Trillion+ Club scan (now with sentiment)
+17:30 ET: Long-Term scan (now with sentiment)
 17:30 ET: AI Pulse email with all sentiment data
 ```
 
@@ -490,6 +491,7 @@ AMD, PLTR, SNOW, NOW, ADBE, IBM, INTC, MU, QCOM, ARM
 | 2026-02-13 | AI Supply Chain category | Energy (CEG, OKLO, SMR, NEE), uranium (CCJ, UEC), materials (FCX, MP, ALB), data centers (EQIX, DLR) |
 | 2026-02-13 | Universe expanded to ~120 stocks | From ~70 AI stocks to ~120 with AI-adjacent exponential industries |
 | 2026-02-13 | Liquidity thesis added | Anti-401k thesis: prefer liquid AI positions over tax-deferred lockups with 30-40yr horizons in unpredictable AI world |
+| 2026-02-17 | **Scheduler display fixes** | Fixed overdue jobs invisible in status line, sorted schedule by actual time (was hardcoded order), added running/overdue indicators, last completed activity with job name |
 
 ---
 

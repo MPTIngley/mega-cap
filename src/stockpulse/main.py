@@ -778,24 +778,24 @@ def run_scheduler():
     # Timezone and job names for schedule display
     et = pytz.timezone("US/Eastern")
     job_names = {
-        "intraday_open": "Opening scan (09:32)",
-        "intraday_first": "First 15-min (09:45)",
-        "intraday_scan": "15-min scans (10:00-15:45)",
-        "sentiment_hourly": "Hourly sentiment (10:30-15:30)",
-        "intraday_close": "Closing scan (15:58)",
-        "daily_scan": "Daily scan (16:30)",
-        "sentiment_scan": "Sentiment scan (17:00)",
+        "intraday_open": "Opening scan",
+        "intraday_first": "First 15-min scan",
+        "intraday_scan": "15-min scan",
+        "sentiment_hourly": "Hourly sentiment",
+        "intraday_close": "Closing scan",
+        "daily_scan": "Daily scan",
+        "sentiment_scan": "Sentiment scan",
         "daily_digest": "Daily digest email",
-        "long_term_scan": "Long-term scan (17:15)",
-        "trillion_club_scan": "Trillion+ Club scan (17:20)",
-        "ai_thesis_scan": "AI Thesis research (17:30)",
+        "long_term_scan": "Long-term scan",
+        "trillion_club_scan": "Trillion+ Club scan",
+        "ai_thesis_scan": "AI Thesis research",
     }
 
     # Track the last completed job
     last_run = {"job_id": None, "time": None}
 
     def print_schedule():
-        """Print full schedule after scan completes."""
+        """Print full schedule with last completed activity and sorted by time."""
         next_runs = scheduler.get_next_run_times()
         now = datetime.now(et)
         market_open, market_status = is_market_open()
@@ -803,51 +803,51 @@ def run_scheduler():
         print("\n" + "-" * 50)
         print(f"  Schedule refreshed: {now.strftime('%Y-%m-%d %H:%M')} ET  Market: {'OPEN' if market_open else 'CLOSED'}")
 
-        # Show last run info
+        # Show last completed activity
         if last_run["job_id"] and last_run["time"]:
             last_job_name = job_names.get(last_run["job_id"], last_run["job_id"])
             last_time_str = last_run["time"].strftime('%H:%M')
-            print(f"  Last run: {last_job_name} at {last_time_str} ET")
+            print(f"  Last completed: {last_job_name} at {last_time_str} ET")
+        else:
+            print("  Last completed: None (scheduler just started)")
 
         # Check if weekend
         if now.weekday() >= 5:
             day_name = "Saturday" if now.weekday() == 5 else "Sunday"
-            print(f"\n  📅 {day_name} - Markets closed until Monday 9:30 AM ET")
+            print(f"\n  {day_name} - Markets closed until Monday 9:30 AM ET")
 
         print("\n  Upcoming Schedule:")
 
-        # Define the trading day order
-        day_order = [
-            "intraday_open",       # 09:32
-            "intraday_first",      # 09:45
-            "intraday_scan",       # 10:00-15:45
-            "sentiment_hourly",    # 10:30-15:30 (hourly)
-            "intraday_close",      # 15:58
-            "daily_scan",          # 16:30
-            "sentiment_scan",      # 17:00
-            "daily_digest",        # 17:00 (configurable)
-            "long_term_scan",      # 17:15
-            "trillion_club_scan",  # 17:20
-            "ai_thesis_scan",      # 17:30
-        ]
-
-        # Find the next job (soonest that is in the future)
-        next_job_id = None
-        next_job_time = None
+        # Collect and sort all jobs by actual next_run_time
+        sorted_jobs = []
         for job_id, next_time in next_runs.items():
-            if next_time and next_time > now:  # Only consider future jobs
-                if next_job_time is None or next_time < next_job_time:
-                    next_job_time = next_time
-                    next_job_id = job_id
+            if next_time:
+                sorted_jobs.append((job_id, next_time))
+        sorted_jobs.sort(key=lambda x: x[1])
 
-        # Print in trading day order
-        for job_id in day_order:
-            if job_id in next_runs and next_runs[job_id]:
-                next_time = next_runs[job_id]
-                name = job_names.get(job_id, job_id)
-                time_str = next_time.strftime('%H:%M ET')
-                marker = "→" if job_id == next_job_id else " "
-                print(f"  {marker} {time_str}  {name}")
+        # Find next future job (first one after now)
+        next_future_id = None
+        for job_id, next_time in sorted_jobs:
+            if next_time > now:
+                next_future_id = job_id
+                break
+
+        today_date = now.date()
+        for job_id, next_time in sorted_jobs:
+            name = job_names.get(job_id, job_id)
+            is_today = next_time.date() == today_date
+            time_str = next_time.strftime('%H:%M ET')
+
+            if next_time <= now:
+                marker = ">"  # Overdue / currently running
+            elif job_id == next_future_id:
+                marker = "→"  # Next up
+            else:
+                marker = " "
+
+            day_label = "" if is_today else f" ({next_time.strftime('%a')})"
+            overdue_note = " [RUNNING/OVERDUE]" if next_time <= now else ""
+            print(f"  {marker} {time_str}  {name}{day_label}{overdue_note}")
 
         print("-" * 50 + "\n")
 
@@ -928,69 +928,75 @@ def run_scheduler():
                 # Check market status
                 market_open, market_status = is_market_open()
 
-                # Find the next job to run (must be in the future)
+                # Separate overdue/running jobs from upcoming jobs
+                overdue_job = None
+                overdue_time = None
                 next_job = None
                 next_job_time = None
-                for job_id, next_time in next_runs.items():
-                    if next_time and next_time > now:  # Only consider future jobs
-                        if next_job_time is None or next_time < next_job_time:
-                            next_job_time = next_time
-                            next_job = job_id
 
-                # Calculate countdown
+                for job_id, next_time in next_runs.items():
+                    if next_time:
+                        if next_time <= now:
+                            # Track latest overdue (most likely currently running)
+                            if overdue_time is None or next_time > overdue_time:
+                                overdue_time = next_time
+                                overdue_job = job_id
+                        else:
+                            # Track soonest upcoming
+                            if next_job_time is None or next_time < next_job_time:
+                                next_job_time = next_time
+                                next_job = job_id
+
+                # Build last completed indicator (shows job name + time)
+                last_run_str = ""
+                if last_run["job_id"] and last_run["time"]:
+                    last_name = job_names.get(last_run["job_id"], last_run["job_id"])
+                    last_run_str = f" | Last: {last_name} @ {last_run['time'].strftime('%H:%M')}"
+
+                # Build running/overdue indicator
+                running_str = ""
+                if overdue_job:
+                    overdue_name = job_names.get(overdue_job, overdue_job)
+                    overdue_mins = int((now - overdue_time).total_seconds() / 60)
+                    running_str = f" | Running: {overdue_name} ({overdue_mins}m)"
+
+                # Calculate countdown to next upcoming job
                 if next_job_time:
                     delta = next_job_time - now
                     total_seconds = int(delta.total_seconds())
-                    if total_seconds > 0:
-                        hours, remainder = divmod(total_seconds, 3600)
-                        minutes, _ = divmod(remainder, 60)
+                    hours, remainder = divmod(max(0, total_seconds), 3600)
+                    minutes, _ = divmod(remainder, 60)
 
-                        # Build progress bar (24 chars = 15 min max display for intraday)
-                        # Bar empties as countdown approaches zero
-                        total_minutes = hours * 60 + minutes
-                        if total_minutes <= 15:
-                            # Show minute-level progress for short countdowns
-                            filled = min(24, int(total_minutes * 24 / 15))
-                            bar = "█" * filled + "░" * (24 - filled)
-                        elif hours < 24:
-                            filled = min(24, hours)
-                            bar = "█" * filled + "░" * (24 - filled)
-                        else:
-                            bar = "█" * 24
-
-                        next_job_name = job_names.get(next_job, next_job)
-                        next_time_str = next_job_time.strftime('%H:%M')
-
-                        # Build last run indicator
-                        last_run_str = ""
-                        if last_run["job_id"] and last_run["time"]:
-                            last_run_str = f" | Last: {last_run['time'].strftime('%H:%M')}"
-
-                        # Build compact status line
-                        status = (
-                            f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                            f"Market: {'OPEN' if market_open else 'CLOSED'}{last_run_str} | "
-                            f"Next: {next_job_name} @ {next_time_str} ET "
-                            f"({hours}h {minutes}m) [{bar}]  "
-                        )
-
-                        # Always print (seconds ensure it changes each cycle)
-                        print(status, end="", flush=True)
+                    # Build progress bar (24 chars)
+                    total_minutes = hours * 60 + minutes
+                    if total_minutes <= 15:
+                        filled = min(24, int(total_minutes * 24 / 15))
+                        bar = "█" * filled + "░" * (24 - filled)
+                    elif hours < 24:
+                        filled = min(24, hours)
+                        bar = "█" * filled + "░" * (24 - filled)
                     else:
-                        # Job is running or overdue, show that
-                        next_job_name = job_names.get(next_job, next_job)
+                        bar = "█" * 24
 
-                        # Build last run indicator
-                        last_run_str = ""
-                        if last_run["job_id"] and last_run["time"]:
-                            last_run_str = f" | Last: {last_run['time'].strftime('%H:%M')}"
+                    next_job_name = job_names.get(next_job, next_job)
+                    next_time_str = next_job_time.strftime('%H:%M')
 
-                        status = (
-                            f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
-                            f"Market: {'OPEN' if market_open else 'CLOSED'}{last_run_str} | "
-                            f"Running: {next_job_name}...                              "
-                        )
-                        print(status, end="", flush=True)
+                    status = (
+                        f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
+                        f"Market: {'OPEN' if market_open else 'CLOSED'}"
+                        f"{last_run_str}{running_str} | "
+                        f"Next: {next_job_name} @ {next_time_str} ET "
+                        f"({hours}h {minutes}m) [{bar}]  "
+                    )
+                    print(status, end="", flush=True)
+                elif overdue_job:
+                    # No upcoming jobs, but one is running
+                    status = (
+                        f"\r  ⏱ {now.strftime('%H:%M:%S')} ET | "
+                        f"Market: {'OPEN' if market_open else 'CLOSED'}"
+                        f"{last_run_str}{running_str}                                "
+                    )
+                    print(status, end="", flush=True)
 
             except Exception as e:
                 # Don't let display errors freeze the loop
