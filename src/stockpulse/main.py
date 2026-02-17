@@ -826,21 +826,26 @@ def run_scheduler():
             print(f"  {marker} {next_time.strftime('%H:%M')}  {name}")
         print()
 
+    # Lock prevents concurrent jobs from racing on sys.stdout/stderr
+    import threading
+    _quiet_lock = threading.Lock()
+
     # Run callbacks quietly, capture warnings/errors for brief display
     def _run_quiet(func, *args):
         """Run with stdout+stderr captured. Returns (warnings_text, error_msg)."""
-        old_out, old_err = sys.stdout, sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = captured_err = io.StringIO()
-        error = None
-        try:
-            func(*args)
-        except Exception as e:
-            error = str(e)
-            logger.error(f"Job error: {e}", exc_info=True)
-        finally:
-            sys.stdout, sys.stderr = old_out, old_err
-        stderr_text = captured_err.getvalue().strip()
+        with _quiet_lock:
+            old_out, old_err = sys.stdout, sys.stderr
+            sys.stdout = io.StringIO()
+            sys.stderr = captured_err = io.StringIO()
+            error = None
+            try:
+                func(*args)
+            except Exception as e:
+                error = str(e)
+                logger.error(f"Job error: {e}", exc_info=True)
+            finally:
+                sys.stdout, sys.stderr = old_out, old_err
+            stderr_text = captured_err.getvalue().strip()
         return stderr_text or None, error
 
     def _finish_job(job_id, warnings=None, error=None):

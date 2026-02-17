@@ -479,14 +479,14 @@ class EmailSender:
 
                         upside = ((target - entry) / entry * 100) if entry > 0 else 0
 
-                        # Status display - use bright colors for dark background
+                        # Status display
                         if sig_status == "OPENED":
-                            status_html = "<span style='color: #4ade80;'>✅ OPENED</span>"
+                            status_html = "<span style='color: #16a34a;'>✅ OPENED</span>"
                         elif sig_status == "BLOCKED":
                             reason_short = reason[:35] + "..." if len(reason) > 35 else reason
-                            status_html = f"<span style='color: #fbbf24;'>⏸ {reason_short}</span>"
+                            status_html = f"<span style='color: #d97706;'>⏸ {reason_short}</span>"
                         else:
-                            status_html = f"<span style='color: #cbd5e1;'>— {reason[:25] if reason else 'Not traded'}</span>"
+                            status_html = f"<span style='color: #6b7280;'>— {reason[:25] if reason else 'Not traded'}</span>"
 
                         signal_rows += f"""
                         <tr>
@@ -500,10 +500,10 @@ class EmailSender:
 
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
-                        <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #475569; padding-bottom: 5px;">
+                        <h3 style="color: #1f2937; font-size: 14px; margin: 10px 0 5px 0; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px 0;">
+                        <p style="color: #6b7280; font-size: 11px; margin: 0 0 8px 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | Top {len(deduped_signals)} of {signal_count} signals:
                         </p>
                         <table style="font-size: 12px;">
@@ -516,10 +516,10 @@ class EmailSender:
                     # No signals for this strategy
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 15px;">
-                        <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                        <h3 style="color: #6b7280; font-size: 14px; margin: 10px 0 5px 0;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #cbd5e1; font-size: 11px; margin: 0;">
+                        <p style="color: #9ca3af; font-size: 11px; margin: 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | {pos_count} positions | No signals today
                         </p>
                     </div>
@@ -531,9 +531,9 @@ class EmailSender:
                 for bt in blocked_tickers[:5]:
                     blocked_items += f"<li>{bt.get('ticker', 'N/A')}: {bt.get('reason', 'Unknown')}</li>"
                 blocked_html = f"""
-                <div style="margin-top: 15px; padding: 10px; background: #1e293b; border-radius: 8px;">
-                    <strong style="color: #f59e0b;">⏱️ Blocked Tickers ({len(blocked_tickers)}):</strong>
-                    <ul style="margin: 5px 0; padding-left: 20px; color: #94a3b8; font-size: 12px;">
+                <div style="margin-top: 15px; padding: 10px; background: #fef3c7; border-radius: 8px; border: 1px solid #f59e0b;">
+                    <strong style="color: #92400e;">⏱️ Blocked Tickers ({len(blocked_tickers)}):</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px; color: #78350f; font-size: 12px;">
                         {blocked_items}
                     </ul>
                 </div>
@@ -549,22 +549,22 @@ class EmailSender:
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; background: #1a1a2e; color: #eee; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; text-align: center; border-radius: 10px 10px 0 0; }}
+                body {{ font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; background: #f9fafb; color: #1f2937; }}
+                .header {{ background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 25px; text-align: center; border-radius: 10px 10px 0 0; }}
                 .header h1 {{ margin: 0; font-size: 28px; }}
-                .content {{ padding: 20px; background: #16213e; }}
-                .portfolio-box {{ background: #0f3460; border-radius: 10px; padding: 20px; margin-bottom: 20px; }}
-                .portfolio-value {{ font-size: 36px; font-weight: bold; color: #00d9ff; }}
-                .portfolio-return {{ font-size: 20px; color: {'#4ade80' if total_return_pct >= 0 else '#f87171'}; }}
+                .content {{ padding: 20px; background: white; }}
+                .portfolio-box {{ background: #eff6ff; border: 2px solid #3b82f6; border-radius: 10px; padding: 20px; margin-bottom: 20px; }}
+                .portfolio-value {{ font-size: 36px; font-weight: bold; color: #1d4ed8; }}
+                .portfolio-return {{ font-size: 20px; color: {'#16a34a' if total_return_pct >= 0 else '#dc2626'}; }}
                 .metrics {{ display: flex; justify-content: space-around; margin: 15px 0; flex-wrap: wrap; }}
                 .metric {{ text-align: center; padding: 10px; min-width: 80px; }}
-                .metric-value {{ font-size: 20px; font-weight: bold; color: #00d9ff; }}
-                .metric-label {{ font-size: 11px; color: #94a3b8; text-transform: uppercase; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #0f3460; border-radius: 8px; overflow: hidden; }}
-                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #1e3a5f; }}
-                th {{ background: #1e3a5f; color: #94a3b8; font-size: 11px; text-transform: uppercase; }}
-                h2 {{ color: #00d9ff; border-bottom: 2px solid #667eea; padding-bottom: 10px; margin-top: 25px; }}
-                .footer {{ color: #94a3b8; font-size: 11px; margin-top: 30px; text-align: center; padding: 15px; }}
+                .metric-value {{ font-size: 20px; font-weight: bold; color: #1d4ed8; }}
+                .metric-label {{ font-size: 11px; color: #6b7280; text-transform: uppercase; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+                th {{ background: #f3f4f6; color: #374151; font-size: 11px; text-transform: uppercase; font-weight: 600; }}
+                h2 {{ color: #3b82f6; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; margin-top: 25px; }}
+                .footer {{ background: #f3f4f6; color: #6b7280; font-size: 11px; margin-top: 30px; text-align: center; padding: 15px; }}
             </style>
         </head>
         <body>
@@ -580,11 +580,11 @@ class EmailSender:
                     </div>
                     <div class="metrics">
                         <div class="metric">
-                            <div class="metric-value" style="color: {'#4ade80' if total_realized >= 0 else '#f87171'}">${total_realized:+,.0f}</div>
+                            <div class="metric-value" style="color: {'#16a34a' if total_realized >= 0 else '#dc2626'}">${total_realized:+,.0f}</div>
                             <div class="metric-label">Realized</div>
                         </div>
                         <div class="metric">
-                            <div class="metric-value" style="color: {'#4ade80' if total_unrealized >= 0 else '#f87171'}">${total_unrealized:+,.0f}</div>
+                            <div class="metric-value" style="color: {'#16a34a' if total_unrealized >= 0 else '#dc2626'}">${total_unrealized:+,.0f}</div>
                             <div class="metric-label">Unrealized</div>
                         </div>
                         <div class="metric">
@@ -604,12 +604,12 @@ class EmailSender:
                 {signals_html}
                 {strategy_html}
 
-                <div style="margin-top: 40px; padding: 20px; background: #0f3460; border-radius: 8px; border-top: 2px solid #667eea;">
-                    <h2 style="color: #94a3b8; font-size: 16px; margin-top: 0;">📚 Strategy Guide</h2>
+                <div style="margin-top: 40px; padding: 20px; background: #f3f4f6; border-radius: 8px; border-top: 2px solid #3b82f6;">
+                    <h2 style="color: #374151; font-size: 16px; margin-top: 0;">Strategy Guide</h2>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             RSI (Relative Strength Index) measures how "oversold" or "overbought" a stock is on a scale of 0-100.
                             When RSI drops below 30, the stock has fallen sharply and is considered oversold - historically, these stocks tend to bounce back.
                             <br/><strong>Settings:</strong> Buy when RSI &lt; 30, Sell when RSI &gt; 70, using 14-day lookback.
@@ -617,8 +617,8 @@ class EmailSender:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             MACD (Moving Average Convergence Divergence) tracks momentum by comparing short-term vs long-term price trends.
                             When the fast trend crosses above the slow trend with strong volume, it signals the stock is gaining momentum.
                             <br/><strong>Settings:</strong> Buy on MACD crossover with 1.5x average volume. Uses 12/26 day EMAs and 9-day signal line.
@@ -626,8 +626,8 @@ class EmailSender:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Z-score measures how far a stock's price is from its recent average, in standard deviations.
                             A Z-score of -2.0 means the price is unusually low - like a rubber band stretched too far, it tends to snap back.
                             <br/><strong>Settings:</strong> Buy when Z-score &lt; -2.0, Sell when Z-score &gt; 1.0, using 20-day lookback.
@@ -635,8 +635,8 @@ class EmailSender:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             This strategy catches stocks "breaking out" to new highs. When a stock breaks above its recent 20-day high with volume,
                             it often signals the start of an uptrend - like a stock breaking free from a ceiling.
                             <br/><strong>Settings:</strong> Buy on new 20-day high with 1.2x average volume. Target +8% gain.
@@ -644,8 +644,8 @@ class EmailSender:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Stocks near their yearly low can be bargains if fundamentally sound. This buys quality S&amp;P 500 stocks
                             near their 52-week low, betting on a rebound - like buying a brand-name product at clearance prices.
                             <br/><strong>Settings:</strong> Buy when within 10% of 52-week low.
@@ -653,16 +653,16 @@ class EmailSender:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Different market sectors take turns leading. This identifies stocks outperforming the overall market,
                             betting on continued momentum - like backing the winning horse mid-race.
                             <br/><strong>Settings:</strong> Buy when relative strength &gt; 1.1 (10% better than market), 20-day lookback.
                         </p>
                     </div>
 
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #334155;">
-                        <p style="color: #94a3b8; font-size: 11px; margin: 0;">
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #d1d5db;">
+                        <p style="color: #6b7280; font-size: 11px; margin: 0;">
                             <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
                             <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
                         </p>

@@ -228,14 +228,14 @@ class AlertManager:
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #1a1a2e; color: #eee; }}
-                .header {{ background: #16213e; color: white; padding: 20px; text-align: center; }}
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #f9fafb; color: #1f2937; }}
+                .header {{ background: #1e40af; color: white; padding: 20px; text-align: center; }}
                 .content {{ padding: 20px; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #16213e; }}
-                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #333; color: #eee; }}
-                th {{ background: #0f3460; }}
-                .section-title {{ color: #fff; margin-top: 25px; padding: 10px; border-left: 4px solid #27ae60; }}
-                .sell-title {{ border-left-color: #e74c3c; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #ffffff; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; color: #1f2937; }}
+                th {{ background: #f3f4f6; color: #374151; }}
+                .section-title {{ color: #1f2937; margin-top: 25px; padding: 10px; border-left: 4px solid #16a34a; }}
+                .sell-title {{ border-left-color: #dc2626; }}
             </style>
         </head>
         <body>
@@ -250,7 +250,7 @@ class AlertManager:
                 <h2 class="section-title sell-title">📉 SELL Signals ({len(high_conf_sells)})</h2>
                 {"<table><tr><th>Ticker</th><th>Strategy</th><th>Confidence</th><th>Exit</th><th>Target</th><th>Stop</th><th>Status</th></tr>" + sell_rows + "</table>" if sell_rows else "<p>No actionable sell signals for current holdings</p>"}
 
-                <p style="color: #888; font-size: 12px; margin-top: 30px;">
+                <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
                     Portfolio: {len(portfolio_tickers)} positions | Initial Capital: ${initial_capital:,.0f}<br>
                     <strong>Disclaimer:</strong> This is not financial advice. Paper trading only.
                 </p>
@@ -368,13 +368,13 @@ class AlertManager:
 
             opened_rows += f"""
             <tr>
-                <td><strong style="color: #22c55e;">{signal.ticker}</strong></td>
+                <td><strong style="color: #16a34a;">{signal.ticker}</strong></td>
                 <td>{signal.strategy}</td>
                 <td>{signal.confidence:.0f}%</td>
                 <td>${signal.entry_price:.2f}</td>
                 <td>${signal.target_price:.2f} (+{upside_pct:.1f}%)</td>
                 <td>${signal.stop_price:.2f}</td>
-                <td><strong>{size_pct:.1f}%</strong> (${dollar_amount:,.0f})<br/><small style="color: #94a3b8;">{sizing_str}</small></td>
+                <td><strong>{size_pct:.1f}%</strong> (${dollar_amount:,.0f})<br/><small style="color: #6b7280;">{sizing_str}</small></td>
             </tr>
             """
 
@@ -391,7 +391,7 @@ class AlertManager:
             if detailed_reasons:
                 detail_parts = [f"{r.get('icon', '')} {r.get('detail', r.get('reason', ''))}" for r in detailed_reasons if r.get('detail') or r.get('reason')]
                 if detail_parts:
-                    reason_html = f"{reason}<br/><small style='color: #94a3b8;'>{'; '.join(detail_parts)}</small>"
+                    reason_html = f"{reason}<br/><small style='color: #6b7280;'>{'; '.join(detail_parts)}</small>"
 
             blocked_rows += f"""
             <tr style="opacity: 0.7;">
@@ -443,14 +443,14 @@ class AlertManager:
 
                         upside = ((target - entry) / entry * 100) if entry > 0 else 0
 
-                        # Color and icon based on status - bright colors for dark background
+                        # Color and icon based on status
                         if sig_status == "OPENED":
-                            status_html = "<span style='color: #4ade80;'>✅ OPENED</span>"
+                            status_html = "<span style='color: #16a34a;'>✅ OPENED</span>"
                         elif sig_status == "BLOCKED":
                             reason_short = reason[:40] + "..." if len(reason) > 40 else reason
-                            status_html = f"<span style='color: #fbbf24;'>⏸ {reason_short}</span>"
+                            status_html = f"<span style='color: #d97706;'>⏸ {reason_short}</span>"
                         else:
-                            status_html = "<span style='color: #cbd5e1;'>—</span>"
+                            status_html = "<span style='color: #9ca3af;'>—</span>"
 
                         signal_rows += f"""
                         <tr>
@@ -464,10 +464,10 @@ class AlertManager:
 
                     strategy_tables_html += f"""
                     <div style="margin-bottom: 20px;">
-                        <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0;">
+                        <h3 style="color: #1f2937; font-size: 14px; margin: 10px 0 5px 0;">
                             {strat_desc}
                         </h3>
-                        <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px 0;">
+                        <p style="color: #6b7280; font-size: 11px; margin: 0 0 8px 0;">
                             Capacity: {exposure:.0f}%/{max_pct:.0f}% used | Top {len(signals_for_strat[:3])} of {len(signals_for_strat)} signals:
                         </p>
                         <table style="font-size: 13px;">
@@ -485,13 +485,13 @@ class AlertManager:
                             nm_rows += f"<li>{n['ticker']}: {n['indicator']} ({n['distance']})</li>"
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 15px;">
-                            <h3 style="color: #e2e8f0; font-size: 14px; margin: 10px 0 5px 0;">
+                            <h3 style="color: #1f2937; font-size: 14px; margin: 10px 0 5px 0;">
                                 {strat_desc}
                             </h3>
-                            <p style="color: #94a3b8; font-size: 11px; margin: 0 0 5px 0;">
+                            <p style="color: #6b7280; font-size: 11px; margin: 0 0 5px 0;">
                                 Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals, but close:
                             </p>
-                            <ul style="color: #cbd5e1; font-size: 12px; margin: 5px 0; padding-left: 20px;">
+                            <ul style="color: #374151; font-size: 12px; margin: 5px 0; padding-left: 20px;">
                                 {nm_rows}
                             </ul>
                         </div>
@@ -499,10 +499,10 @@ class AlertManager:
                     else:
                         strategy_tables_html += f"""
                         <div style="margin-bottom: 10px;">
-                            <h3 style="color: #94a3b8; font-size: 14px; margin: 10px 0 5px 0;">
+                            <h3 style="color: #6b7280; font-size: 14px; margin: 10px 0 5px 0;">
                                 {strat_desc}
                             </h3>
-                            <p style="color: #cbd5e1; font-size: 11px; margin: 0;">
+                            <p style="color: #6b7280; font-size: 11px; margin: 0;">
                                 Capacity: {exposure:.0f}%/{max_pct:.0f}% used | No signals
                             </p>
                         </div>
@@ -528,10 +528,10 @@ class AlertManager:
                 nm_info = ""
                 if nm:
                     nm_tickers = ", ".join([f"{n['ticker']} ({n['indicator']})" for n in nm[:2]])
-                    nm_info = f"<br/><small style='color: #94a3b8;'>Near: {nm_tickers}</small>"
+                    nm_info = f"<br/><small style='color: #6b7280;'>Near: {nm_tickers}</small>"
 
                 status_icon = "✓" if can_open else "⏸"
-                status_color = "#4ade80" if can_open else "#f59e0b"
+                status_color = "#16a34a" if can_open else "#d97706"
 
                 strat_rows += f"""
                 <tr>
@@ -553,18 +553,18 @@ class AlertManager:
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #0f172a; color: #e2e8f0; }}
-                .header {{ background: #1e293b; color: white; padding: 20px; text-align: center; border-bottom: 3px solid #3b82f6; }}
+                body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; background: #f9fafb; color: #1f2937; }}
+                .header {{ background: #1e40af; color: white; padding: 20px; text-align: center; border-bottom: 3px solid #3b82f6; }}
                 .content {{ padding: 20px; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #1e293b; }}
-                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #334155; color: #e2e8f0; }}
-                th {{ background: #334155; font-weight: 600; }}
-                .section-title {{ color: #f1f5f9; margin-top: 25px; padding: 10px; border-left: 4px solid #22c55e; background: #1e293b; }}
-                .blocked-title {{ border-left-color: #f59e0b; }}
-                .sell-title {{ border-left-color: #ef4444; }}
-                .summary {{ background: #1e293b; padding: 15px; border-radius: 8px; margin: 15px 0; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 15px 0; background: #ffffff; }}
+                td, th {{ padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; color: #1f2937; }}
+                th {{ background: #f3f4f6; font-weight: 600; color: #374151; }}
+                .section-title {{ color: #1f2937; margin-top: 25px; padding: 10px; border-left: 4px solid #22c55e; background: #f0fdf4; }}
+                .blocked-title {{ border-left-color: #f59e0b; background: #fefce8; }}
+                .sell-title {{ border-left-color: #ef4444; background: #fef2f2; }}
+                .summary {{ background: #eff6ff; padding: 15px; border-radius: 8px; margin: 15px 0; border: 1px solid #bfdbfe; }}
                 .stat {{ display: inline-block; margin-right: 30px; }}
-                .stat-value {{ font-size: 1.5em; font-weight: bold; color: #3b82f6; }}
+                .stat-value {{ font-size: 1.5em; font-weight: bold; color: #1d4ed8; }}
             </style>
         </head>
         <body>
@@ -581,7 +581,7 @@ class AlertManager:
                     <span class="stat"><span class="stat-value">${initial_capital * (1 - portfolio_exposure_pct/100):,.0f}</span> Cash</span>
                 </div>
 
-                {"<h2 class='section-title'>✅ Positions Opened (" + str(len(opened_positions)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + opened_rows + "</table>" if opened_rows else "<p style='color: #94a3b8;'>No positions opened this scan.</p>"}
+                {"<h2 class='section-title'>✅ Positions Opened (" + str(len(opened_positions)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + opened_rows + "</table>" if opened_rows else "<p style='color: #6b7280;'>No positions opened this scan.</p>"}
 
                 {"<h2 class='section-title blocked-title'>⏸️ Signals Blocked (" + str(len(blocked_signals)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Would Be</th><th>Reason</th></tr>" + blocked_rows + "</table>" if blocked_rows else ""}
 
@@ -589,12 +589,12 @@ class AlertManager:
 
                 {strategy_insights_html}
 
-                <div style="margin-top: 40px; padding: 20px; background: #1e293b; border-radius: 8px; border-top: 2px solid #3b82f6;">
-                    <h2 style="color: #94a3b8; font-size: 16px; margin-top: 0;">📚 Strategy Guide</h2>
+                <div style="margin-top: 40px; padding: 20px; background: #f3f4f6; border-radius: 8px; border-top: 2px solid #3b82f6;">
+                    <h2 style="color: #374151; font-size: 16px; margin-top: 0;">📚 Strategy Guide</h2>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">RSI Mean Reversion</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             RSI (Relative Strength Index) measures how "oversold" or "overbought" a stock is on a scale of 0-100.
                             When RSI drops below 30, the stock has fallen sharply and is considered oversold - historically, these stocks tend to bounce back.
                             <br/><strong>Settings:</strong> Buy when RSI &lt; 30, Sell when RSI &gt; 70, using 14-day lookback.
@@ -602,8 +602,8 @@ class AlertManager:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">MACD Volume</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             MACD (Moving Average Convergence Divergence) tracks momentum by comparing short-term vs long-term price trends.
                             When the fast trend crosses above the slow trend with strong volume, it signals the stock is gaining momentum.
                             <br/><strong>Settings:</strong> Buy on MACD crossover with 1.5x average volume. Uses 12/26 day EMAs and 9-day signal line.
@@ -611,8 +611,8 @@ class AlertManager:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Z-Score Mean Reversion</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Z-score measures how far a stock's price is from its recent average, in standard deviations.
                             A Z-score of -2.0 means the price is unusually low - like a rubber band stretched too far, it tends to snap back.
                             <br/><strong>Settings:</strong> Buy when Z-score &lt; -2.0, Sell when Z-score &gt; 1.0, using 20-day lookback.
@@ -620,8 +620,8 @@ class AlertManager:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Momentum Breakout</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             This strategy catches stocks "breaking out" to new highs. When a stock breaks above its recent 20-day high with volume,
                             it often signals the start of an uptrend - like a stock breaking free from a ceiling.
                             <br/><strong>Settings:</strong> Buy on new 20-day high with 1.2x average volume. Target +8% gain.
@@ -629,8 +629,8 @@ class AlertManager:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">52-Week Low Bounce</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Stocks near their yearly low can be bargains if fundamentally sound. This buys quality S&amp;P 500 stocks
                             near their 52-week low, betting on a rebound - like buying a brand-name product at clearance prices.
                             <br/><strong>Settings:</strong> Buy when within 10% of 52-week low.
@@ -638,16 +638,16 @@ class AlertManager:
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <h4 style="color: #60a5fa; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                        <h4 style="color: #1d4ed8; margin: 10px 0 5px 0; font-size: 13px;">Sector Rotation</h4>
+                        <p style="color: #4b5563; font-size: 12px; margin: 0; line-height: 1.5;">
                             Different market sectors take turns leading. This identifies stocks outperforming the overall market,
                             betting on continued momentum - like backing the winning horse mid-race.
                             <br/><strong>Settings:</strong> Buy when relative strength &gt; 1.1 (10% better than market), 20-day lookback.
                         </p>
                     </div>
 
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #475569;">
-                        <p style="color: #94a3b8; font-size: 11px; margin: 0;">
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #d1d5db;">
+                        <p style="color: #6b7280; font-size: 11px; margin: 0;">
                             <strong>Position Sizing:</strong> Base 5% × Strategy Weight × Confidence Multiplier, capped at 15% per position, 80% max portfolio exposure.<br/>
                             <strong>Disclaimer:</strong> Paper trading simulation only. This is not financial advice. Past performance does not guarantee future results.
                         </p>
@@ -2139,7 +2139,7 @@ class AlertManager:
                     <p style="margin: 0 0 10px 0; font-size: 13px; color: #334155;">{analysis}...</p>
                     <div style="font-size: 12px;">
                         <span style="color: {rec_color}; font-weight: bold; text-transform: uppercase;">{recommendation}</span>
-                        <span style="color: #94a3b8;"> | Confidence: {confidence:.0f}%</span>
+                        <span style="color: #6b7280;"> | Confidence: {confidence:.0f}%</span>
                     </div>
                 </div>
                 """
