@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "stockpulse-db": {
+      "command": "npx",
+      "args": [
+        "@anthropic-ai/mcp-server-sqlite",
+        "/Users/martintingley/Documents/AIGames/mega-cap/data/stockpulse.sqlite"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
