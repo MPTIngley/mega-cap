@@ -2243,22 +2243,38 @@ class AlertManager:
                             "neutral": "#6b7280",
                         }.get(p_rec, "#6b7280")
                         p_name = p.get("name", p.get("perspective", ""))
-                        p_summary = p.get("analysis", "").split(".")[0].strip()
-                        if len(p_summary) > 100:
-                            p_summary = p_summary[:97] + "..."
+                        p_focus = p.get("focus", "")
+                        p_conf = p.get("confidence", 0)
+
+                        # Extract first 2-3 sentences for a fuller summary
+                        raw = p.get("analysis", "")
+                        sentences = raw.split(".")
+                        p_summary = ".".join(sentences[:3]).strip()
+                        if p_summary and not p_summary.endswith("."):
+                            p_summary += "."
+                        if len(p_summary) > 300:
+                            p_summary = p_summary[:297] + "..."
+
+                        p_rec_label = p_rec.upper()
                         persp_lines += (
-                            f'<div style="margin: 3px 0; font-size: 11px; color: #475569;">'
-                            f'<span style="color: {p_color}; font-weight: bold;">{p_name}</span>: '
-                            f"{p_summary}</div>"
+                            f'<div style="margin: 8px 0; padding: 8px 10px; background: white; '
+                            f'border-radius: 4px; border-left: 3px solid {p_color};">'
+                            f'<div style="font-size: 12px; font-weight: bold; color: #1e293b; margin-bottom: 3px;">'
+                            f'{p_name} <span style="color: {p_color}; font-size: 11px;">{p_rec_label} ({p_conf:.0f}%)</span>'
+                            f'<span style="color: #94a3b8; font-size: 10px; font-weight: normal; margin-left: 6px;">{p_focus}</span></div>'
+                            f'<div style="font-size: 12px; color: #475569; line-height: 1.4;">{p_summary}</div>'
+                            f"</div>"
                         )
 
                     dissent = thesis.get("dissent", "")
                     dissent_html = ""
                     if dissent:
                         dissent_html = (
-                            f'<div style="margin-top: 6px; padding: 6px 8px; background: #fef2f2; '
-                            f'border-radius: 4px; font-size: 11px; color: #991b1b;">'
-                            f"Dissent: {dissent}</div>"
+                            f'<div style="margin-top: 8px; padding: 8px 10px; background: #fef2f2; '
+                            f'border-left: 3px solid #ef4444; border-radius: 4px;">'
+                            f'<div style="font-size: 11px; font-weight: bold; color: #991b1b; margin-bottom: 3px;">Key Disagreement</div>'
+                            f'<div style="font-size: 12px; color: #7f1d1d; line-height: 1.4;">{dissent}</div>'
+                            f"</div>"
                         )
 
                     council_html = f"""
