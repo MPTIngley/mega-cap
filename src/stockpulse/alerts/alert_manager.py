@@ -1801,10 +1801,10 @@ class AlertManager:
 
         # === BUILD EMAIL HTML ===
 
-        # Identify strong buys (score 65+, pullback, 3+ days)
+        # Identify strong buys (score 55+, pullback, 3+ days)
         strong_buys = [
             stock for stock in top_picks[:10]
-            if stock.get('ai_score', 0) >= 65
+            if stock.get('ai_score', 0) >= 55
             and stock.get('pct_30d', 0) <= 0
         ]
 
@@ -1950,7 +1950,7 @@ class AlertManager:
                 # High avg_score + positive 30d = extended (HOLD)
                 # Low avg_score + negative 30d = avoid (SELL)
                 if avg_30d <= -10:
-                    if avg_score >= 65:
+                    if avg_score >= 50:
                         health = "OPPORTUNITY"
                         health_color = "#22c55e"
                     else:
@@ -1966,7 +1966,7 @@ class AlertManager:
                     health = "NEUTRAL"
                     health_color = "#6b7280"
 
-                score_color = "#22c55e" if avg_score >= 65 else ("#eab308" if avg_score >= 55 else "#f97316")
+                score_color = "#22c55e" if avg_score >= 55 else ("#eab308" if avg_score >= 40 else "#f97316")
                 perf_color = "#22c55e" if avg_30d > 0 else "#ef4444"
 
                 cat_rows += f"""
@@ -2074,10 +2074,10 @@ class AlertManager:
             category = stock.get("category", "Other")
             breakdown = stock.get("score_breakdown", {})
 
-            # Extract individual factor scores (handle different AI score structure)
-            perf_30d_pts = breakdown.get("pct_30d", {}).get("points", 0)
-            perf_90d_pts = breakdown.get("pct_90d", {}).get("points", 0)
-            cat_pts = breakdown.get("category", {}).get("points", 0)
+            # Extract individual factor scores
+            perf_30d_pts = breakdown.get("perf_30d", {}).get("points", 0)
+            perf_90d_pts = breakdown.get("perf_90d", {}).get("points", 0)
+            cat_pts = breakdown.get("ai_category", {}).get("points", 0)
             rsi_pts = breakdown.get("rsi", {}).get("points", 0)
             ma_pts = breakdown.get("ma_50", {}).get("points", 0)
             val_pts = breakdown.get("valuation", {}).get("points", 0)
@@ -2263,32 +2263,32 @@ class AlertManager:
                     </p>
                     <table class="weight-table" style="font-size: 13px;">
                         <tr>
-                            <td><strong>Base Score (50)</strong></td>
+                            <td><strong>Base Score (20)</strong></td>
                             <td>Starting point for all stocks</td>
                         </tr>
                         <tr>
                             <td><strong>30-Day Performance (30d)</strong></td>
-                            <td>Pullbacks are opportunities: -20%: +20, -10%: +15, -5%: +10</td>
+                            <td>Continuous: pullback % &times; 0.5 (max +15). Extensions penalized.</td>
                         </tr>
                         <tr>
                             <td><strong>90-Day Performance (90d)</strong></td>
-                            <td>Medium-term trend: -30%: +15, -15%: +10, +50%: -10</td>
+                            <td>Continuous: pullback % &times; 0.25 (max +10). Extensions penalized.</td>
                         </tr>
                         <tr>
                             <td><strong>AI Category (Cat)</strong></td>
-                            <td>Infra: +10, Hyperscaler: +8, Software: +7, Robotics: +6</td>
+                            <td>Infra: +15, Hyperscaler: +12, Software: +10, Robotics: +8</td>
                         </tr>
                         <tr>
                             <td><strong>RSI (14-day)</strong></td>
-                            <td>Oversold/overbought: &lt;30: +15, &lt;40: +10, &gt;70: -5</td>
+                            <td>Continuous: distance from 50 &times; 0.4 (max +12 oversold, -10 overbought)</td>
                         </tr>
                         <tr>
                             <td><strong>50-Day MA</strong></td>
-                            <td>Position vs moving average: -10%: +10, -5%: +7, +15%: -5</td>
+                            <td>Continuous: distance below MA &times; 0.6 (max +8). Above MA penalized.</td>
                         </tr>
                         <tr>
                             <td><strong>Valuation (Val)</strong></td>
-                            <td>PEG&lt;1: +10, P/E&lt;20: +8, P/E&gt;80: -10</td>
+                            <td>PEG&lt;0.5: +12, PEG&lt;1: +8, P/E&lt;15: +8, P/E&gt;80: -10</td>
                         </tr>
                     </table>
                 </div>
@@ -2296,7 +2296,7 @@ class AlertManager:
             <div class="footer">
                 <div style="margin-bottom: 15px;">
                     <strong>Score Interpretation:</strong><br/>
-                    75+: Strong Buy | 65-74: Buy | 55-64: Hold | &lt;55: Wait
+                    80+: Strong Buy | 65-79: Buy | 50-64: Hold | &lt;50: Wait
                 </div>
                 <div style="margin-bottom: 15px;">
                     <strong>🎯 Top Pick Criteria:</strong> AI Score 65+ AND recent pullback (30d &lt; 0)

@@ -492,6 +492,11 @@ AMD, PLTR, SNOW, NOW, ADBE, IBM, INTC, MU, QCOM, ARM
 | 2026-02-13 | Universe expanded to ~120 stocks | From ~70 AI stocks to ~120 with AI-adjacent exponential industries |
 | 2026-02-13 | Liquidity thesis added | Anti-401k thesis: prefer liquid AI positions over tax-deferred lockups with 30-40yr horizons in unpredictable AI world |
 | 2026-02-17 | **Scheduler display fixes** | Fixed overdue jobs invisible in status line, sorted schedule by actual time (was hardcoded order), added running/overdue indicators, last completed activity with job name |
+| 2026-02-17 | Compact scheduler output v2 | Quiet callbacks with thread-safe stdout/stderr suppression, single-line completion messages, terminal-width-aware status line |
+| 2026-02-17 | Haiku model fix | Updated from claude-haiku-4-20250514 (404) to claude-haiku-4-5-20251001 |
+| 2026-02-17 | Light theme emails | Restyled all dark-theme email templates to light-bg (matching Trillion Club) for better contrast |
+| 2026-02-23 | **AI score rebalance** | Fixed score saturation bug: all stocks scoring 100 during market selloffs. Lowered base from 50→20, switched to continuous scoring (was step-based), increased category differentiation (max +15). New range uses full 0-100 spectrum |
+| 2026-02-23 | Email breakdown key fix | Fixed wrong dictionary keys (pct_30d→perf_30d, pct_90d→perf_90d, category→ai_category) causing score breakdown table to show +0 for all performance/category columns |
 
 ---
 

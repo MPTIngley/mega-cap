@@ -1037,33 +1037,22 @@ class AIPulseScanner:
             logger.debug(f"Error getting data for {ticker}: {e}")
             return (0, {}) if return_breakdown else 0
 
-        score = 50  # Base score
+        score = 20  # Base score (low base = more room for differentiation)
         breakdown = {
-            "base": {"points": 50, "label": "Base Score", "raw_value": "-"},
+            "base": {"points": 20, "label": "Base Score", "raw_value": "-"},
         }
 
-        # === PRICE PERFORMANCE (most critical) ===
+        # === PRICE PERFORMANCE (continuous scoring for differentiation) ===
 
-        # 30-day performance
+        # 30-day performance (max +15, min -15)
         pct_30d = 0.0
         perf_30d_pts = 0
         if len(hist) >= 22:
             pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100
-            # Pullbacks are opportunities, extended runs are risky
-            if pct_30d <= -20:
-                perf_30d_pts = 20  # Deep pullback - strong opportunity
-            elif pct_30d <= -10:
-                perf_30d_pts = 15  # Meaningful pullback
-            elif pct_30d <= -5:
-                perf_30d_pts = 10  # Healthy consolidation
-            elif pct_30d <= 0:
-                perf_30d_pts = 5   # Flat/slight dip
-            elif pct_30d >= 30:
-                perf_30d_pts = -15  # Way overextended
-            elif pct_30d >= 20:
-                perf_30d_pts = -10  # Overextended
-            elif pct_30d >= 10:
-                perf_30d_pts = -5   # Running hot
+            if pct_30d <= 0:
+                perf_30d_pts = min(15, round(abs(pct_30d) * 0.5))
+            else:
+                perf_30d_pts = max(-15, -round(pct_30d * 0.5))
         score += perf_30d_pts
         breakdown["perf_30d"] = {
             "points": perf_30d_pts,
@@ -1071,22 +1060,15 @@ class AIPulseScanner:
             "raw_value": f"{pct_30d:+.1f}%",
         }
 
-        # 90-day performance (longer-term trend)
+        # 90-day performance (max +10, min -10)
         pct_90d = 0.0
         perf_90d_pts = 0
         if len(hist) >= 63:
             pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100
-            # Similar logic but less weight
-            if pct_90d <= -30:
-                perf_90d_pts = 15  # Major pullback from 90d ago
-            elif pct_90d <= -15:
-                perf_90d_pts = 10
-            elif pct_90d <= 0:
-                perf_90d_pts = 5
-            elif pct_90d >= 50:
-                perf_90d_pts = -10  # Massively extended
-            elif pct_90d >= 30:
-                perf_90d_pts = -5
+            if pct_90d <= 0:
+                perf_90d_pts = min(10, round(abs(pct_90d) * 0.25))
+            else:
+                perf_90d_pts = max(-10, -round(pct_90d * 0.25))
         score += perf_90d_pts
         breakdown["perf_90d"] = {
             "points": perf_90d_pts,
@@ -1094,42 +1076,42 @@ class AIPulseScanner:
             "raw_value": f"{pct_90d:+.1f}%",
         }
 
-        # === AI CATEGORY POSITIONING ===
+        # === AI CATEGORY POSITIONING (key differentiator, max +15) ===
 
         category_pts = 0
         category_name = "Other"
         if ticker in AI_INFRASTRUCTURE:
-            category_pts = 10  # AI infrastructure is core thesis
+            category_pts = 15  # AI infrastructure is core thesis
             category_name = "AI Infrastructure"
         elif ticker in HYPERSCALERS:
-            category_pts = 8  # Hyperscalers = proven AI winners
+            category_pts = 12  # Hyperscalers = proven AI winners
             category_name = "Hyperscaler"
         elif ticker in AI_SOFTWARE:
-            category_pts = 7  # AI software is growth area
+            category_pts = 10  # AI software is growth area
             category_name = "AI Software"
         elif ticker in AI_SUPPLY_CHAIN:
-            category_pts = 7  # Supply chain (energy, materials) = essential infrastructure
+            category_pts = 10  # Supply chain = essential infrastructure
             category_name = "AI Supply Chain"
         elif ticker in ROBOTICS_THESIS:
-            category_pts = 6  # Robotics is emerging
+            category_pts = 8  # Robotics is emerging
             category_name = "Robotics/Physical AI"
         elif ticker in AI_EDGE_CONSUMER:
-            category_pts = 6  # Edge AI is growing
+            category_pts = 8  # Edge AI is growing
             category_name = "AI Edge/Consumer"
         elif ticker in AI_ADJACENT_BIOTECH:
-            category_pts = 6  # AI-accelerated biotech
+            category_pts = 8  # AI-accelerated biotech
             category_name = "AI-Adjacent: Biotech"
         elif ticker in AI_ADJACENT_SPACE:
-            category_pts = 5  # AI-enabled space economy
+            category_pts = 6  # AI-enabled space economy
             category_name = "AI-Adjacent: Space"
         elif ticker in AI_ADJACENT_CRYPTO:
-            category_pts = 5  # AI + crypto convergence
+            category_pts = 6  # AI + crypto convergence
             category_name = "AI-Adjacent: Crypto"
         elif ticker in AI_HEALTHCARE:
-            category_pts = 5
+            category_pts = 7
             category_name = "AI Healthcare"
         elif ticker in NEOCLOUDS:
-            category_pts = 5  # Neoclouds are speculative
+            category_pts = 6  # Neoclouds are speculative
             category_name = "Neocloud"
         score += category_pts
         breakdown["ai_category"] = {
@@ -1138,9 +1120,9 @@ class AIPulseScanner:
             "raw_value": category_name,
         }
 
-        # === TECHNICAL FACTORS ===
+        # === TECHNICAL FACTORS (continuous scoring) ===
 
-        # RSI
+        # RSI (max +12, min -10)
         current_rsi = 50.0
         rsi_pts = 0
         if len(hist) >= 14:
@@ -1151,16 +1133,10 @@ class AIPulseScanner:
             rsi = 100 - (100 / (1 + rs))
             current_rsi = rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
 
-            if current_rsi < 30:
-                rsi_pts = 15  # Deeply oversold
-            elif current_rsi < 40:
-                rsi_pts = 10  # Oversold
-            elif current_rsi < 50:
-                rsi_pts = 5   # Below average
-            elif current_rsi > 80:
-                rsi_pts = -10  # Overbought
-            elif current_rsi > 70:
-                rsi_pts = -5   # Getting hot
+            if current_rsi < 50:
+                rsi_pts = min(12, round((50 - current_rsi) * 0.4))
+            else:
+                rsi_pts = max(-10, -round((current_rsi - 50) * 0.33))
         score += rsi_pts
         breakdown["rsi"] = {
             "points": rsi_pts,
@@ -1168,20 +1144,16 @@ class AIPulseScanner:
             "raw_value": f"{current_rsi:.1f}",
         }
 
-        # 50-day MA position
+        # 50-day MA position (max +8, min -5)
         ma_50_pts = 0
         ma_50_pct = 0.0
         if len(hist) >= 50:
             ma_50 = hist["Close"].rolling(50).mean().iloc[-1]
             ma_50_pct = ((current_price / ma_50) - 1) * 100 if ma_50 > 0 else 0
-            if ma_50_pct <= -10:
-                ma_50_pts = 10  # Well below MA - potential support
-            elif ma_50_pct <= -5:
-                ma_50_pts = 7
-            elif ma_50_pct <= 0:
-                ma_50_pts = 5  # At or below MA
-            elif ma_50_pct >= 15:
-                ma_50_pts = -5  # Extended above MA
+            if ma_50_pct <= 0:
+                ma_50_pts = min(8, round(abs(ma_50_pct) * 0.6))
+            else:
+                ma_50_pts = max(-5, -round(ma_50_pct * 0.33))
         score += ma_50_pts
         breakdown["ma_50"] = {
             "points": ma_50_pts,
@@ -1189,25 +1161,31 @@ class AIPulseScanner:
             "raw_value": f"{ma_50_pct:+.1f}% vs MA",
         }
 
-        # === VALUATION ===
+        # === VALUATION (max +12, min -10) ===
 
         pe_ratio = info.get("trailingPE", info.get("forwardPE", 0)) or 0
         peg = info.get("pegRatio", 0) or 0
         val_pts = 0
 
-        if peg and 0 < peg < 1:
-            val_pts = 10  # PEG < 1 = growth at reasonable price
+        if peg and 0 < peg < 0.5:
+            val_pts = 12
+        elif peg and 0.5 <= peg < 1:
+            val_pts = 8
         elif peg and 1 <= peg < 1.5:
-            val_pts = 5
+            val_pts = 4
         elif pe_ratio:
-            if pe_ratio < 20:
+            if pe_ratio < 15:
                 val_pts = 8
-            elif pe_ratio < 30:
+            elif pe_ratio < 25:
                 val_pts = 4
-            elif pe_ratio > 80:
+            elif pe_ratio < 40:
+                val_pts = 0
+            elif pe_ratio < 60:
+                val_pts = -3
+            elif pe_ratio < 80:
+                val_pts = -6
+            else:
                 val_pts = -10
-            elif pe_ratio > 50:
-                val_pts = -5
         score += val_pts
         breakdown["valuation"] = {
             "points": val_pts,
@@ -1537,7 +1515,7 @@ class AIPulseScanner:
         theses_results = self._research_theses()
 
         # 4. Generate market pulse with AI stock data
-        top_picks = [s for s in ai_stocks if s["ai_score"] >= 70][:10]
+        top_picks = [s for s in ai_stocks if s["ai_score"] >= 55][:10]
         worst_performers = sorted(ai_stocks, key=lambda x: x["pct_30d"])[:5]
 
         market_data = {
