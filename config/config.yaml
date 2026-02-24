@@ -104,14 +104,14 @@ strategies:
 
 # Strategy allocation weights (based on optimization 2024-08-11 to 2026-02-02)
 strategy_allocation:
-  sector_rotation: 2.0      # +40.2% return, 2.87 Sharpe - TOP performer
-  momentum_breakout: 1.5    # +19.3% return, 2.23 Sharpe
-  week52_low_bounce: 1.5    # +10.4% return, 3.67 Sharpe - best risk-adjusted!
-  zscore_mean_reversion: 1.2  # +14.9% return, 1.80 Sharpe
-  macd_volume: 1.2          # +13.2% return, 2.21 Sharpe
-  rsi_mean_reversion: 1.0   # +11.4% return, 1.73 Sharpe
-  bollinger_squeeze: 0.0    # DISABLED
-  gap_fade: 0.0             # DISABLED
+  sector_rotation: 2.0 # +40.2% return, 2.87 Sharpe - TOP performer
+  momentum_breakout: 1.5 # +19.3% return, 2.23 Sharpe
+  week52_low_bounce: 1.5 # +10.4% return, 3.67 Sharpe - best risk-adjusted!
+  zscore_mean_reversion: 1.2 # +14.9% return, 1.80 Sharpe
+  macd_volume: 1.2 # +13.2% return, 2.21 Sharpe
+  rsi_mean_reversion: 1.0 # +11.4% return, 1.73 Sharpe
+  bollinger_squeeze: 0.0 # DISABLED
+  gap_fade: 0.0 # DISABLED
 
 alerts:
   min_confidence_for_email: 65
@@ -141,9 +141,9 @@ alerts:
 # NOTE: These parameters should be optimized via portfolio optimizer
 confidence_scaling:
   enabled: true
-  base_size_pct: 5.0              # Starting position size
-  min_confidence: 60              # Below this confidence, use 1.0x multiplier
-  max_multiplier: 2.5             # At 100% confidence, use this multiplier
+  base_size_pct: 5.0 # Starting position size
+  min_confidence: 60 # Below this confidence, use 1.0x multiplier
+  max_multiplier: 2.5 # At 100% confidence, use this multiplier
 
 universe:
   source: auto
@@ -159,18 +159,18 @@ portfolio:
 
 risk_management:
   # Position sizing limits (see confidence_scaling above for formula)
-  max_position_size_pct: 12.0           # Hard cap per position
-  min_position_size_pct: 3.0            # Don't open if final size < 3%
+  max_position_size_pct: 12.0 # Hard cap per position
+  min_position_size_pct: 3.0 # Don't open if final size < 3%
 
   # Per-strategy concentration limit
-  max_per_strategy_pct: 70.0            # Never more than 70% in one strategy
+  max_per_strategy_pct: 70.0 # Never more than 70% in one strategy
 
   # Sector concentration limit (% of total capital)
-  max_sector_concentration_pct: 70.0    # Max 70% in any single sector
+  max_sector_concentration_pct: 70.0 # Max 70% in any single sector
 
   # Portfolio-level limits
-  max_portfolio_exposure_pct: 80.0      # Max 80% invested at once
-  max_drawdown_disable_pct: 15.0        # Stop trading if drawdown > 15%
+  max_portfolio_exposure_pct: 80.0 # Max 80% invested at once
+  max_drawdown_disable_pct: 15.0 # Stop trading if drawdown > 15%
 
   # Churn prevention
   min_days_between_same_ticker: 3
@@ -223,24 +223,24 @@ long_term_scanner:
 # Run: stockpulse ai-scan or via scheduler at 5:30 PM ET
 ai_pulse:
   enabled: true
-  run_time: "17:30"  # Same as long-term, they run together
+  run_time: "17:30" # Same as long-term, they run together
   send_digest: true
 
   # Trillion+ Club settings
-  trillion_threshold: 1000000000000  # $1 trillion
-  lookback_days: 30  # Include if hit $1T in last 30 days
-  universe_refresh_days: 7  # Weekly universe refresh
+  trillion_threshold: 1000000000000 # $1 trillion
+  lookback_days: 30 # Include if hit $1T in last 30 days
+  universe_refresh_days: 7 # Weekly universe refresh
 
   # Entry scoring weights
   entry_scoring:
-    technical_weight: 0.4   # RSI, price vs moving averages
-    valuation_weight: 0.3   # P/E, forward P/E
-    momentum_weight: 0.3    # Recent price action
+    technical_weight: 0.4 # RSI, price vs moving averages
+    valuation_weight: 0.3 # P/E, forward P/E
+    momentum_weight: 0.3 # Recent price action
 
   # Categories to track
   categories:
     hyperscalers: ["MSFT", "AMZN", "GOOGL", "ORCL", "IBM"]
-    neoclouds: ["CRWV"]  # CoreWeave and future AI cloud players
+    neoclouds: ["CRWV"] # CoreWeave and future AI cloud players
     ai_infrastructure: ["NVDA", "AMD", "AVGO", "MRVL", "TSM", "ASML"]
     ai_software: ["MSFT", "GOOGL", "META", "CRM", "PLTR", "NOW"]
     robotics: ["TSLA", "GOOGL", "AMZN", "ISRG"]
@@ -248,5 +248,9 @@ ai_pulse:
   # Thesis research (requires ANTHROPIC_API_KEY)
   research:
     enabled: true
-    research_frequency: "daily"  # daily, weekly
+    research_frequency: "daily" # daily, weekly
     max_tokens: 1024
+    council:
+      enabled: true
+      perspectives: ["analyst", "skeptic", "quant", "philosopher"]
+      model: "claude-haiku-4-5-20251001"

@@ -10,20 +10,20 @@ The core thesis: mega-cap tech companies will continue to dominate,
 so we're looking for optimal long-term entry points.
 """
 
-import os
-from datetime import datetime, date, timedelta
-from typing import Any
 import json
+import os
+from datetime import date, datetime
+from typing import Any
 
 import pandas as pd
-import numpy as np
 import yfinance as yf
 
-from stockpulse.utils.config import get_config
-from stockpulse.utils.logging import get_logger
+from stockpulse.alerts.alert_manager import AlertManager
 from stockpulse.data.database import get_db
 from stockpulse.data.ingestion import DataIngestion
-from stockpulse.alerts.alert_manager import AlertManager
+from stockpulse.scanner.council import CouncilResearch
+from stockpulse.utils.config import get_config
+from stockpulse.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -34,10 +34,18 @@ logger = get_logger(__name__)
 
 # Hyperscalers: Established cloud giants with massive revenue and infrastructure
 HYPERSCALERS = {
-    "MSFT": {"name": "Microsoft", "cloud": "Azure", "notes": "Enterprise cloud leader, OpenAI partnership"},
+    "MSFT": {
+        "name": "Microsoft",
+        "cloud": "Azure",
+        "notes": "Enterprise cloud leader, OpenAI partnership",
+    },
     "AMZN": {"name": "Amazon", "cloud": "AWS", "notes": "Cloud market share leader, Bedrock AI"},
     "GOOGL": {"name": "Alphabet", "cloud": "GCP", "notes": "Gemini, DeepMind, Vertex AI"},
-    "ORCL": {"name": "Oracle", "cloud": "OCI", "notes": "Enterprise database + cloud, NVIDIA partnership"},
+    "ORCL": {
+        "name": "Oracle",
+        "cloud": "OCI",
+        "notes": "Enterprise database + cloud, NVIDIA partnership",
+    },
     "IBM": {"name": "IBM", "cloud": "IBM Cloud", "notes": "watsonx AI, hybrid cloud focus"},
     "BABA": {"name": "Alibaba", "cloud": "Aliyun", "notes": "China cloud leader, Qwen AI models"},
 }
@@ -53,34 +61,90 @@ NEOCLOUDS = {
 # AI Infrastructure plays (GPU, chips, data centers, networking)
 AI_INFRASTRUCTURE = {
     # GPU/AI Chips
-    "NVDA": {"name": "NVIDIA", "category": "GPU/AI chips", "notes": "Dominant AI chip maker, Blackwell"},
-    "AMD": {"name": "AMD", "category": "GPU/chips", "notes": "MI300X competition, data center growth"},
-    "INTC": {"name": "Intel", "category": "CPU/AI chips", "notes": "Gaudi accelerators, foundry ambitions"},
-    "QCOM": {"name": "Qualcomm", "category": "Edge AI chips", "notes": "Snapdragon X, on-device AI"},
+    "NVDA": {
+        "name": "NVIDIA",
+        "category": "GPU/AI chips",
+        "notes": "Dominant AI chip maker, Blackwell",
+    },
+    "AMD": {
+        "name": "AMD",
+        "category": "GPU/chips",
+        "notes": "MI300X competition, data center growth",
+    },
+    "INTC": {
+        "name": "Intel",
+        "category": "CPU/AI chips",
+        "notes": "Gaudi accelerators, foundry ambitions",
+    },
+    "QCOM": {
+        "name": "Qualcomm",
+        "category": "Edge AI chips",
+        "notes": "Snapdragon X, on-device AI",
+    },
     # Custom Silicon
     "AVGO": {"name": "Broadcom", "category": "Custom chips", "notes": "Google TPU partner, VMware"},
-    "MRVL": {"name": "Marvell", "category": "Custom chips", "notes": "Custom AI silicon for hyperscalers"},
-    "ARM": {"name": "Arm Holdings", "category": "CPU architecture", "notes": "AI chip architecture, edge compute"},
+    "MRVL": {
+        "name": "Marvell",
+        "category": "Custom chips",
+        "notes": "Custom AI silicon for hyperscalers",
+    },
+    "ARM": {
+        "name": "Arm Holdings",
+        "category": "CPU architecture",
+        "notes": "AI chip architecture, edge compute",
+    },
     # Foundry & Equipment
     "TSM": {"name": "TSMC", "category": "Foundry", "notes": "Makes all advanced AI chips"},
     "ASML": {"name": "ASML", "category": "Equipment", "notes": "EUV lithography monopoly"},
-    "AMAT": {"name": "Applied Materials", "category": "Equipment", "notes": "Chip manufacturing equipment"},
-    "LRCX": {"name": "Lam Research", "category": "Equipment", "notes": "Etch and deposition equipment"},
+    "AMAT": {
+        "name": "Applied Materials",
+        "category": "Equipment",
+        "notes": "Chip manufacturing equipment",
+    },
+    "LRCX": {
+        "name": "Lam Research",
+        "category": "Equipment",
+        "notes": "Etch and deposition equipment",
+    },
     "KLAC": {"name": "KLA Corp", "category": "Equipment", "notes": "Process control equipment"},
     # Memory
     "MU": {"name": "Micron", "category": "Memory", "notes": "HBM memory for AI, DRAM leader"},
-    "WDC": {"name": "Western Digital", "category": "Storage", "notes": "Data storage for AI workloads"},
-    "SMCI": {"name": "Super Micro", "category": "AI Servers", "notes": "AI server systems, GPU integration"},
+    "WDC": {
+        "name": "Western Digital",
+        "category": "Storage",
+        "notes": "Data storage for AI workloads",
+    },
+    "SMCI": {
+        "name": "Super Micro",
+        "category": "AI Servers",
+        "notes": "AI server systems, GPU integration",
+    },
     # Networking
-    "ANET": {"name": "Arista Networks", "category": "Networking", "notes": "AI data center networking"},
-    "CSCO": {"name": "Cisco", "category": "Networking", "notes": "Enterprise networking, AI infrastructure"},
+    "ANET": {
+        "name": "Arista Networks",
+        "category": "Networking",
+        "notes": "AI data center networking",
+    },
+    "CSCO": {
+        "name": "Cisco",
+        "category": "Networking",
+        "notes": "Enterprise networking, AI infrastructure",
+    },
     # Data Centers
     "EQIX": {"name": "Equinix", "category": "Data Centers", "notes": "Largest data center REIT"},
     "DLR": {"name": "Digital Realty", "category": "Data Centers", "notes": "AI-ready data centers"},
     # Power/Utilities for AI
     "VST": {"name": "Vistra", "category": "Power", "notes": "Power for AI data centers"},
-    "CEG": {"name": "Constellation Energy", "category": "Power", "notes": "Nuclear for AI data centers"},
-    "NRG": {"name": "NRG Energy", "category": "Power", "notes": "Power generation for data centers"},
+    "CEG": {
+        "name": "Constellation Energy",
+        "category": "Power",
+        "notes": "Nuclear for AI data centers",
+    },
+    "NRG": {
+        "name": "NRG Energy",
+        "category": "Power",
+        "notes": "Power generation for data centers",
+    },
 }
 
 # AI Software/Platform leaders
@@ -204,11 +268,20 @@ AI_SUPPLY_CHAIN = {
     "VST": {"name": "Vistra", "notes": "Power generation for AI data centers, nuclear fleet"},
     "CEG": {"name": "Constellation Energy", "notes": "Nuclear power for hyperscaler data centers"},
     "NRG": {"name": "NRG Energy", "notes": "Power generation, data center energy supplier"},
-    "NEE": {"name": "NextEra Energy", "notes": "Largest renewable energy, wind/solar for data centers"},
+    "NEE": {
+        "name": "NextEra Energy",
+        "notes": "Largest renewable energy, wind/solar for data centers",
+    },
     "SMR": {"name": "NuScale Power", "notes": "Small modular nuclear reactors for AI data centers"},
-    "OKLO": {"name": "Oklo", "notes": "Advanced fission power, Sam Altman backed, data center power"},
+    "OKLO": {
+        "name": "Oklo",
+        "notes": "Advanced fission power, Sam Altman backed, data center power",
+    },
     "FSLR": {"name": "First Solar", "notes": "US solar manufacturing, data center renewable power"},
-    "UEC": {"name": "Uranium Energy Corp", "notes": "Uranium mining, nuclear fuel for AI power demand"},
+    "UEC": {
+        "name": "Uranium Energy Corp",
+        "notes": "Uranium mining, nuclear fuel for AI power demand",
+    },
     "CCJ": {"name": "Cameco", "notes": "Uranium production, nuclear fuel supply chain"},
     "EQIX": {"name": "Equinix", "notes": "Largest data center REIT, AI colocation"},
     "DLR": {"name": "Digital Realty", "notes": "AI-ready data centers, hyperscaler partnerships"},
@@ -219,23 +292,38 @@ AI_SUPPLY_CHAIN = {
 
 # All AI Universe tickers (for scanning)
 AI_UNIVERSE = set(
-    list(HYPERSCALERS.keys()) +
-    list(NEOCLOUDS.keys()) +
-    list(AI_INFRASTRUCTURE.keys()) +
-    list(AI_SOFTWARE.keys()) +
-    list(ROBOTICS_THESIS.keys()) +
-    list(AI_HEALTHCARE.keys()) +
-    list(AI_EDGE_CONSUMER.keys()) +
-    list(AI_ADJACENT_CRYPTO.keys()) +
-    list(AI_ADJACENT_BIOTECH.keys()) +
-    list(AI_ADJACENT_SPACE.keys()) +
-    list(AI_SUPPLY_CHAIN.keys())
+    list(HYPERSCALERS.keys())
+    + list(NEOCLOUDS.keys())
+    + list(AI_INFRASTRUCTURE.keys())
+    + list(AI_SOFTWARE.keys())
+    + list(ROBOTICS_THESIS.keys())
+    + list(AI_HEALTHCARE.keys())
+    + list(AI_EDGE_CONSUMER.keys())
+    + list(AI_ADJACENT_CRYPTO.keys())
+    + list(AI_ADJACENT_BIOTECH.keys())
+    + list(AI_ADJACENT_SPACE.keys())
+    + list(AI_SUPPLY_CHAIN.keys())
 )
 
 # Known trillion dollar club members (current and recent)
 TRILLION_CLUB_SEED = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
-    "TSM", "V", "JPM", "WMT", "XOM", "UNH", "MA", "LLY", "AVGO"
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA",
+    "META",
+    "TSLA",
+    "BRK-B",
+    "TSM",
+    "V",
+    "JPM",
+    "WMT",
+    "XOM",
+    "UNH",
+    "MA",
+    "LLY",
+    "AVGO",
 ]
 
 
@@ -259,7 +347,7 @@ class ClaudeResearch:
         context: str,
         tickers: list[str],
         max_tokens: int = 1024,
-        ticker_performance: dict[str, dict] | None = None
+        ticker_performance: dict[str, dict] | None = None,
     ) -> dict[str, Any]:
         """
         Research an investment thesis using Claude.
@@ -299,7 +387,9 @@ class ClaudeResearch:
                         f"90d: {data['pct_90d']:+.1f}% | "
                         f"RSI: {data['rsi']:.0f} ({data['signal']})"
                     )
-                perf_section = "\n\nACTUAL PRICE PERFORMANCE (CRITICAL DATA):\n" + "\n".join(perf_lines)
+                perf_section = "\n\nACTUAL PRICE PERFORMANCE (CRITICAL DATA):\n" + "\n".join(
+                    perf_lines
+                )
                 perf_section += "\n\nIMPORTANT: Base your analysis on this ACTUAL price data. If stocks are down 10%+, acknowledge the pullback. If RSI is oversold (<30), note the opportunity. Be objective about price action."
 
             prompt = f"""You are a SKEPTICAL AI and technology investment analyst who prioritizes capital preservation.
@@ -309,7 +399,7 @@ THESIS: {thesis_name}
 
 CONTEXT: {context}
 
-RELATED TICKERS: {', '.join(tickers)}
+RELATED TICKERS: {", ".join(tickers)}
 {perf_section}
 
 TODAY'S DATE: {date.today().isoformat()}
@@ -338,7 +428,7 @@ Keep response under 500 words."""
             message = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             analysis = message.content[0].text
@@ -348,16 +438,42 @@ Keep response under 500 words."""
             analysis_lower = analysis.lower()
 
             # Look for explicit recommendation markers
-            if "recommendation: bullish" in analysis_lower or "recommendation:\nbullish" in analysis_lower:
+            if (
+                "recommendation: bullish" in analysis_lower
+                or "recommendation:\nbullish" in analysis_lower
+            ):
                 recommendation = "bullish"
-            elif "recommendation: bearish" in analysis_lower or "recommendation:\nbearish" in analysis_lower:
+            elif (
+                "recommendation: bearish" in analysis_lower
+                or "recommendation:\nbearish" in analysis_lower
+            ):
                 recommendation = "bearish"
-            elif "recommendation: neutral" in analysis_lower or "recommendation:\nneutral" in analysis_lower:
+            elif (
+                "recommendation: neutral" in analysis_lower
+                or "recommendation:\nneutral" in analysis_lower
+            ):
                 recommendation = "neutral"
             else:
                 # Count bullish vs bearish keywords for fallback
-                bullish_words = ["bullish", "opportunity", "upside", "buy", "undervalued", "attractive entry"]
-                bearish_words = ["bearish", "downside", "sell", "overvalued", "caution", "risk", "selloff", "decline", "concerning"]
+                bullish_words = [
+                    "bullish",
+                    "opportunity",
+                    "upside",
+                    "buy",
+                    "undervalued",
+                    "attractive entry",
+                ]
+                bearish_words = [
+                    "bearish",
+                    "downside",
+                    "sell",
+                    "overvalued",
+                    "caution",
+                    "risk",
+                    "selloff",
+                    "decline",
+                    "concerning",
+                ]
 
                 bullish_count = sum(1 for word in bullish_words if word in analysis_lower)
                 bearish_count = sum(1 for word in bearish_words if word in analysis_lower)
@@ -370,7 +486,9 @@ Keep response under 500 words."""
             # Calculate confidence based on price performance too
             confidence = 50
             if ticker_performance:
-                avg_30d = sum(d['pct_30d'] for d in ticker_performance.values()) / len(ticker_performance)
+                avg_30d = sum(d["pct_30d"] for d in ticker_performance.values()) / len(
+                    ticker_performance
+                )
                 # If stocks are down big, lower confidence in bullish calls
                 if recommendation == "bullish" and avg_30d < -10:
                     confidence = 40  # Low confidence - bullish call but stocks are down
@@ -420,7 +538,9 @@ Keep response under 500 words."""
             Formatted market pulse summary
         """
         if not self.is_configured:
-            return "Claude API not configured. Add ANTHROPIC_API_KEY to .env for AI-powered summaries."
+            return (
+                "Claude API not configured. Add ANTHROPIC_API_KEY to .env for AI-powered summaries."
+            )
 
         try:
             import anthropic
@@ -452,7 +572,7 @@ Keep it punchy and honest. Under 200 words."""
             message = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=512,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             return message.content[0].text
@@ -481,6 +601,7 @@ class AIPulseScanner:
         self.data_ingestion = DataIngestion()
         self.alert_manager = AlertManager()
         self.claude = ClaudeResearch()
+        self.council = CouncilResearch()
 
         # Initialize database tables
         self._init_tables()
@@ -577,6 +698,34 @@ class AIPulseScanner:
             )
         """)
 
+        # Council multi-perspective research
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS council_perspectives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thesis_id INTEGER,
+                research_date TEXT NOT NULL,
+                perspective TEXT NOT NULL,
+                analysis TEXT,
+                recommendation TEXT,
+                confidence REAL,
+                FOREIGN KEY (thesis_id) REFERENCES ai_theses(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS council_verdicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thesis_id INTEGER,
+                research_date TEXT NOT NULL,
+                consensus TEXT,
+                confidence REAL,
+                agreement_score REAL,
+                dissenting_views TEXT,
+                verdict_summary TEXT,
+                FOREIGN KEY (thesis_id) REFERENCES ai_theses(id)
+            )
+        """)
+
         self.db.conn.commit()
 
         # Seed default theses if table is empty
@@ -592,74 +741,77 @@ class AIPulseScanner:
             {
                 "name": "Tesla Robot Thesis",
                 "description": "Tesla's Optimus humanoid robot could be bigger than cars. "
-                              "Physical AI + manufacturing scale + FSD learnings = moat.",
+                "Physical AI + manufacturing scale + FSD learnings = moat.",
                 "tickers": "TSLA,NVDA,ISRG",
             },
             {
                 "name": "AI Infrastructure Buildout",
                 "description": "Massive capex cycle for AI data centers. GPU demand, power, "
-                              "cooling, and custom silicon will be multi-year tailwinds.",
+                "cooling, and custom silicon will be multi-year tailwinds.",
                 "tickers": "NVDA,AMD,AVGO,MRVL,TSM,ASML",
             },
             {
                 "name": "Hyperscaler Dominance",
                 "description": "Big 3 cloud providers (AWS, Azure, GCP) will capture most "
-                              "AI inference revenue as enterprises deploy AI.",
+                "AI inference revenue as enterprises deploy AI.",
                 "tickers": "AMZN,MSFT,GOOGL",
             },
             {
                 "name": "AI Software Monetization",
                 "description": "Enterprise AI tools (Copilot, Einstein, etc.) will drive "
-                              "massive revenue growth for software leaders.",
+                "massive revenue growth for software leaders.",
                 "tickers": "MSFT,CRM,NOW,PLTR",
             },
             {
                 "name": "Neocloud Disruption",
                 "description": "New AI-native cloud providers could take share from "
-                              "hyperscalers for GPU-intensive AI workloads.",
+                "hyperscalers for GPU-intensive AI workloads.",
                 "tickers": "CRWV",
             },
             {
                 "name": "AI Proliferation Direct",
                 "description": "Invest directly in the companies building and deploying AI. "
-                              "The imminent takeoff thesis: AI capabilities are accelerating "
-                              "faster than markets price in. These are the primary beneficiaries.",
+                "The imminent takeoff thesis: AI capabilities are accelerating "
+                "faster than markets price in. These are the primary beneficiaries.",
                 "tickers": "TSLA,NVDA,PLTR,GOOGL,MSFT,META",
             },
             {
                 "name": "AI-Adjacent Exponentials",
                 "description": "AI accelerates adjacent exponential industries: robotics, "
-                              "biotech/genomics, crypto/blockchain, and space. These sectors "
-                              "compound with AI progress - genomics gets AI-designed drugs, "
-                              "crypto gets AI agents, space gets autonomous systems.",
+                "biotech/genomics, crypto/blockchain, and space. These sectors "
+                "compound with AI progress - genomics gets AI-designed drugs, "
+                "crypto gets AI agents, space gets autonomous systems.",
                 "tickers": "TSLA,MRNA,CRSP,COIN,RKLB,LLY",
             },
             {
                 "name": "AI Supply Chain (Picks & Shovels)",
                 "description": "The AI buildout requires massive compute, energy, and materials. "
-                              "Nuclear/power for data centers, uranium for reactors, copper for "
-                              "electrification, rare earths for robotics. Infrastructure always "
-                              "gets paid regardless of which AI company wins.",
+                "Nuclear/power for data centers, uranium for reactors, copper for "
+                "electrification, rare earths for robotics. Infrastructure always "
+                "gets paid regardless of which AI company wins.",
                 "tickers": "CEG,OKLO,SMR,CCJ,FCX,MP,NEE",
             },
             {
                 "name": "Liquidity Over Lockup",
                 "description": "In an AI-accelerated world, capital locked in 30-40 year retirement "
-                              "vehicles (401k, Roth IRA) carries opportunity cost risk. These vehicles "
-                              "assume a predictable world with long time horizons. Prefer liquid, "
-                              "accessible positions in high-conviction AI plays over tax-deferred "
-                              "lockups that may be irrelevant when they mature. This thesis tracks "
-                              "liquid AI positions vs broad market index benchmarks.",
+                "vehicles (401k, Roth IRA) carries opportunity cost risk. These vehicles "
+                "assume a predictable world with long time horizons. Prefer liquid, "
+                "accessible positions in high-conviction AI plays over tax-deferred "
+                "lockups that may be irrelevant when they mature. This thesis tracks "
+                "liquid AI positions vs broad market index benchmarks.",
                 "tickers": "NVDA,TSLA,GOOGL,COIN,PLTR,MSFT",
             },
         ]
 
         for thesis in default_theses:
             try:
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO ai_theses (thesis_name, description, tickers)
                     VALUES (?, ?, ?)
-                """, (thesis["name"], thesis["description"], thesis["tickers"]))
+                """,
+                    (thesis["name"], thesis["description"], thesis["tickers"]),
+                )
             except Exception as e:
                 logger.debug(f"Thesis already exists or error: {e}")
 
@@ -710,7 +862,11 @@ class AIPulseScanner:
                 if hist.empty:
                     continue
 
-                current_price = info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+                current_price = (
+                    info.get("regularMarketPrice")
+                    or info.get("currentPrice")
+                    or hist["Close"].iloc[-1]
+                )
                 high_price_30d = hist["High"].max()
                 shares_outstanding = info.get("sharesOutstanding", 0)
 
@@ -734,7 +890,9 @@ class AIPulseScanner:
                     )
 
                     # Price vs 30d high
-                    price_vs_30d_high_pct = ((current_price / high_price_30d) - 1) * 100 if high_price_30d > 0 else 0
+                    price_vs_30d_high_pct = (
+                        ((current_price / high_price_30d) - 1) * 100 if high_price_30d > 0 else 0
+                    )
 
                     member = {
                         "ticker": ticker,
@@ -756,8 +914,8 @@ class AIPulseScanner:
                     members.append(member)
 
                     logger.debug(
-                        f"{ticker}: ${current_market_cap/1e12:.2f}T current, "
-                        f"${peak_market_cap_30d/1e12:.2f}T peak, score {entry_score:.0f}"
+                        f"{ticker}: ${current_market_cap / 1e12:.2f}T current, "
+                        f"${peak_market_cap_30d / 1e12:.2f}T peak, score {entry_score:.0f}"
                     )
 
             except Exception as e:
@@ -842,7 +1000,7 @@ class AIPulseScanner:
         current_price: float,
         history: pd.DataFrame,
         info: dict,
-        return_breakdown: bool = False
+        return_breakdown: bool = False,
     ) -> float | tuple[float, dict]:
         """
         Calculate an entry point score for a mega-cap stock.
@@ -966,7 +1124,9 @@ class AIPulseScanner:
         breakdown["earnings_growth"] = {
             "points": growth_pts,
             "label": "Earnings Growth Expected",
-            "raw_value": f"Fwd {forward_pe:.1f} vs Trail {trailing_pe:.1f}" if forward_pe and trailing_pe else "N/A",
+            "raw_value": f"Fwd {forward_pe:.1f} vs Trail {trailing_pe:.1f}"
+            if forward_pe and trailing_pe
+            else "N/A",
         }
 
         # === MOMENTUM FACTORS ===
@@ -1003,9 +1163,7 @@ class AIPulseScanner:
         return final_score
 
     def _calculate_ai_score(
-        self,
-        ticker: str,
-        return_breakdown: bool = False
+        self, ticker: str, return_breakdown: bool = False
     ) -> float | tuple[float, dict]:
         """
         Calculate AI Opportunity Score for a stock.
@@ -1032,7 +1190,9 @@ class AIPulseScanner:
             if hist.empty or not info:
                 return (0, {}) if return_breakdown else 0
 
-            current_price = info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+            current_price = (
+                info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+            )
         except Exception as e:
             logger.debug(f"Error getting data for {ticker}: {e}")
             return (0, {}) if return_breakdown else 0
@@ -1190,7 +1350,11 @@ class AIPulseScanner:
         breakdown["valuation"] = {
             "points": val_pts,
             "label": "Valuation (PEG/PE)",
-            "raw_value": f"PEG: {peg:.2f}" if peg else f"P/E: {pe_ratio:.1f}" if pe_ratio else "N/A",
+            "raw_value": f"PEG: {peg:.2f}"
+            if peg
+            else f"P/E: {pe_ratio:.1f}"
+            if pe_ratio
+            else "N/A",
         }
 
         # === MARKET CAP TIER ===
@@ -1262,8 +1426,12 @@ class AIPulseScanner:
                 category, subcategory = self._categorize_stock(ticker)
 
                 # Calculate performance metrics
-                pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
-                pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+                pct_30d = (
+                    (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
+                )
+                pct_90d = (
+                    (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+                )
 
                 # Get market cap
                 market_cap = info.get("marketCap", 0)
@@ -1285,7 +1453,9 @@ class AIPulseScanner:
                 }
                 stocks.append(stock)
 
-                logger.debug(f"{ticker}: AI Score {ai_score:.0f}, 30d: {pct_30d:+.1f}%, 90d: {pct_90d:+.1f}%")
+                logger.debug(
+                    f"{ticker}: AI Score {ai_score:.0f}, 30d: {pct_30d:+.1f}%, 90d: {pct_90d:+.1f}%"
+                )
 
             except Exception as e:
                 logger.debug(f"Error processing {ticker}: {e}")
@@ -1315,7 +1485,8 @@ class AIPulseScanner:
                 # Convert score_breakdown to JSON string
                 breakdown_json = json.dumps(stock.get("score_breakdown", {}))
 
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO ai_stocks_daily (
                         ticker, scan_date, company_name, current_price, market_cap,
                         pct_30d, pct_90d, ai_score, score_breakdown, category, subcategory, sector
@@ -1332,20 +1503,22 @@ class AIPulseScanner:
                         subcategory = excluded.subcategory,
                         sector = excluded.sector,
                         created_at = datetime('now')
-                """, (
-                    stock["ticker"],
-                    scan_date,
-                    stock.get("company_name", ""),
-                    stock.get("current_price", 0),
-                    stock.get("market_cap", 0),
-                    stock.get("pct_30d", 0),
-                    stock.get("pct_90d", 0),
-                    stock.get("ai_score", 0),
-                    breakdown_json,
-                    stock.get("category", ""),
-                    stock.get("subcategory", ""),
-                    stock.get("sector", ""),
-                ))
+                """,
+                    (
+                        stock["ticker"],
+                        scan_date,
+                        stock.get("company_name", ""),
+                        stock.get("current_price", 0),
+                        stock.get("market_cap", 0),
+                        stock.get("pct_30d", 0),
+                        stock.get("pct_90d", 0),
+                        stock.get("ai_score", 0),
+                        breakdown_json,
+                        stock.get("category", ""),
+                        stock.get("subcategory", ""),
+                        stock.get("sector", ""),
+                    ),
+                )
                 saved += 1
             except Exception as e:
                 logger.debug(f"Error saving AI stock {stock.get('ticker')}: {e}")
@@ -1378,18 +1551,24 @@ class AIPulseScanner:
 
             # Check if data is fresh enough
             from datetime import datetime, timedelta
-            created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00")) if created_at else None
+
+            created_dt = (
+                datetime.fromisoformat(created_at.replace("Z", "+00:00")) if created_at else None
+            )
             if created_dt:
                 age = datetime.now() - created_dt.replace(tzinfo=None)
                 if age > timedelta(hours=max_age_hours):
                     return [], None
 
             # Get all stocks from the most recent scan
-            df = self.db.fetchdf("""
+            df = self.db.fetchdf(
+                """
                 SELECT * FROM ai_stocks_daily
                 WHERE scan_date = ?
                 ORDER BY ai_score DESC
-            """, (scan_date,))
+            """,
+                (scan_date,),
+            )
 
             if df.empty:
                 return [], None
@@ -1401,7 +1580,9 @@ class AIPulseScanner:
                     "company_name": row.get("company_name", ""),
                     "current_price": row.get("current_price", 0),
                     "market_cap": row.get("market_cap", 0),
-                    "market_cap_b": row.get("market_cap", 0) / 1_000_000_000 if row.get("market_cap") else 0,
+                    "market_cap_b": row.get("market_cap", 0) / 1_000_000_000
+                    if row.get("market_cap")
+                    else 0,
                     "pct_30d": row.get("pct_30d", 0),
                     "pct_90d": row.get("pct_90d", 0),
                     "ai_score": row.get("ai_score", 0),
@@ -1441,10 +1622,18 @@ class AIPulseScanner:
                 if hist.empty:
                     continue
 
-                current_price = info.get("regularMarketPrice") or info.get("currentPrice") or hist["Close"].iloc[-1]
+                current_price = (
+                    info.get("regularMarketPrice")
+                    or info.get("currentPrice")
+                    or hist["Close"].iloc[-1]
+                )
 
-                pct_30d = (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
-                pct_90d = (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+                pct_30d = (
+                    (current_price / hist["Close"].iloc[-22] - 1) * 100 if len(hist) >= 22 else 0
+                )
+                pct_90d = (
+                    (current_price / hist["Close"].iloc[-63] - 1) * 100 if len(hist) >= 63 else 0
+                )
 
                 # RSI
                 current_rsi = 50.0
@@ -1454,14 +1643,18 @@ class AIPulseScanner:
                     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
                     rs = gain / loss
                     rsi = 100 - (100 / (1 + rs))
-                    current_rsi = rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
+                    current_rsi = (
+                        rsi.iloc[-1] if not rsi.empty and not pd.isna(rsi.iloc[-1]) else 50
+                    )
 
                 results[ticker] = {
                     "price": current_price,
                     "pct_30d": pct_30d,
                     "pct_90d": pct_90d,
                     "rsi": current_rsi,
-                    "signal": "OVERSOLD" if current_rsi < 30 else ("OVERBOUGHT" if current_rsi > 70 else "NEUTRAL"),
+                    "signal": "OVERSOLD"
+                    if current_rsi < 30
+                    else ("OVERBOUGHT" if current_rsi > 70 else "NEUTRAL"),
                 }
             except Exception as e:
                 logger.debug(f"Error getting performance for {ticker}: {e}")
@@ -1526,16 +1719,17 @@ class AIPulseScanner:
                     "score": s["ai_score"],
                     "pct_30d": s["pct_30d"],
                     "pct_90d": s["pct_90d"],
-                    "category": s["category"]
+                    "category": s["category"],
                 }
                 for s in ai_stocks[:10]
             ],
             "category_summary": {cat: len(stocks) for cat, stocks in categories.items()},
             "worst_30d_performers": [
-                {"ticker": s["ticker"], "pct_30d": s["pct_30d"]}
-                for s in worst_performers
+                {"ticker": s["ticker"], "pct_30d": s["pct_30d"]} for s in worst_performers
             ],
-            "avg_30d_performance": sum(s["pct_30d"] for s in ai_stocks) / len(ai_stocks) if ai_stocks else 0,
+            "avg_30d_performance": sum(s["pct_30d"] for s in ai_stocks) / len(ai_stocks)
+            if ai_stocks
+            else 0,
         }
         market_pulse = self.claude.generate_market_pulse(market_data)
 
@@ -1568,13 +1762,19 @@ class AIPulseScanner:
         return results
 
     def _research_theses(self) -> list[dict]:
-        """Research all active theses with real price performance data."""
+        """Research all active theses with real price performance data.
+
+        Uses council multi-perspective research when enabled in config,
+        otherwise falls back to single ClaudeResearch call.
+        """
         theses_df = self.db.fetchdf("""
             SELECT * FROM ai_theses WHERE status = 'active'
         """)
 
         if theses_df.empty:
             return []
+
+        use_council = self.council.enabled and self.council.is_configured
 
         results = []
         for _, thesis in theses_df.iterrows():
@@ -1585,66 +1785,127 @@ class AIPulseScanner:
             # Get actual price performance for thesis tickers
             ticker_performance = self._get_ticker_performance(tickers)
 
-            # Only research if Claude is configured
-            if self.claude.is_configured:
+            if use_council:
+                research = self.council.research_with_council(
+                    thesis_name=thesis_name,
+                    context=description,
+                    tickers=tickers,
+                    ticker_performance=ticker_performance,
+                )
+                self._store_council_results(thesis["id"], research)
+
+            elif self.claude.is_configured:
                 research = self.claude.research_thesis(
                     thesis_name=thesis_name,
                     context=description,
                     tickers=tickers,
-                    ticker_performance=ticker_performance  # Pass performance data
+                    ticker_performance=ticker_performance,
                 )
 
-                # Store research
-                try:
-                    self.db.execute("""
-                        INSERT INTO thesis_research (thesis_id, research_date, analysis, recommendation, confidence)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
+            else:
+                results.append(
+                    {
+                        "thesis_name": thesis_name,
+                        "tickers": tickers,
+                        "description": description,
+                        "recommendation": thesis.get("recommendation", "neutral"),
+                        "confidence": thesis.get("confidence", 50),
+                        "analysis": "Claude API not configured for live research.",
+                    }
+                )
+                continue
+
+            # Store in thesis_research table (works for both council and single)
+            try:
+                self.db.execute(
+                    """
+                    INSERT INTO thesis_research (thesis_id, research_date, analysis, recommendation, confidence)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (
                         thesis["id"],
                         date.today().isoformat(),
                         research.get("analysis", ""),
                         research.get("recommendation", "neutral"),
-                        research.get("confidence", 50)
-                    ))
+                        research.get("confidence", 50),
+                    ),
+                )
 
-                    # Update thesis with latest
-                    self.db.execute("""
-                        UPDATE ai_theses
-                        SET last_research = ?, recommendation = ?, confidence = ?, updated_at = ?
-                        WHERE id = ?
-                    """, (
+                self.db.execute(
+                    """
+                    UPDATE ai_theses
+                    SET last_research = ?, recommendation = ?, confidence = ?, updated_at = ?
+                    WHERE id = ?
+                """,
+                    (
                         research.get("analysis", "")[:500],
                         research.get("recommendation", "neutral"),
                         research.get("confidence", 50),
                         datetime.now().isoformat(),
-                        thesis["id"]
-                    ))
-                except Exception as e:
-                    logger.debug(f"Error storing research: {e}")
+                        thesis["id"],
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Error storing research: {e}")
 
-                results.append({
-                    "thesis_name": thesis_name,
-                    "tickers": tickers,
-                    **research
-                })
-            else:
-                # Return basic info without research
-                results.append({
-                    "thesis_name": thesis_name,
-                    "tickers": tickers,
-                    "description": description,
-                    "recommendation": thesis.get("recommendation", "neutral"),
-                    "confidence": thesis.get("confidence", 50),
-                    "analysis": "Claude API not configured for live research.",
-                })
+            results.append({"thesis_name": thesis_name, "tickers": tickers, **research})
 
         return results
+
+    def _store_council_results(self, thesis_id: int, research: dict) -> None:
+        """Store council perspectives and verdict in dedicated tables."""
+        research_date = date.today().isoformat()
+
+        # Store individual perspectives
+        for p in research.get("perspectives", []):
+            try:
+                self.db.execute(
+                    """
+                    INSERT INTO council_perspectives
+                        (thesis_id, research_date, perspective, analysis, recommendation, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        thesis_id,
+                        research_date,
+                        p["perspective"],
+                        p["analysis"],
+                        p["recommendation"],
+                        p["confidence"],
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Error storing council perspective: {e}")
+
+        # Store consensus verdict
+        consensus = research.get("consensus", {})
+        try:
+            self.db.execute(
+                """
+                INSERT INTO council_verdicts
+                    (thesis_id, research_date, consensus, confidence, agreement_score,
+                     dissenting_views, verdict_summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    thesis_id,
+                    research_date,
+                    consensus.get("recommendation", "neutral"),
+                    consensus.get("confidence", 50),
+                    consensus.get("agreement_score", 0),
+                    research.get("dissent", ""),
+                    research.get("verdict", ""),
+                ),
+            )
+        except Exception as e:
+            logger.debug(f"Error storing council verdict: {e}")
 
     def _store_scan_results(self, members: list[dict]) -> None:
         """Store trillion club scan results."""
         for member in members:
             try:
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO trillion_club (
                         ticker, scan_date, market_cap, market_cap_category,
                         peak_market_cap_30d, current_price, price_vs_30d_high_pct,
@@ -1659,19 +1920,21 @@ class AIPulseScanner:
                         entry_score = excluded.entry_score,
                         category = excluded.category,
                         subcategory = excluded.subcategory
-                """, (
-                    member["ticker"],
-                    member["scan_date"],
-                    member["market_cap"],
-                    member["market_cap_category"],
-                    member["peak_market_cap_30d"],
-                    member["current_price"],
-                    member["price_vs_30d_high_pct"],
-                    member["entry_score"],
-                    member["category"],
-                    member["subcategory"],
-                    member.get("reasoning", ""),
-                ))
+                """,
+                    (
+                        member["ticker"],
+                        member["scan_date"],
+                        member["market_cap"],
+                        member["market_cap_category"],
+                        member["peak_market_cap_30d"],
+                        member["current_price"],
+                        member["price_vs_30d_high_pct"],
+                        member["entry_score"],
+                        member["category"],
+                        member["subcategory"],
+                        member.get("reasoning", ""),
+                    ),
+                )
             except Exception as e:
                 logger.debug(f"Error storing {member['ticker']}: {e}")
 
@@ -1679,10 +1942,13 @@ class AIPulseScanner:
         """Store daily snapshot for time-series tracking."""
         try:
             total_market_cap = sum(m["market_cap"] for m in members)
-            avg_entry_score = sum(m["entry_score"] for m in members) / len(members) if members else 0
+            avg_entry_score = (
+                sum(m["entry_score"] for m in members) / len(members) if members else 0
+            )
             top_opportunity = members[0]["ticker"] if members else ""
 
-            self.db.execute("""
+            self.db.execute(
+                """
                 INSERT INTO ai_pulse_snapshots (
                     snapshot_date, trillion_club_count, total_trillion_market_cap,
                     avg_entry_score, top_opportunity, market_pulse
@@ -1693,14 +1959,16 @@ class AIPulseScanner:
                     avg_entry_score = excluded.avg_entry_score,
                     top_opportunity = excluded.top_opportunity,
                     market_pulse = excluded.market_pulse
-            """, (
-                date.today().isoformat(),
-                len(members),
-                total_market_cap,
-                avg_entry_score,
-                top_opportunity,
-                market_pulse[:2000] if market_pulse else "",
-            ))
+            """,
+                (
+                    date.today().isoformat(),
+                    len(members),
+                    total_market_cap,
+                    avg_entry_score,
+                    top_opportunity,
+                    market_pulse[:2000] if market_pulse else "",
+                ),
+            )
         except Exception as e:
             logger.debug(f"Error storing snapshot: {e}")
 
@@ -1716,12 +1984,15 @@ class AIPulseScanner:
 
     def get_trend_data(self, ticker: str, days_back: int = 30) -> dict:
         """Get trend data for a trillion club member."""
-        history = self.db.fetchdf("""
+        history = self.db.fetchdf(
+            """
             SELECT scan_date, entry_score
             FROM trillion_club
             WHERE ticker = ? AND scan_date >= date('now', ?)
             ORDER BY scan_date DESC
-        """, (ticker, f'-{days_back} days'))
+        """,
+            (ticker, f"-{days_back} days"),
+        )
 
         if history.empty:
             return {
@@ -1729,7 +2000,7 @@ class AIPulseScanner:
                 "score_history": [],
                 "score_change_5d": 0,
                 "trend_symbol": "🆕",
-                "is_new": True
+                "is_new": True,
             }
 
         scores = history["entry_score"].tolist()
@@ -1739,7 +2010,7 @@ class AIPulseScanner:
         consecutive_days = len(scores)
 
         # Score change vs 5 days ago
-        score_change_5d = (scores[0] - scores[min(4, len(scores)-1)]) if len(scores) > 1 else 0
+        score_change_5d = (scores[0] - scores[min(4, len(scores) - 1)]) if len(scores) > 1 else 0
 
         # Trend symbol
         if len(scores) == 1:
@@ -1756,7 +2027,7 @@ class AIPulseScanner:
             "score_history": scores[:10],
             "score_change_5d": score_change_5d,
             "trend_symbol": trend_symbol,
-            "is_new": len(scores) == 1
+            "is_new": len(scores) == 1,
         }
 
     def check_data_quality(self) -> dict[str, Any]:
@@ -1807,7 +2078,7 @@ class AIPulseScanner:
             "status": status,
             "issues": issues,
             "ok": status == "ok",
-            "checked_at": datetime.now().isoformat()
+            "checked_at": datetime.now().isoformat(),
         }
 
     def get_theses(self) -> list[dict]:
@@ -1819,10 +2090,13 @@ class AIPulseScanner:
 
     def add_thesis(self, name: str, description: str, tickers: list[str]) -> int:
         """Add a new investment thesis to track."""
-        cursor = self.db.execute("""
+        cursor = self.db.execute(
+            """
             INSERT INTO ai_theses (thesis_name, description, tickers)
             VALUES (?, ?, ?)
-        """, (name, description, ",".join(tickers)))
+        """,
+            (name, description, ",".join(tickers)),
+        )
         return cursor.lastrowid
 
     def _ensure_trillion_history(self, min_days: int = 5) -> None:
@@ -1874,7 +2148,9 @@ class AIPulseScanner:
             except Exception as e:
                 logger.error(f"Failed to backfill trillion club history: {e}")
         else:
-            logger.info(f"Trillion Club history sufficient ({tc_dates_14d} days in last 14d, no gaps)")
+            logger.info(
+                f"Trillion Club history sufficient ({tc_dates_14d} days in last 14d, no gaps)"
+            )
 
     def backfill_trillion_history(self, days: int = 21) -> int:
         """
@@ -1895,11 +2171,14 @@ class AIPulseScanner:
         today = date.today()
 
         # Get all trading days from prices_daily in the backfill range
-        trading_days = self.db.fetchdf("""
+        trading_days = self.db.fetchdf(
+            """
             SELECT DISTINCT date FROM prices_daily
             WHERE date >= date('now', ?) AND date < date('now')
             ORDER BY date
-        """, (f'-{days} days',))
+        """,
+            (f"-{days} days",),
+        )
 
         if trading_days.empty:
             logger.warning("No price data available for backfill")
@@ -1921,8 +2200,10 @@ class AIPulseScanner:
         for i, scan_date_raw in enumerate(trading_dates):
             # Parse date
             try:
-                if hasattr(scan_date_raw, 'strftime'):
-                    scan_date = scan_date_raw if isinstance(scan_date_raw, date) else scan_date_raw.date()
+                if hasattr(scan_date_raw, "strftime"):
+                    scan_date = (
+                        scan_date_raw if isinstance(scan_date_raw, date) else scan_date_raw.date()
+                    )
                 else:
                     scan_date = datetime.strptime(str(scan_date_raw)[:10], "%Y-%m-%d").date()
             except Exception as e:
@@ -1930,9 +2211,12 @@ class AIPulseScanner:
                 continue
 
             # Skip if we already have data for this date
-            existing_check = self.db.fetchone("""
+            existing_check = self.db.fetchone(
+                """
                 SELECT COUNT(*) FROM trillion_club WHERE scan_date = ?
-            """, (scan_date.isoformat(),))
+            """,
+                (scan_date.isoformat(),),
+            )
             if existing_check and existing_check[0] > 0:
                 continue
 
@@ -1943,7 +2227,8 @@ class AIPulseScanner:
                     score_data = self._calculate_historical_entry_score(ticker, scan_date)
                     if score_data:
                         # Store the result
-                        self.db.execute("""
+                        self.db.execute(
+                            """
                             INSERT INTO trillion_club (
                                 ticker, scan_date, market_cap, market_cap_category,
                                 peak_market_cap_30d, current_price, price_vs_30d_high_pct,
@@ -1953,19 +2238,21 @@ class AIPulseScanner:
                                 entry_score = excluded.entry_score,
                                 current_price = excluded.current_price,
                                 price_vs_30d_high_pct = excluded.price_vs_30d_high_pct
-                        """, (
-                            ticker,
-                            scan_date.isoformat(),
-                            score_data.get("market_cap", 0),
-                            score_data.get("market_cap_category", "Mega Cap"),
-                            score_data.get("peak_market_cap_30d", 0),
-                            score_data.get("current_price", 0),
-                            score_data.get("price_vs_30d_high_pct", 0),
-                            score_data.get("entry_score", 50),
-                            score_data.get("category", "Unknown"),
-                            score_data.get("subcategory", ""),
-                            f"Historical backfill for {scan_date.isoformat()}",
-                        ))
+                        """,
+                            (
+                                ticker,
+                                scan_date.isoformat(),
+                                score_data.get("market_cap", 0),
+                                score_data.get("market_cap_category", "Mega Cap"),
+                                score_data.get("peak_market_cap_30d", 0),
+                                score_data.get("current_price", 0),
+                                score_data.get("price_vs_30d_high_pct", 0),
+                                score_data.get("entry_score", 50),
+                                score_data.get("category", "Unknown"),
+                                score_data.get("subcategory", ""),
+                                f"Historical backfill for {scan_date.isoformat()}",
+                            ),
+                        )
                         day_records += 1
                         records_created += 1
                 except Exception as e:
@@ -1973,7 +2260,9 @@ class AIPulseScanner:
                     continue
 
             if (i + 1) % 5 == 0:
-                logger.info(f"  Processed {i + 1}/{len(trading_dates)} days, {records_created} records")
+                logger.info(
+                    f"  Processed {i + 1}/{len(trading_dates)} days, {records_created} records"
+                )
 
         logger.info(f"Trillion Club backfill complete: {records_created} records created")
         return records_created
@@ -1993,12 +2282,15 @@ class AIPulseScanner:
             Dict with score data, or None if insufficient data
         """
         # Get price history up to and including as_of_date
-        price_data = self.db.fetchdf("""
+        price_data = self.db.fetchdf(
+            """
             SELECT date, open, high, low, close, volume
             FROM prices_daily
             WHERE ticker = ? AND date <= ? AND date >= date(?, '-60 days')
             ORDER BY date
-        """, (ticker, as_of_date.isoformat(), as_of_date.isoformat()))
+        """,
+            (ticker, as_of_date.isoformat(), as_of_date.isoformat()),
+        )
 
         if price_data.empty or len(price_data) < 20:
             return None

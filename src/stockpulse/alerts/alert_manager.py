@@ -1,16 +1,16 @@
 """Alert Manager - coordinates when and how to send alerts."""
 
-from datetime import datetime, time
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
 import pytz
 
-from stockpulse.utils.config import get_config
-from stockpulse.utils.logging import get_logger
 from stockpulse.data.database import get_db
 from stockpulse.strategies.base import Signal
 from stockpulse.strategies.position_manager import PositionManager
+from stockpulse.utils.config import get_config
+from stockpulse.utils.logging import get_logger
 
 from .email_sender import EmailSender
 
@@ -37,9 +37,7 @@ class AlertManager:
         self.email_sender = EmailSender()
         self.position_manager = PositionManager()
 
-        self.timezone = pytz.timezone(
-            self.config.get("scanning", {}).get("timezone", "US/Eastern")
-        )
+        self.timezone = pytz.timezone(self.config.get("scanning", {}).get("timezone", "US/Eastern"))
 
         # Alert thresholds
         self.min_confidence = self.alerts_config.get("min_confidence_for_email", 70)
@@ -71,15 +69,18 @@ class AlertManager:
         subject: str,
         body: str,
         success: bool,
-        error: str | None = None
+        error: str | None = None,
     ) -> None:
         """Log alert to database."""
         try:
             recipient = self.email_sender.recipient
-            self.db.execute("""
+            self.db.execute(
+                """
                 INSERT INTO alerts_log (signal_id, alert_type, recipient, subject, body, sent_successfully, error_message)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (signal_id, alert_type, recipient, subject, body, success, error))
+            """,
+                (signal_id, alert_type, recipient, subject, body, success, error),
+            )
         except Exception as e:
             logger.error(f"Failed to log alert: {e}")
 
@@ -97,7 +98,9 @@ class AlertManager:
             return False
 
         if signal.confidence < self.min_confidence:
-            logger.debug(f"Signal confidence {signal.confidence} below threshold {self.min_confidence}")
+            logger.debug(
+                f"Signal confidence {signal.confidence} below threshold {self.min_confidence}"
+            )
             return False
 
         if self._is_quiet_hours():
@@ -113,7 +116,7 @@ class AlertManager:
             None,  # signal_id would come from DB
             f"{signal.direction.value} {signal.ticker}",
             str(signal_data),
-            success
+            success,
         )
 
         return success
@@ -137,7 +140,7 @@ class AlertManager:
                 portfolio_tickers=set(),
                 allocation_weights={},
                 base_position_pct=5.0,
-                initial_capital=100000.0
+                initial_capital=100000.0,
             )
             return 1 if success else 0
         return 0
@@ -149,7 +152,7 @@ class AlertManager:
         portfolio_tickers: set,
         allocation_weights: dict,
         base_position_pct: float,
-        initial_capital: float
+        initial_capital: float,
     ) -> bool:
         """
         Send a single consolidated email with all signals from a scan.
@@ -186,7 +189,7 @@ class AlertManager:
             return False
 
         # Build consolidated email
-        today = datetime.now().strftime('%Y-%m-%d %H:%M')
+        today = datetime.now().strftime("%Y-%m-%d %H:%M")
         subject = f"📊 StockPulse Scan: {len(high_conf_buys)} Buys, {len(high_conf_sells)} Sells"
 
         # Build BUY signals table
@@ -266,7 +269,7 @@ class AlertManager:
             None,
             subject,
             f"Buys: {len(high_conf_buys)}, Sells: {len(high_conf_sells)}",
-            success
+            success,
         )
 
         # Store current signals for change detection
@@ -289,7 +292,9 @@ class AlertManager:
                 return True  # First scan, always send
 
             last_body = last_scan.iloc[0]["body"]
-            current_tickers = set([s.ticker for s in buy_signals] + [s.ticker for s in sell_signals])
+            current_tickers = set(
+                [s.ticker for s in buy_signals] + [s.ticker for s in sell_signals]
+            )
             current_str = ",".join(sorted(current_tickers))
 
             # Simple check: if tickers changed, send email
@@ -306,14 +311,16 @@ class AlertManager:
 
     def send_scan_results_email(
         self,
-        opened_positions: list[tuple],  # (signal, size_pct, dollar_amount, sizing_details) or (signal, size_pct, dollar_amount)
-        blocked_signals: list[tuple],   # (signal, reason, detailed_reasons) or (signal, reason)
+        opened_positions: list[
+            tuple
+        ],  # (signal, size_pct, dollar_amount, sizing_details) or (signal, size_pct, dollar_amount)
+        blocked_signals: list[tuple],  # (signal, reason, detailed_reasons) or (signal, reason)
         sell_signals: list[Signal],
         portfolio_exposure_pct: float,
         initial_capital: float,
         near_misses: dict[str, list[dict]] | None = None,
         strategy_status: dict[str, dict] | None = None,
-        strategy_signal_summary: dict[str, list[dict]] | None = None
+        strategy_signal_summary: dict[str, list[dict]] | None = None,
     ) -> bool:
         """
         Send email showing actual scan results - what was opened and what was blocked.
@@ -339,7 +346,7 @@ class AlertManager:
             logger.info("No scan activity to report")
             return False
 
-        today = datetime.now().strftime('%Y-%m-%d %H:%M')
+        today = datetime.now().strftime("%Y-%m-%d %H:%M")
         subject = f"📊 StockPulse: Opened {len(opened_positions)} positions"
         if blocked_signals:
             subject += f", {len(blocked_signals)} blocked"
@@ -356,7 +363,11 @@ class AlertManager:
                 sizing_details = None
 
             total_allocated += size_pct
-            upside_pct = ((signal.target_price - signal.entry_price) / signal.entry_price * 100) if signal.entry_price > 0 else 0
+            upside_pct = (
+                ((signal.target_price - signal.entry_price) / signal.entry_price * 100)
+                if signal.entry_price > 0
+                else 0
+            )
 
             # Build sizing formula string if we have details
             if sizing_details:
@@ -389,7 +400,11 @@ class AlertManager:
             # Show detailed reasons if available
             reason_html = reason
             if detailed_reasons:
-                detail_parts = [f"{r.get('icon', '')} {r.get('detail', r.get('reason', ''))}" for r in detailed_reasons if r.get('detail') or r.get('reason')]
+                detail_parts = [
+                    f"{r.get('icon', '')} {r.get('detail', r.get('reason', ''))}"
+                    for r in detailed_reasons
+                    if r.get("detail") or r.get("reason")
+                ]
                 if detail_parts:
                     reason_html = f"{reason}<br/><small style='color: #6b7280;'>{'; '.join(detail_parts)}</small>"
 
@@ -417,9 +432,16 @@ class AlertManager:
 
         # Build strategy insights section with per-strategy signal breakdown
         from stockpulse.strategies.signal_insights import STRATEGY_DESCRIPTIONS
+
         strategy_insights_html = ""
-        all_strategies = ["rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
-                        "momentum_breakout", "week52_low_bounce", "sector_rotation"]
+        all_strategies = [
+            "rsi_mean_reversion",
+            "macd_volume",
+            "zscore_mean_reversion",
+            "momentum_breakout",
+            "week52_low_bounce",
+            "sector_rotation",
+        ]
 
         if strategy_signal_summary:
             # Build per-strategy signal tables (top 3 for scan email)
@@ -578,7 +600,7 @@ class AlertManager:
                     <span class="stat"><span class="stat-value">{len(blocked_signals)}</span> Blocked</span>
                     <span class="stat"><span class="stat-value">{portfolio_exposure_pct:.0f}%</span> Exposure</span>
                     <span class="stat"><span class="stat-value">{80.0 - portfolio_exposure_pct:.0f}%</span> Remaining</span>
-                    <span class="stat"><span class="stat-value">${initial_capital * (1 - portfolio_exposure_pct/100):,.0f}</span> Cash</span>
+                    <span class="stat"><span class="stat-value">${initial_capital * (1 - portfolio_exposure_pct / 100):,.0f}</span> Cash</span>
                 </div>
 
                 {"<h2 class='section-title'>✅ Positions Opened (" + str(len(opened_positions)) + ")</h2><table><tr><th>Ticker</th><th>Strategy</th><th>Conf</th><th>Entry</th><th>Target</th><th>Stop</th><th>Allocation</th></tr>" + opened_rows + "</table>" if opened_rows else "<p style='color: #6b7280;'>No positions opened this scan.</p>"}
@@ -665,7 +687,7 @@ class AlertManager:
             None,
             subject,
             f"Opened: {len(opened_positions)}, Blocked: {len(blocked_signals)}, Exposure: {portfolio_exposure_pct:.1f}%",
-            success
+            success,
         )
 
         return success
@@ -693,7 +715,7 @@ class AlertManager:
             position_data.get("signal_id"),
             f"Exit {position_data.get('ticker')}",
             str(position_data),
-            success
+            success,
         )
 
         return success
@@ -735,15 +757,21 @@ class AlertManager:
                 else:
                     unrealized_pnl = (entry_price - current_price) * shares
 
-                unrealized_pct = (unrealized_pnl / (entry_price * shares)) * 100 if entry_price * shares > 0 else 0
+                unrealized_pct = (
+                    (unrealized_pnl / (entry_price * shares)) * 100
+                    if entry_price * shares > 0
+                    else 0
+                )
 
-                positions.append({
-                    **pos.to_dict(),
-                    "current_price": current_price,
-                    "unrealized_pnl": unrealized_pnl,
-                    "unrealized_pct": unrealized_pct,
-                    "position_value": current_price * shares
-                })
+                positions.append(
+                    {
+                        **pos.to_dict(),
+                        "current_price": current_price,
+                        "unrealized_pnl": unrealized_pnl,
+                        "unrealized_pct": unrealized_pct,
+                        "position_value": current_price * shares,
+                    }
+                )
 
         # Get today's trades (opened and closed)
         todays_opened = self.db.fetchdf("""
@@ -798,7 +826,7 @@ class AlertManager:
             todays_opened=todays_opened.to_dict("records") if not todays_opened.empty else [],
             todays_closed=todays_closed.to_dict("records") if not todays_closed.empty else [],
             recent_closed=recent_closed.to_dict("records") if not recent_closed.empty else [],
-            strategy_insights=strategy_insights
+            strategy_insights=strategy_insights,
         )
 
         self._log_alert(
@@ -806,15 +834,13 @@ class AlertManager:
             None,
             "Daily Digest",
             f"Portfolio: ${portfolio_value:,.2f}, Positions: {len(positions)}",
-            success
+            success,
         )
 
         return success
 
     def _get_strategy_insights_for_digest(
-        self,
-        signals_df: pd.DataFrame,
-        positions_df: pd.DataFrame
+        self, signals_df: pd.DataFrame, positions_df: pd.DataFrame
     ) -> dict[str, Any]:
         """
         Get strategy-level insights for the daily digest.
@@ -825,8 +851,12 @@ class AlertManager:
         from stockpulse.strategies.signal_insights import SignalInsights
 
         all_strategies = [
-            "rsi_mean_reversion", "macd_volume", "zscore_mean_reversion",
-            "momentum_breakout", "week52_low_bounce", "sector_rotation"
+            "rsi_mean_reversion",
+            "macd_volume",
+            "zscore_mean_reversion",
+            "momentum_breakout",
+            "week52_low_bounce",
+            "sector_rotation",
         ]
 
         insights = {
@@ -844,7 +874,9 @@ class AlertManager:
                 SELECT ticker, strategy FROM positions_paper
                 WHERE DATE(entry_date) = DATE('now')
             """)
-            opened_tickers = set(todays_opened["ticker"].tolist()) if not todays_opened.empty else set()
+            opened_tickers = (
+                set(todays_opened["ticker"].tolist()) if not todays_opened.empty else set()
+            )
 
             for strategy in all_strategies:
                 status = strategy_status.get(strategy, {})
@@ -870,24 +902,30 @@ class AlertManager:
                         else:
                             # Check blocking reasons
                             action_status = "NOT_ACTED"
-                            blocking_reasons = signal_insights.get_blocking_reasons(ticker, self.position_manager)
+                            blocking_reasons = signal_insights.get_blocking_reasons(
+                                ticker, self.position_manager
+                            )
                             if blocking_reasons:
                                 action_status = "BLOCKED"
                                 action_reason = blocking_reasons[0].get("reason", "Risk limit")
                             elif not can_open:
                                 action_status = "BLOCKED"
-                                action_reason = f"Strategy at capacity ({current_exp:.0f}%/{max_allowed:.0f}%)"
+                                action_reason = (
+                                    f"Strategy at capacity ({current_exp:.0f}%/{max_allowed:.0f}%)"
+                                )
                             else:
                                 action_reason = "Did not meet final criteria"
 
-                        signal_details.append({
-                            "ticker": ticker,
-                            "confidence": sig.get("confidence", 0),
-                            "entry_price": sig.get("entry_price", 0),
-                            "target_price": sig.get("target_price", 0),
-                            "status": action_status,
-                            "reason": action_reason,
-                        })
+                        signal_details.append(
+                            {
+                                "ticker": ticker,
+                                "confidence": sig.get("confidence", 0),
+                                "entry_price": sig.get("entry_price", 0),
+                                "target_price": sig.get("target_price", 0),
+                                "status": action_status,
+                                "reason": action_reason,
+                            }
+                        )
                 else:
                     signal_count = 0
 
@@ -903,11 +941,13 @@ class AlertManager:
 
                 # Track capacity warnings
                 if not can_open:
-                    insights["capacity_warnings"].append({
-                        "strategy": strategy,
-                        "exposure_pct": current_exp,
-                        "max_pct": max_allowed,
-                    })
+                    insights["capacity_warnings"].append(
+                        {
+                            "strategy": strategy,
+                            "exposure_pct": current_exp,
+                            "max_pct": max_allowed,
+                        }
+                    )
 
             # Get blocked tickers
             blocked = self.position_manager.get_blocked_tickers()
@@ -921,6 +961,7 @@ class AlertManager:
     def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
         """Get current LIVE prices for a list of tickers."""
         from stockpulse.data.ingestion import DataIngestion
+
         ingestion = DataIngestion()
         try:
             # Use fetch_current_prices for LIVE data, not stale database prices
@@ -929,10 +970,7 @@ class AlertManager:
             logger.warning(f"Error fetching current prices: {e}")
             return {}
 
-    def send_long_term_digest(
-        self,
-        opportunities: list[dict]
-    ) -> bool:
+    def send_long_term_digest(self, opportunities: list[dict]) -> bool:
         """
         Send daily long-term opportunities digest with trend analysis.
 
@@ -945,7 +983,7 @@ class AlertManager:
         if not opportunities:
             return False
 
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime("%Y-%m-%d")
         subject = f"📈 StockPulse Long-Term Opportunities - {today}"
 
         # Load sentiment data for long-term tickers
@@ -953,6 +991,7 @@ class AlertManager:
         signals_data = {}
         try:
             from stockpulse.data.sentiment import SentimentStorage
+
             storage = SentimentStorage()
             lt_tickers = [o.get("ticker") for o in opportunities if o.get("ticker")]
             sentiment_data = storage.get_todays_sentiment(lt_tickers)
@@ -962,10 +1001,11 @@ class AlertManager:
 
         # Identify strong buys (score 68+, improving or stable, 3+ days)
         strong_buys = [
-            opp for opp in opportunities
-            if opp.get('composite_score', 0) >= 68
-            and opp.get('change_vs_5d_avg', 0) >= -1
-            and opp.get('consecutive_days', 0) >= 3
+            opp
+            for opp in opportunities
+            if opp.get("composite_score", 0) >= 68
+            and opp.get("change_vs_5d_avg", 0) >= -1
+            and opp.get("consecutive_days", 0) >= 3
         ]
 
         # Build strong buys section
@@ -973,23 +1013,29 @@ class AlertManager:
         if strong_buys:
             strong_rows = ""
             for opp in strong_buys[:5]:
-                ticker = opp.get('ticker', 'N/A')
-                company = opp.get('company_name', ticker)
-                sector = opp.get('sector', 'Unknown')
-                score = opp.get('composite_score', 0)
-                price = opp.get('current_price', 0)
-                days = opp.get('consecutive_days', 0)
-                trend = opp.get('trend_symbol', '➡️')
-                change_5d = opp.get('change_vs_5d_avg', 0)
-                reasoning = opp.get('reasoning', '')
+                ticker = opp.get("ticker", "N/A")
+                company = opp.get("company_name", ticker)
+                sector = opp.get("sector", "Unknown")
+                score = opp.get("composite_score", 0)
+                price = opp.get("current_price", 0)
+                days = opp.get("consecutive_days", 0)
+                trend = opp.get("trend_symbol", "➡️")
+                change_5d = opp.get("change_vs_5d_avg", 0)
+                reasoning = opp.get("reasoning", "")
 
-                trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
+                trend_text = (
+                    f"Score improving (+{change_5d:.1f} vs 5d avg)"
+                    if change_5d > 0
+                    else f"Score stable ({change_5d:+.1f} vs 5d avg)"
+                )
 
                 # Get sentiment info with diagnostics
                 sent = sentiment_data.get(ticker, {})
                 sent_score = sent.get("aggregate_score", 0)
                 sent_label = sent.get("aggregate_label", "")
-                sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                sent_emoji = (
+                    "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                )
 
                 # Get StockTwits breakdown
                 st = sent.get("stocktwits", {})
@@ -1002,13 +1048,17 @@ class AlertManager:
                 # Build sentiment breakdown text
                 sent_breakdown = ""
                 if st_total > 0:
-                    sent_breakdown = f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
+                    sent_breakdown = (
+                        f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
+                    )
 
                 # Get analyst/insider signals
                 signals = signals_data.get(ticker, {})
                 analyst = signals.get("analyst_rating", {}).get("data", {})
                 insider = signals.get("insider_txn", {}).get("data", {})
-                analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                analyst_consensus = (
+                    analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                )
                 insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
                 # Build sample posts HTML (up to 2 samples)
@@ -1018,7 +1068,11 @@ class AlertManager:
                     for msg in sample_msgs[:2]:
                         msg_text = msg.get("text", "")[:80]
                         msg_sent = msg.get("sentiment", "")
-                        msg_emoji = "🟢" if msg_sent == "Bullish" else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        msg_emoji = (
+                            "🟢"
+                            if msg_sent == "Bullish"
+                            else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        )
                         if msg_text:
                             sample_items.append(f'{msg_emoji} "{msg_text}..."')
                     if sample_items:
@@ -1065,16 +1119,16 @@ class AlertManager:
         # Build main opportunities table with trend data
         rows = ""
         for opp in opportunities[:15]:
-            ticker = opp.get('ticker', 'N/A')
-            company = opp.get('company_name', ticker)
-            sector = opp.get('sector', 'Unknown')
-            score = opp.get('composite_score', 0)
-            price = opp.get('current_price', 0)
-            reasoning = opp.get('reasoning', '')
-            trend = opp.get('trend_symbol', '➡️')
-            days = opp.get('consecutive_days', 0)
-            change_5d = opp.get('change_vs_5d_avg', 0)
-            is_new = opp.get('is_new', False)
+            ticker = opp.get("ticker", "N/A")
+            company = opp.get("company_name", ticker)
+            sector = opp.get("sector", "Unknown")
+            score = opp.get("composite_score", 0)
+            price = opp.get("current_price", 0)
+            reasoning = opp.get("reasoning", "")
+            trend = opp.get("trend_symbol", "➡️")
+            days = opp.get("consecutive_days", 0)
+            change_5d = opp.get("change_vs_5d_avg", 0)
+            is_new = opp.get("is_new", False)
 
             # Format trend info
             if is_new:
@@ -1087,7 +1141,9 @@ class AlertManager:
             sent = sentiment_data.get(ticker, {})
             sent_score = sent.get("aggregate_score", 0)
             sent_label = sent.get("aggregate_label", "")
-            sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+            sent_emoji = (
+                "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+            )
 
             # Get StockTwits breakdown
             st = sent.get("stocktwits", {})
@@ -1099,12 +1155,16 @@ class AlertManager:
             signals = signals_data.get(ticker, {})
             analyst = signals.get("analyst_rating", {}).get("data", {})
             insider = signals.get("insider_txn", {}).get("data", {})
-            analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            analyst_consensus = (
+                analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            )
             insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
             # Build sentiment info with breakdown
             if sent_score and st_total > 0:
-                sentiment_info = f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+                sentiment_info = (
+                    f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+                )
             elif sent_score:
                 sentiment_info = f"{sent_emoji} {sent_score:.0f}"
             else:
@@ -1127,7 +1187,7 @@ class AlertManager:
                 <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;"><strong>{score:.0f}</strong></td>
                 <td style="text-align: center;">{trend_info}</td>
-                <td>{opp.get('price_vs_52w_low_pct', 0):.1f}%</td>
+                <td>{opp.get("price_vs_52w_low_pct", 0):.1f}%</td>
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
@@ -1139,25 +1199,25 @@ class AlertManager:
         # Build score breakdown table (top 10)
         breakdown_rows = ""
         for opp in opportunities[:10]:
-            trend = opp.get('trend_symbol', '➡️')
-            days = opp.get('consecutive_days', 0)
-            ticker = opp.get('ticker', 'N/A')
-            company = opp.get('company_name', ticker)
-            price = opp.get('current_price', 0)
+            trend = opp.get("trend_symbol", "➡️")
+            days = opp.get("consecutive_days", 0)
+            ticker = opp.get("ticker", "N/A")
+            company = opp.get("company_name", ticker)
+            price = opp.get("current_price", 0)
             # Truncate company name if too long
             company_short = company[:20] + "..." if len(company) > 20 else company
             breakdown_rows += f"""
             <tr>
                 <td><strong>{ticker}</strong><br/><span style="color: #6b7280; font-size: 10px;">{company_short}</span></td>
                 <td style="text-align: center;">${price:.2f}</td>
-                <td style="text-align: center;">{opp.get('composite_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("composite_score", 0):.0f}</td>
                 <td style="text-align: center;">{trend}{days}d</td>
-                <td style="text-align: center;">{opp.get('valuation_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('technical_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('fcf_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('earnings_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('peer_score', 0):.0f}</td>
-                <td style="text-align: center;">{opp.get('quality_score', 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("valuation_score", 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("technical_score", 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("fcf_score", 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("earnings_score", 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("peer_score", 0):.0f}</td>
+                <td style="text-align: center;">{opp.get("quality_score", 0):.0f}</td>
             </tr>
             """
 
@@ -1290,19 +1350,12 @@ class AlertManager:
         success = self.email_sender.send_email(subject, body_html)
 
         self._log_alert(
-            "long_term_digest",
-            None,
-            subject,
-            f"Opportunities: {len(opportunities)}",
-            success
+            "long_term_digest", None, subject, f"Opportunities: {len(opportunities)}", success
         )
 
         return success
 
-    def send_trillion_club_digest(
-        self,
-        trillion_club: list[dict]
-    ) -> bool:
+    def send_trillion_club_digest(self, trillion_club: list[dict]) -> bool:
         """
         Send Trillion+ Club digest email with entry point tracking.
 
@@ -1317,7 +1370,7 @@ class AlertManager:
         if not trillion_club:
             return False
 
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime("%Y-%m-%d")
         subject = f"💎 Trillion+ Club Entry Opportunities - {today}"
 
         # Load sentiment data for trillion club tickers
@@ -1325,6 +1378,7 @@ class AlertManager:
         signals_data = {}
         try:
             from stockpulse.data.sentiment import SentimentStorage
+
             storage = SentimentStorage()
             tc_tickers = [m.get("ticker") for m in trillion_club if m.get("ticker")]
             sentiment_data = storage.get_todays_sentiment(tc_tickers)
@@ -1334,10 +1388,11 @@ class AlertManager:
 
         # Identify strong entries (score 70+, improving or stable, 3+ days)
         strong_entries = [
-            m for m in trillion_club
-            if m.get('entry_score', 0) >= 70
-            and m.get('score_change_5d', 0) >= -1
-            and m.get('consecutive_days', 0) >= 3
+            m
+            for m in trillion_club
+            if m.get("entry_score", 0) >= 70
+            and m.get("score_change_5d", 0) >= -1
+            and m.get("consecutive_days", 0) >= 3
         ]
 
         # Build strong entries section (like strong_buys in longterm)
@@ -1345,25 +1400,31 @@ class AlertManager:
         if strong_entries:
             strong_rows = ""
             for opp in strong_entries[:5]:
-                ticker = opp.get('ticker', 'N/A')
-                company = opp.get('company_name', ticker)
-                category = opp.get('category', 'Unknown')
-                score = opp.get('entry_score', 0)
-                price = opp.get('current_price', 0)
-                days = opp.get('consecutive_days', 0)
-                trend = opp.get('trend_symbol', '➡️')
-                change_5d = opp.get('score_change_5d', 0)
-                pct_from_high = opp.get('price_vs_30d_high_pct', 0)
-                market_cap_b = opp.get('market_cap_b', 0)
+                ticker = opp.get("ticker", "N/A")
+                company = opp.get("company_name", ticker)
+                category = opp.get("category", "Unknown")
+                score = opp.get("entry_score", 0)
+                price = opp.get("current_price", 0)
+                days = opp.get("consecutive_days", 0)
+                trend = opp.get("trend_symbol", "➡️")
+                change_5d = opp.get("score_change_5d", 0)
+                pct_from_high = opp.get("price_vs_30d_high_pct", 0)
+                market_cap_b = opp.get("market_cap_b", 0)
 
-                trend_text = f"Score improving (+{change_5d:.1f} vs 5d avg)" if change_5d > 0 else f"Score stable ({change_5d:+.1f} vs 5d avg)"
+                trend_text = (
+                    f"Score improving (+{change_5d:.1f} vs 5d avg)"
+                    if change_5d > 0
+                    else f"Score stable ({change_5d:+.1f} vs 5d avg)"
+                )
                 reasoning = f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high"
 
                 # Get sentiment info with diagnostics
                 sent = sentiment_data.get(ticker, {})
                 sent_score = sent.get("aggregate_score", 0)
                 sent_label = sent.get("aggregate_label", "")
-                sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                sent_emoji = (
+                    "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+                )
 
                 # Get StockTwits breakdown
                 st = sent.get("stocktwits", {})
@@ -1376,13 +1437,17 @@ class AlertManager:
                 # Build sentiment breakdown text
                 sent_breakdown = ""
                 if st_total > 0:
-                    sent_breakdown = f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
+                    sent_breakdown = (
+                        f" (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral} of {st_total} posts)"
+                    )
 
                 # Get analyst/insider signals
                 signals = signals_data.get(ticker, {})
                 analyst = signals.get("analyst_rating", {}).get("data", {})
                 insider = signals.get("insider_txn", {}).get("data", {})
-                analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                analyst_consensus = (
+                    analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+                )
                 insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
                 # Build sample posts HTML (up to 2 samples)
@@ -1392,7 +1457,11 @@ class AlertManager:
                     for msg in sample_msgs[:2]:
                         msg_text = msg.get("text", "")[:80]
                         msg_sent = msg.get("sentiment", "")
-                        msg_emoji = "🟢" if msg_sent == "Bullish" else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        msg_emoji = (
+                            "🟢"
+                            if msg_sent == "Bullish"
+                            else ("🔴" if msg_sent == "Bearish" else "⚪")
+                        )
                         if msg_text:
                             sample_items.append(f'{msg_emoji} "{msg_text}..."')
                     if sample_items:
@@ -1459,13 +1528,17 @@ class AlertManager:
                 trend_info = f"{trend} {days}d ({sign}{score_change_5d:.1f})"
 
             # Build reasoning
-            reasoning = f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high, {category}"
+            reasoning = (
+                f"${market_cap_b:.0f}B market cap, {pct_from_high:+.1f}% from 30d high, {category}"
+            )
 
             # Get sentiment and signals for this ticker
             sent = sentiment_data.get(ticker, {})
             sent_score = sent.get("aggregate_score", 0)
             sent_label = sent.get("aggregate_label", "")
-            sent_emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+            sent_emoji = (
+                "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
+            )
 
             # Get StockTwits breakdown
             st = sent.get("stocktwits", {})
@@ -1477,12 +1550,16 @@ class AlertManager:
             signals = signals_data.get(ticker, {})
             analyst = signals.get("analyst_rating", {}).get("data", {})
             insider = signals.get("insider_txn", {}).get("data", {})
-            analyst_consensus = analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            analyst_consensus = (
+                analyst.get("consensus", "").replace("_", " ").title() if analyst else ""
+            )
             insider_sentiment = insider.get("insider_sentiment", "").title() if insider else ""
 
             # Build sentiment info with breakdown
             if sent_score and st_total > 0:
-                sentiment_info = f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+                sentiment_info = (
+                    f"{sent_emoji} {sent_score:.0f} (🟢{st_bullish} 🔴{st_bearish} ⚪{st_neutral})"
+                )
             elif sent_score:
                 sentiment_info = f"{sent_emoji} {sent_score:.0f}"
             else:
@@ -1505,7 +1582,7 @@ class AlertManager:
                 <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;"><strong>{entry_score:.0f}</strong></td>
                 <td style="text-align: center;">{trend_info}</td>
-                <td style="color: {'#22c55e' if pct_from_high <= -5 else '#6b7280'};">{pct_from_high:+.1f}%</td>
+                <td style="color: {"#22c55e" if pct_from_high <= -5 else "#6b7280"};">{pct_from_high:+.1f}%</td>
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
@@ -1677,7 +1754,7 @@ class AlertManager:
             None,
             subject,
             f"Trillion Club Members: {len(trillion_club)}",
-            success
+            success,
         )
 
         return success
@@ -1703,23 +1780,20 @@ class AlertManager:
 
         success = self.email_sender.send_error_alert(error_type, error_message)
 
-        self._log_alert(
-            "error",
-            None,
-            error_type,
-            error_message,
-            success
-        )
+        self._log_alert("error", None, error_type, error_message, success)
 
         return success
 
     def get_alert_history(self, days: int = 7) -> list[dict]:
         """Get recent alert history."""
-        df = self.db.fetchdf("""
+        df = self.db.fetchdf(
+            """
             SELECT * FROM alerts_log
             WHERE created_at > datetime('now', ?)
             ORDER BY created_at DESC
-        """, (f'-{days} days',))
+        """,
+            (f"-{days} days",),
+        )
         return df.to_dict("records") if not df.empty else []
 
     def get_alert_stats(self) -> dict[str, Any]:
@@ -1740,14 +1814,13 @@ class AlertManager:
             "total_30d": stats["total"].sum() if not stats.empty else 0,
             "success_rate": (
                 stats["successful"].sum() / stats["total"].sum() * 100
-                if not stats.empty and stats["total"].sum() > 0 else 0
-            )
+                if not stats.empty and stats["total"].sum() > 0
+                else 0
+            ),
         }
 
     def send_ai_pulse_digest(
-        self,
-        scan_results: dict[str, Any],
-        long_term_opportunities: list[dict] | None = None
+        self, scan_results: dict[str, Any], long_term_opportunities: list[dict] | None = None
     ) -> bool:
         """
         Send daily AI Pulse digest email.
@@ -1766,7 +1839,7 @@ class AlertManager:
         Returns:
             True if sent successfully
         """
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime("%Y-%m-%d")
 
         ai_stocks = scan_results.get("ai_stocks", [])
         categories = scan_results.get("categories", {})
@@ -1783,6 +1856,7 @@ class AlertManager:
         category_sentiment = {}  # category -> list of sentiment scores
         try:
             from stockpulse.data.sentiment import SentimentStorage
+
             storage = SentimentStorage()
             ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
             sentiment_data = storage.get_todays_sentiment(ai_tickers)
@@ -1803,9 +1877,9 @@ class AlertManager:
 
         # Identify strong buys (score 55+, pullback, 3+ days)
         strong_buys = [
-            stock for stock in top_picks[:10]
-            if stock.get('ai_score', 0) >= 55
-            and stock.get('pct_30d', 0) <= 0
+            stock
+            for stock in top_picks[:10]
+            if stock.get("ai_score", 0) >= 55 and stock.get("pct_30d", 0) <= 0
         ]
 
         # Build strong buys section (like longterm format)
@@ -1813,13 +1887,13 @@ class AlertManager:
         if strong_buys:
             strong_rows = ""
             for stock in strong_buys[:5]:
-                ticker = stock.get('ticker', 'N/A')
-                company = stock.get('company_name', ticker)
-                category = stock.get('category', 'Unknown')
-                score = stock.get('ai_score', 0)
-                price = stock.get('current_price', 0)
-                pct_30d = stock.get('pct_30d', 0)
-                pct_90d = stock.get('pct_90d', 0)
+                ticker = stock.get("ticker", "N/A")
+                company = stock.get("company_name", ticker)
+                category = stock.get("category", "Unknown")
+                score = stock.get("ai_score", 0)
+                price = stock.get("current_price", 0)
+                pct_30d = stock.get("pct_30d", 0)
+                pct_90d = stock.get("pct_90d", 0)
 
                 # Get sentiment for this ticker
                 sent = sentiment_data.get(ticker, {})
@@ -1847,7 +1921,7 @@ class AlertManager:
                     <td style="text-align: center; font-size: 16px;">${price:.2f}</td>
                     <td style="text-align: center; font-size: 18px;"><strong>{score:.0f}</strong></td>
                     <td style="text-align: center;">{sent_display}</td>
-                    <td style="text-align: center; color: {'#22c55e' if pct_30d <= -5 else '#6b7280'};">{pct_30d:+.1f}%</td>
+                    <td style="text-align: center; color: {"#22c55e" if pct_30d <= -5 else "#6b7280"};">{pct_30d:+.1f}%</td>
                 </tr>
                 <tr style="background: #f5f3ff;">
                     <td colspan="5" style="padding: 5px 15px 15px; color: #6d28d9; font-size: 13px; border-bottom: 2px solid #7c3aed;">
@@ -1890,7 +1964,7 @@ class AlertManager:
                 <tr>
                     <td><strong>{ticker}</strong></td>
                     <td style="text-align: center; color: #ef4444; font-weight: bold;">{pct_30d:+.1f}%</td>
-                    <td style="text-align: center; color: {'#ef4444' if pct_90d < 0 else '#22c55e'};">{pct_90d:+.1f}%</td>
+                    <td style="text-align: center; color: {"#ef4444" if pct_90d < 0 else "#22c55e"};">{pct_90d:+.1f}%</td>
                     <td style="text-align: center;">{ai_score:.0f}</td>
                     <td style="font-size: 12px;">{category}</td>
                 </tr>
@@ -1919,7 +1993,9 @@ class AlertManager:
         category_html = ""
         if category_scores:
             cat_rows = ""
-            for cat, data in sorted(category_scores.items(), key=lambda x: x[1]["avg_score"], reverse=True):
+            for cat, data in sorted(
+                category_scores.items(), key=lambda x: x[1]["avg_score"], reverse=True
+            ):
                 if data["count"] == 0:
                     continue
                 avg_score = data["avg_score"]
@@ -1966,7 +2042,9 @@ class AlertManager:
                     health = "NEUTRAL"
                     health_color = "#6b7280"
 
-                score_color = "#22c55e" if avg_score >= 55 else ("#eab308" if avg_score >= 40 else "#f97316")
+                score_color = (
+                    "#22c55e" if avg_score >= 55 else ("#eab308" if avg_score >= 40 else "#f97316")
+                )
                 perf_color = "#22c55e" if avg_30d > 0 else "#ef4444"
 
                 cat_rows += f"""
@@ -2053,7 +2131,7 @@ class AlertManager:
                 <td style="text-align: center;">${price:.2f}</td>
                 <td style="text-align: center;"><strong>{ai_score:.0f}</strong></td>
                 <td style="text-align: center; color: {sent_color};">{sent_display}{trending_badge}</td>
-                <td style="text-align: center; color: {'#22c55e' if pct_30d < 0 else '#6b7280'};">{pct_30d:+.1f}%</td>
+                <td style="text-align: center; color: {"#22c55e" if pct_30d < 0 else "#6b7280"};">{pct_30d:+.1f}%</td>
             </tr>
             <tr>
                 <td colspan="5" style="padding: 5px 10px 15px 10px; color: #4b5563; font-size: 13px; border-bottom: 2px solid #e5e7eb;">
@@ -2126,17 +2204,80 @@ class AlertManager:
                 else:
                     sent_badge = ""
 
-                rec_color = {
-                    "bullish": "#22c55e",
-                    "bearish": "#ef4444",
-                    "neutral": "#6b7280"
-                }.get(recommendation, "#6b7280")
+                rec_color = {"bullish": "#22c55e", "bearish": "#ef4444", "neutral": "#6b7280"}.get(
+                    recommendation, "#6b7280"
+                )
+
+                # Council verdict badge + perspective summaries
+                council_html = ""
+                perspectives = thesis.get("perspectives", [])
+                consensus = thesis.get("consensus", {})
+                verdict = thesis.get("verdict", "")
+
+                if perspectives and verdict:
+                    vote = consensus.get("vote_breakdown", {})
+                    total = sum(vote.values())
+                    majority = vote.get(recommendation, 0)
+                    agreement = consensus.get("agreement_score", 0)
+
+                    if agreement >= 1.0:
+                        badge_bg, badge_color = "#dcfce7", "#166534"
+                    elif agreement >= 0.75:
+                        badge_bg, badge_color = "#fef9c3", "#854d0e"
+                    else:
+                        badge_bg, badge_color = "#fef2f2", "#991b1b"
+
+                    council_badge = (
+                        f'<span style="background: {badge_bg}; color: {badge_color}; '
+                        f"padding: 2px 8px; border-radius: 4px; font-size: 11px; "
+                        f'font-weight: bold; margin-left: 8px;">'
+                        f"COUNCIL: {majority}/{total} {recommendation.upper()}</span>"
+                    )
+
+                    persp_lines = ""
+                    for p in perspectives:
+                        p_rec = p.get("recommendation", "neutral")
+                        p_color = {
+                            "bullish": "#22c55e",
+                            "bearish": "#ef4444",
+                            "neutral": "#6b7280",
+                        }.get(p_rec, "#6b7280")
+                        p_name = p.get("name", p.get("perspective", ""))
+                        p_summary = p.get("analysis", "").split(".")[0].strip()
+                        if len(p_summary) > 100:
+                            p_summary = p_summary[:97] + "..."
+                        persp_lines += (
+                            f'<div style="margin: 3px 0; font-size: 11px; color: #475569;">'
+                            f'<span style="color: {p_color}; font-weight: bold;">{p_name}</span>: '
+                            f"{p_summary}</div>"
+                        )
+
+                    dissent = thesis.get("dissent", "")
+                    dissent_html = ""
+                    if dissent:
+                        dissent_html = (
+                            f'<div style="margin-top: 6px; padding: 6px 8px; background: #fef2f2; '
+                            f'border-radius: 4px; font-size: 11px; color: #991b1b;">'
+                            f"Dissent: {dissent}</div>"
+                        )
+
+                    council_html = f"""
+                    <div style="margin: 10px 0 6px 0;">
+                        {council_badge}
+                    </div>
+                    <div style="margin: 8px 0; padding: 8px; background: #f1f5f9; border-radius: 6px;">
+                        {persp_lines}
+                        {dissent_html}
+                    </div>
+                    """
+                else:
+                    council_html = f'<p style="margin: 0 0 10px 0; font-size: 13px; color: #334155;">{analysis}...</p>'
 
                 thesis_rows += f"""
                 <div style="margin-bottom: 15px; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid {rec_color};">
                     <h4 style="margin: 0 0 8px 0; color: #1e293b;">{name}{sent_badge}</h4>
                     <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;">Tickers: {tickers_str}</p>
-                    <p style="margin: 0 0 10px 0; font-size: 13px; color: #334155;">{analysis}...</p>
+                    {council_html}
                     <div style="font-size: 12px;">
                         <span style="color: {rec_color}; font-weight: bold; text-transform: uppercase;">{recommendation}</span>
                         <span style="color: #6b7280;"> | Confidence: {confidence:.0f}%</span>
@@ -2155,7 +2296,7 @@ class AlertManager:
             """
         else:
             # Show fallback message when no theses are available
-            thesis_html = f"""
+            thesis_html = """
             <div class="section">
                 <h2 style="color: #6366f1; border-bottom: 2px solid #6366f1;">🧠 AI Investment Theses</h2>
                 <p style="font-size: 13px; color: #6b7280; padding: 15px; background: #f8fafc; border-radius: 8px;">
@@ -2180,6 +2321,7 @@ class AlertManager:
         sentiment_html = ""
         try:
             from stockpulse.data.sentiment import get_sentiment_summary_for_email
+
             ai_tickers = [s.get("ticker") for s in ai_stocks[:80] if s.get("ticker")]
             sentiment_html = get_sentiment_summary_for_email(ai_tickers, max_display=10)
         except Exception as e:
@@ -2317,7 +2459,7 @@ class AlertManager:
             None,
             subject,
             f"AI Stocks: {len(ai_stocks)}, Theses: {len(theses)}",
-            success
+            success,
         )
 
         return success
