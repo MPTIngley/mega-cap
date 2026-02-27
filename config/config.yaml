@@ -254,3 +254,42 @@ ai_pulse:
       enabled: true
       perspectives: ["analyst", "skeptic", "quant", "philosopher"]
       model: "claude-haiku-4-5-20251001"
+
+# Sentiment Analysis - Multi-source configuration
+# Sources: StockTwits, Reddit, Google News, Finnhub, Analyst, Insider,
+#          Google Trends, Put/Call ratio, Wikipedia page views
+sentiment:
+  reddit:
+    enabled: true
+    subreddits: "wallstreetbets+stocks+investing+options+stockmarket"
+    posts_per_ticker: 20
+    lookback_hours: 24
+
+  google_news:
+    enabled: true
+    max_headlines: 15
+
+  google_trends:
+    enabled: true
+
+  fear_greed:
+    enabled: true
+
+  put_call:
+    enabled: true
+
+  wikipedia:
+    enabled: true
+
+  # Scoring weights (redistribute proportionally if source disabled)
+  # Sum doesn't need to equal 1.0 - weights are normalized automatically
+  weights:
+    stocktwits: 0.10
+    reddit: 0.15
+    finnhub_news: 0.05
+    google_news: 0.15
+    analyst: 0.25
+    insider: 0.15
+    google_trends: 0.05
+    put_call: 0.03
+    wiki: 0.02

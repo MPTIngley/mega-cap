@@ -1,18 +1,24 @@
-"""Sentiment Analysis Module - StockTwits, Finnhub, and AI-powered analysis.
+"""Sentiment Analysis Module - Multi-source sentiment aggregation.
 
 *** ISOLATED MODULE - CAN BE REMOVED IF NOT WORKING ***
 
 This module provides:
 1. StockTwits sentiment fetching (FREE, no API key required)
 2. Finnhub social sentiment (FREE tier with API key)
-3. Haiku-powered sentiment summarization
-4. Aggregated sentiment scores for stock analysis
-5. Database caching for daily sentiment storage
+3. Reddit sentiment via PRAW (FREE, requires Reddit app credentials)
+4. Google News RSS headlines (FREE, no auth)
+5. Google Trends search interest (FREE, no auth)
+6. CNN Fear & Greed Index (FREE, no auth)
+7. Options put/call ratio via yfinance (FREE, existing dep)
+8. Wikipedia page view attention (FREE, no auth)
+9. Haiku-powered sentiment summarization
+10. Aggregated sentiment scores with configurable weights
+11. Database caching for daily sentiment storage
 
 INTEGRATION STATUS:
-- [x] AI Pulse Scanner (Phase 7 - current focus)
-- [ ] Trillion+ Club (future integration)
-- [ ] Long-Term Scanner (future integration)
+- [x] AI Pulse Scanner
+- [x] Trillion+ Club
+- [x] Long-Term Scanner
 
 DAILY WORKFLOW:
 1. run_daily_sentiment_scan() fetches sentiment for AI universe stocks
@@ -453,6 +459,659 @@ class FinnhubFetcher:
                 source="finnhub",
                 error=f"Error: {str(e)}"
             )
+
+
+# ============================================================================
+# REDDIT SENTIMENT VIA PRAW (FREE - REQUIRES REDDIT APP CREDENTIALS)
+# ============================================================================
+
+# Common words that look like tickers but aren't
+TICKER_BLACKLIST = {
+    "DD", "CEO", "IPO", "YOLO", "HODL", "FOMO", "FUD", "ATH", "ATL",
+    "EPS", "PE", "ETF", "SEC", "FDA", "FED", "GDP", "CPI", "IMO",
+    "USA", "UK", "EU", "USD", "EUR", "GBP", "AI", "ML", "API",
+    "CEO", "CFO", "COO", "CTO", "VP", "PM", "ER", "IV", "OI",
+    "ITM", "OTM", "ATM", "DTE", "RSI", "EMA", "SMA", "MACD",
+    "PT", "SP", "DOW", "DJIA", "OTC", "YOY", "MOM", "QOQ",
+    "TLDR", "PSA", "LMAO", "IMHO", "BTW", "TIL", "OP", "TL",
+    "RH", "TD", "WS", "THE", "AND", "FOR", "ARE", "NOT", "YOU",
+    "ALL", "CAN", "HER", "WAS", "ONE", "OUR", "OUT", "DAY", "HAD",
+    "HAS", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW", "OLD", "SEE",
+    "WAY", "WHO", "BOY", "DID", "GET", "LET", "SAY", "SHE", "TOO",
+    "USE", "DAD", "MOM", "RUN", "BIG", "RED", "TWO", "ANY", "FEW",
+    "GOT", "HIM", "MAN", "OWN", "TOP", "END",
+}
+
+
+class RedditFetcher:
+    """
+    Fetch sentiment data from Reddit via PRAW.
+
+    FREE - Requires Reddit app credentials (create at reddit.com/prefs/apps).
+    Rate limit: 100 req/min (generous).
+
+    Searches across wallstreetbets, stocks, investing, options, stockmarket.
+
+    Environment variables:
+        REDDIT_CLIENT_ID: Reddit app client ID
+        REDDIT_CLIENT_SECRET: Reddit app secret
+        REDDIT_USER_AGENT: User agent string (default: StockPulse/1.0)
+    """
+
+    DEFAULT_SUBREDDITS = "wallstreetbets+stocks+investing+options+stockmarket"
+
+    def __init__(self, config: dict | None = None):
+        self.client_id = os.environ.get("REDDIT_CLIENT_ID", "")
+        self.client_secret = os.environ.get("REDDIT_CLIENT_SECRET", "")
+        self.user_agent = os.environ.get("REDDIT_USER_AGENT", "StockPulse/1.0 (sentiment analysis)")
+        self.is_configured = bool(self.client_id and self.client_secret)
+
+        self._reddit = None
+        self._config = config or {}
+        self._subreddits = self._config.get("subreddits", self.DEFAULT_SUBREDDITS)
+        self._posts_per_ticker = self._config.get("posts_per_ticker", 20)
+        self._lookback_hours = self._config.get("lookback_hours", 24)
+
+        if not self.is_configured:
+            logger.info(
+                "REDDIT_CLIENT_ID/SECRET not set. Reddit sentiment disabled. "
+                "Create a free app at reddit.com/prefs/apps"
+            )
+
+    def _get_reddit(self):
+        """Lazy-init PRAW Reddit instance."""
+        if self._reddit is None:
+            try:
+                import praw
+                self._reddit = praw.Reddit(
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    user_agent=self.user_agent,
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize PRAW: {e}")
+                self.is_configured = False
+        return self._reddit
+
+    def get_sentiment(self, ticker: str) -> SentimentResult:
+        """
+        Get sentiment for a ticker from Reddit.
+
+        Searches subreddits for posts mentioning the ticker,
+        classifies sentiment based on upvote ratios and keyword analysis.
+        """
+        if not self.is_configured:
+            return SentimentResult(
+                ticker=ticker,
+                source="reddit",
+                error="Reddit credentials not configured"
+            )
+
+        reddit = self._get_reddit()
+        if reddit is None:
+            return SentimentResult(ticker=ticker, source="reddit", error="PRAW init failed")
+
+        try:
+            subreddit = reddit.subreddit(self._subreddits)
+            query = f"${ticker} OR {ticker}"
+
+            posts = []
+            sample_messages = []
+            bullish = 0
+            bearish = 0
+            neutral = 0
+
+            for post in subreddit.search(query, sort="hot", time_filter="day",
+                                         limit=self._posts_per_ticker):
+                # Verify ticker actually appears in title or selftext
+                text = f"{post.title} {post.selftext[:500]}".upper()
+                if f"${ticker}" not in text and ticker not in text.split():
+                    continue
+
+                posts.append(post)
+
+                # Classify sentiment from upvote ratio and score
+                # High upvote ratio + positive keywords = bullish signal
+                post_sentiment = self._classify_post(post, ticker)
+                if post_sentiment == "bullish":
+                    bullish += 1
+                elif post_sentiment == "bearish":
+                    bearish += 1
+                else:
+                    neutral += 1
+
+                if len(sample_messages) < 5:
+                    sample_messages.append({
+                        "text": post.title[:200],
+                        "sentiment": post_sentiment,
+                        "created_at": datetime.fromtimestamp(post.created_utc).isoformat(),
+                        "likes": post.score,
+                        "subreddit": str(post.subreddit),
+                        "comments": post.num_comments,
+                    })
+
+            total = len(posts)
+
+            if total == 0:
+                return SentimentResult(
+                    ticker=ticker,
+                    source="reddit",
+                    sentiment_score=50.0,
+                    sentiment_label="neutral",
+                    total_messages=0,
+                )
+
+            # Calculate sentiment score
+            sentiment_total = bullish + bearish
+            if sentiment_total > 0:
+                sentiment_score = (bullish / sentiment_total) * 100
+            else:
+                sentiment_score = 50.0
+
+            if sentiment_score >= 65:
+                sentiment_label = "bullish"
+            elif sentiment_score <= 35:
+                sentiment_label = "bearish"
+            else:
+                sentiment_label = "neutral"
+
+            # Message velocity (posts per hour in last 24h)
+            velocity = total / max(self._lookback_hours, 1)
+
+            # Trending if mention count is high for a single day
+            trending = total >= 10
+
+            return SentimentResult(
+                ticker=ticker,
+                source="reddit",
+                bullish_count=bullish,
+                bearish_count=bearish,
+                neutral_count=neutral,
+                total_messages=total,
+                sentiment_score=round(sentiment_score, 1),
+                sentiment_label=sentiment_label,
+                trending=trending,
+                message_velocity=round(velocity, 2),
+                sample_messages=sample_messages,
+            )
+
+        except Exception as e:
+            logger.debug(f"Reddit error for {ticker}: {e}")
+            return SentimentResult(ticker=ticker, source="reddit", error=str(e))
+
+    def _classify_post(self, post, ticker: str) -> str:
+        """Classify a Reddit post as bullish/bearish/neutral."""
+        title_lower = post.title.lower()
+
+        bullish_keywords = [
+            "buy", "calls", "moon", "rocket", "bull", "long", "upgrade",
+            "breakout", "undervalued", "squeeze", "gains", "profit",
+            "surge", "soar", "rally", "beat", "strong",
+        ]
+        bearish_keywords = [
+            "sell", "puts", "crash", "bear", "short", "downgrade",
+            "overvalued", "dump", "loss", "drop", "fall", "tank",
+            "plunge", "miss", "weak", "warning", "bubble",
+        ]
+
+        bull_hits = sum(1 for kw in bullish_keywords if kw in title_lower)
+        bear_hits = sum(1 for kw in bearish_keywords if kw in title_lower)
+
+        # Upvote ratio > 0.8 with decent score suggests agreement
+        if post.upvote_ratio > 0.8 and post.score > 10:
+            if bull_hits > bear_hits:
+                return "bullish"
+            elif bear_hits > bull_hits:
+                return "bearish"
+
+        if bull_hits > bear_hits + 1:
+            return "bullish"
+        elif bear_hits > bull_hits + 1:
+            return "bearish"
+
+        return "neutral"
+
+    def get_trending_tickers(self, limit: int = 20) -> list[dict]:
+        """
+        Get most-discussed tickers across Reddit today.
+
+        Returns list of {ticker, mention_count, avg_score, top_subreddit}.
+        """
+        if not self.is_configured:
+            return []
+
+        reddit = self._get_reddit()
+        if reddit is None:
+            return []
+
+        try:
+            import re
+            ticker_counts = {}
+            subreddit = reddit.subreddit(self._subreddits)
+
+            for post in subreddit.hot(limit=100):
+                text = f"{post.title} {post.selftext[:200]}"
+                # Find $TICKER patterns and standalone uppercase words
+                found_tickers = set()
+                for match in re.findall(r'\$([A-Z]{1,5})\b', text):
+                    if match not in TICKER_BLACKLIST:
+                        found_tickers.add(match)
+                for word in text.split():
+                    if (re.match(r'^[A-Z]{2,5}$', word) and
+                            word not in TICKER_BLACKLIST and len(word) >= 2):
+                        found_tickers.add(word)
+
+                for t in found_tickers:
+                    if t not in ticker_counts:
+                        ticker_counts[t] = {
+                            "ticker": t, "mention_count": 0,
+                            "total_score": 0, "subreddits": set(),
+                        }
+                    ticker_counts[t]["mention_count"] += 1
+                    ticker_counts[t]["total_score"] += post.score
+                    ticker_counts[t]["subreddits"].add(str(post.subreddit))
+
+            # Sort by mention count
+            results = []
+            for t, data in sorted(ticker_counts.items(),
+                                  key=lambda x: x[1]["mention_count"], reverse=True)[:limit]:
+                results.append({
+                    "ticker": data["ticker"],
+                    "mention_count": data["mention_count"],
+                    "avg_score": data["total_score"] / max(data["mention_count"], 1),
+                    "top_subreddit": max(data["subreddits"], key=lambda s: s) if data["subreddits"] else "",
+                })
+
+            return results
+
+        except Exception as e:
+            logger.debug(f"Reddit trending error: {e}")
+            return []
+
+
+# ============================================================================
+# GOOGLE NEWS RSS SENTIMENT (FREE - NO AUTH)
+# ============================================================================
+
+class GoogleNewsFetcher:
+    """
+    Fetch headline sentiment from Google News RSS.
+
+    FREE - No API key, no rate limit concerns.
+    Parses RSS feed for stock-related headlines.
+
+    URL: https://news.google.com/rss/search?q={TICKER}+stock&hl=en-US
+    """
+
+    def __init__(self, max_headlines: int = 15):
+        self._max_headlines = max_headlines
+        self.is_configured = True  # Always available, no auth needed
+
+    def get_sentiment(self, ticker: str) -> SentimentResult:
+        """Get sentiment from Google News headlines for a ticker."""
+        try:
+            import feedparser
+
+            url = f"https://news.google.com/rss/search?q={ticker}+stock&hl=en-US&gl=US&ceid=US:en"
+            feed = feedparser.parse(url)
+
+            if not feed.entries:
+                return SentimentResult(
+                    ticker=ticker, source="google_news",
+                    sentiment_score=50.0, sentiment_label="neutral",
+                )
+
+            headlines = []
+            bullish = 0
+            bearish = 0
+            neutral = 0
+            sample_messages = []
+
+            for entry in feed.entries[:self._max_headlines]:
+                title = entry.get("title", "")
+                source = entry.get("source", {}).get("title", "") if hasattr(entry, "source") else ""
+                published = entry.get("published", "")
+
+                headlines.append(title)
+                sentiment = self._classify_headline(title)
+
+                if sentiment == "bullish":
+                    bullish += 1
+                elif sentiment == "bearish":
+                    bearish += 1
+                else:
+                    neutral += 1
+
+                if len(sample_messages) < 5:
+                    sample_messages.append({
+                        "text": title[:200],
+                        "sentiment": sentiment,
+                        "created_at": published,
+                        "source": source,
+                    })
+
+            total = len(headlines)
+            sentiment_total = bullish + bearish
+            if sentiment_total > 0:
+                sentiment_score = (bullish / sentiment_total) * 100
+            else:
+                sentiment_score = 50.0
+
+            if sentiment_score >= 60:
+                sentiment_label = "bullish"
+            elif sentiment_score <= 40:
+                sentiment_label = "bearish"
+            else:
+                sentiment_label = "neutral"
+
+            return SentimentResult(
+                ticker=ticker,
+                source="google_news",
+                bullish_count=bullish,
+                bearish_count=bearish,
+                neutral_count=neutral,
+                total_messages=total,
+                sentiment_score=round(sentiment_score, 1),
+                sentiment_label=sentiment_label,
+                trending=total >= 10,
+                sample_messages=sample_messages,
+            )
+
+        except Exception as e:
+            logger.debug(f"Google News error for {ticker}: {e}")
+            return SentimentResult(ticker=ticker, source="google_news", error=str(e))
+
+    def _classify_headline(self, headline: str) -> str:
+        """Keyword-based headline sentiment classification."""
+        h = headline.lower()
+
+        bullish_keywords = [
+            "surge", "soar", "rally", "jump", "gain", "rise", "climb",
+            "upgrade", "beat", "strong", "record", "high", "boost",
+            "outperform", "buy", "bullish", "profit", "growth", "upbeat",
+            "breakout", "momentum", "optimistic", "exceed", "positive",
+        ]
+        bearish_keywords = [
+            "crash", "plunge", "drop", "fall", "decline", "sink", "tumble",
+            "downgrade", "miss", "weak", "low", "cut", "loss", "sell",
+            "bearish", "warning", "concern", "risk", "negative", "slump",
+            "fear", "worry", "plummet", "disappoint", "trouble",
+        ]
+
+        bull_hits = sum(1 for kw in bullish_keywords if kw in h)
+        bear_hits = sum(1 for kw in bearish_keywords if kw in h)
+
+        if bull_hits > bear_hits:
+            return "bullish"
+        elif bear_hits > bull_hits:
+            return "bearish"
+        return "neutral"
+
+
+# ============================================================================
+# GOOGLE TRENDS SEARCH INTEREST (FREE - NO AUTH)
+# ============================================================================
+
+class GoogleTrendsFetcher:
+    """
+    Fetch search interest data from Google Trends.
+
+    FREE - No API key required.
+    Uses pytrends library (unofficial wrapper).
+    Rate limit: ~10 req/min (use delays).
+
+    Query: "{TICKER} stock" with 7-day timeframe.
+    Signal: Current interest vs 7-day average → spike detection.
+    """
+
+    def __init__(self):
+        self._pytrends = None
+        self.is_configured = True
+
+    def _get_pytrends(self):
+        """Lazy-init pytrends."""
+        if self._pytrends is None:
+            try:
+                from pytrends.request import TrendReq
+                self._pytrends = TrendReq(hl='en-US', tz=300)
+            except Exception as e:
+                logger.debug(f"pytrends init failed: {e}")
+                self.is_configured = False
+        return self._pytrends
+
+    def get_search_interest(self, ticker: str) -> dict:
+        """
+        Get Google Trends search interest for a ticker.
+
+        Returns:
+            Dict with interest_now, interest_avg, spike_ratio, is_trending
+        """
+        pt = self._get_pytrends()
+        if pt is None:
+            return {"error": "pytrends not available", "spike_ratio": 1.0, "is_trending": False}
+
+        try:
+            keyword = f"{ticker} stock"
+            pt.build_payload([keyword], timeframe='now 7-d')
+            df = pt.interest_over_time()
+
+            if df.empty:
+                return {"interest_now": 0, "interest_avg": 0, "spike_ratio": 1.0, "is_trending": False}
+
+            values = df[keyword].values
+            interest_now = float(values[-1]) if len(values) > 0 else 0
+            interest_avg = float(values.mean()) if len(values) > 0 else 0
+
+            spike_ratio = interest_now / max(interest_avg, 1)
+            is_trending = spike_ratio > 2.0
+
+            # Convert to 0-100 score
+            # Spike ratio of 1.0 = neutral (50), 2.0+ = bullish (75+), 0.5- = bearish (25-)
+            score = min(100, max(0, 50 + (spike_ratio - 1.0) * 25))
+
+            return {
+                "interest_now": interest_now,
+                "interest_avg": round(interest_avg, 1),
+                "spike_ratio": round(spike_ratio, 2),
+                "is_trending": is_trending,
+                "score": round(score, 1),
+            }
+
+        except Exception as e:
+            logger.debug(f"Google Trends error for {ticker}: {e}")
+            return {"error": str(e), "spike_ratio": 1.0, "is_trending": False, "score": 50.0}
+
+
+# ============================================================================
+# CNN FEAR & GREED INDEX (FREE - NO AUTH)
+# ============================================================================
+
+def get_fear_greed_index() -> dict:
+    """
+    Fetch CNN Fear & Greed Index.
+
+    One API call gives overall market mood (0-100).
+    0 = Extreme Fear, 100 = Extreme Greed.
+
+    Returns:
+        Dict with score, rating, timestamp
+    """
+    try:
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        headers = {"User-Agent": "StockPulse/1.0"}
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if not response.ok:
+            return {"error": f"HTTP {response.status_code}", "score": 50, "rating": "Neutral"}
+
+        data = response.json()
+        fg = data.get("fear_and_greed", {})
+        score = fg.get("score", 50)
+        rating = fg.get("rating", "Neutral")
+
+        return {
+            "score": round(score, 1),
+            "rating": rating,
+            "previous_close": fg.get("previous_close", score),
+            "previous_1_week": fg.get("previous_1_week", score),
+            "previous_1_month": fg.get("previous_1_month", score),
+            "timestamp": fg.get("timestamp", datetime.now().isoformat()),
+        }
+
+    except Exception as e:
+        logger.debug(f"Fear & Greed error: {e}")
+        return {"error": str(e), "score": 50, "rating": "Neutral"}
+
+
+# ============================================================================
+# OPTIONS PUT/CALL RATIO VIA YFINANCE (FREE - EXISTING DEPENDENCY)
+# ============================================================================
+
+class OptionsSentimentFetcher:
+    """
+    Fetch put/call ratio from options data via yfinance.
+
+    FREE - Uses existing yfinance dependency.
+    Put/call ratio: <0.7 = bullish, 0.7-1.0 = neutral, >1.0 = bearish.
+
+    Only run for top 20 tickers (options data is heavy).
+    """
+
+    def __init__(self):
+        self.is_configured = True
+
+    def get_put_call_ratio(self, ticker: str) -> dict:
+        """
+        Get put/call ratio for a ticker.
+
+        Returns:
+            Dict with ratio, score (0-100), label
+        """
+        try:
+            import yfinance as yf
+
+            stock = yf.Ticker(ticker)
+            # Get nearest expiration
+            expirations = stock.options
+            if not expirations:
+                return {"error": "No options data", "ratio": 1.0, "score": 50.0, "label": "neutral"}
+
+            chain = stock.option_chain(expirations[0])
+            put_volume = chain.puts["volume"].sum()
+            call_volume = chain.calls["volume"].sum()
+
+            if call_volume == 0:
+                ratio = 2.0  # Very bearish if no call volume
+            else:
+                ratio = put_volume / call_volume
+
+            # Score: 0.5 ratio = very bullish (80), 1.0 = neutral (50), 1.5 = very bearish (20)
+            score = max(0, min(100, 100 - (ratio * 50)))
+
+            if ratio < 0.7:
+                label = "bullish"
+            elif ratio > 1.0:
+                label = "bearish"
+            else:
+                label = "neutral"
+
+            return {
+                "ratio": round(ratio, 3),
+                "score": round(score, 1),
+                "label": label,
+                "put_volume": int(put_volume) if put_volume == put_volume else 0,
+                "call_volume": int(call_volume) if call_volume == call_volume else 0,
+                "expiration": expirations[0],
+            }
+
+        except Exception as e:
+            logger.debug(f"Options P/C error for {ticker}: {e}")
+            return {"error": str(e), "ratio": 1.0, "score": 50.0, "label": "neutral"}
+
+
+# ============================================================================
+# WIKIPEDIA PAGE VIEWS (FREE - NO AUTH)
+# ============================================================================
+
+class WikipediaFetcher:
+    """
+    Fetch Wikipedia page view data for attention spike detection.
+
+    FREE - No auth, 100 req/sec rate limit (no concern).
+    Page view spikes = retail attention.
+
+    API: Wikimedia REST API
+    """
+
+    # Map tickers to Wikipedia article names
+    TICKER_TO_WIKI = {
+        "AAPL": "Apple_Inc.", "MSFT": "Microsoft", "GOOGL": "Alphabet_Inc.",
+        "AMZN": "Amazon_(company)", "META": "Meta_Platforms", "NVDA": "Nvidia",
+        "TSM": "TSMC", "AVGO": "Broadcom_Inc.", "ORCL": "Oracle_Corporation",
+        "CRM": "Salesforce", "AMD": "AMD", "PLTR": "Palantir_Technologies",
+        "NOW": "ServiceNow", "ADBE": "Adobe_Inc.", "IBM": "IBM",
+        "INTC": "Intel", "MU": "Micron_Technology", "QCOM": "Qualcomm",
+        "ARM": "Arm_Holdings", "TSLA": "Tesla,_Inc.", "ASML": "ASML",
+        "SNOW": "Snowflake_Inc.", "MRVL": "Marvell_Technology",
+    }
+
+    def __init__(self):
+        self.is_configured = True
+
+    def get_page_views(self, ticker: str) -> dict:
+        """
+        Get Wikipedia page views for a ticker's company.
+
+        Returns:
+            Dict with views_today, views_avg_30d, spike_ratio, is_trending, score
+        """
+        article = self.TICKER_TO_WIKI.get(ticker)
+        if not article:
+            return {"error": f"No wiki mapping for {ticker}", "score": 50.0, "is_trending": False}
+
+        try:
+            end = date.today()
+            start_30d = end - timedelta(days=30)
+
+            url = (
+                f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/"
+                f"en.wikipedia/all-access/all-agents/{article}/daily/"
+                f"{start_30d.strftime('%Y%m%d')}/{end.strftime('%Y%m%d')}"
+            )
+            headers = {"User-Agent": "StockPulse/1.0 (sentiment analysis)"}
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if not response.ok:
+                return {"error": f"HTTP {response.status_code}", "score": 50.0, "is_trending": False}
+
+            data = response.json()
+            items = data.get("items", [])
+
+            if not items:
+                return {"error": "No data", "score": 50.0, "is_trending": False}
+
+            views = [item.get("views", 0) for item in items]
+            views_today = views[-1] if views else 0
+            views_avg = sum(views) / len(views) if views else 0
+
+            spike_ratio = views_today / max(views_avg, 1)
+            is_trending = spike_ratio > 2.0
+
+            # Score: spike_ratio 1.0 = neutral (50), 2.0+ = high interest (75+)
+            score = min(100, max(0, 50 + (spike_ratio - 1.0) * 25))
+
+            return {
+                "views_today": views_today,
+                "views_avg_30d": round(views_avg, 0),
+                "spike_ratio": round(spike_ratio, 2),
+                "is_trending": is_trending,
+                "score": round(score, 1),
+                "article": article,
+            }
+
+        except Exception as e:
+            logger.debug(f"Wikipedia error for {ticker}: {e}")
+            return {"error": str(e), "score": 50.0, "is_trending": False}
 
 
 # ============================================================================
@@ -956,9 +1615,14 @@ class SentimentAnalyzer:
     Sources (all FREE except Haiku):
     1. StockTwits (FREE, no API key) - Retail trader sentiment
     2. Finnhub News (FREE tier, API key) - News sentiment
-    3. Finnhub Analyst Ratings (FREE tier) - Professional analyst consensus
-    4. Finnhub Insider Transactions (FREE tier) - Form 4 insider trading
-    5. Haiku AI (PAID - use sparingly) - Intelligent summarization
+    3. Reddit via PRAW (FREE, app credentials) - Retail discussion sentiment
+    4. Google News RSS (FREE, no auth) - Headline sentiment
+    5. Finnhub Analyst Ratings (FREE tier) - Professional analyst consensus
+    6. Finnhub Insider Transactions (FREE tier) - Form 4 insider trading
+    7. Google Trends (FREE, no auth) - Search interest spikes
+    8. Options Put/Call (FREE, yfinance) - Options positioning
+    9. Wikipedia page views (FREE, no auth) - Attention spikes
+    10. Haiku AI (PAID - use sparingly) - Intelligent summarization
 
     Usage:
         analyzer = SentimentAnalyzer()
@@ -973,12 +1637,36 @@ class SentimentAnalyzer:
         results = analyzer.get_bulk_sentiment(["NVDA", "AAPL", "MSFT"])
     """
 
-    def __init__(self):
+    # Default scoring weights (configurable via config.yaml)
+    DEFAULT_WEIGHTS = {
+        "stocktwits": 0.10,
+        "reddit": 0.15,
+        "finnhub_news": 0.05,
+        "google_news": 0.15,
+        "analyst": 0.25,
+        "insider": 0.15,
+        "google_trends": 0.05,
+        "put_call": 0.03,
+        "wiki": 0.02,
+    }
+
+    def __init__(self, config: dict | None = None):
+        self._config = config or {}
+        sentiment_config = self._config.get("sentiment", {})
+
         self.stocktwits = StockTwitsFetcher()
         self.finnhub = FinnhubFetcher()
+        self.reddit = RedditFetcher(sentiment_config.get("reddit", {}))
+        self.google_news = GoogleNewsFetcher()
         self.analyst_ratings = FinnhubAnalystRatings()
         self.insider_txns = FinnhubInsiderTransactions()
+        self.google_trends = GoogleTrendsFetcher()
+        self.options_sentiment = OptionsSentimentFetcher()
+        self.wikipedia = WikipediaFetcher()
         self.haiku = HaikuSentimentAnalyzer()
+
+        # Load weights from config or use defaults
+        self._weights = sentiment_config.get("weights", self.DEFAULT_WEIGHTS)
 
         # Cache results to avoid hammering APIs
         self._cache = {}
@@ -989,6 +1677,35 @@ class SentimentAnalyzer:
         now = datetime.now()
         bucket = now.minute // 5  # 0-11 for each 5-min window in an hour
         return f"{ticker}_{now.strftime('%Y%m%d%H')}_{bucket}"
+
+    def _weighted_score(self, source_scores: dict[str, float]) -> float:
+        """
+        Calculate weighted aggregate score from available sources.
+
+        Sources that aren't available get their weight redistributed
+        proportionally among the sources that are present.
+
+        Args:
+            source_scores: Dict mapping source name to score (0-100)
+
+        Returns:
+            Weighted aggregate score (0-100)
+        """
+        if not source_scores:
+            return 50.0
+
+        total_weight = 0
+        weighted_sum = 0
+
+        for source, score in source_scores.items():
+            weight = self._weights.get(source, 0)
+            if weight > 0:
+                weighted_sum += score * weight
+                total_weight += weight
+
+        if total_weight > 0:
+            return weighted_sum / total_weight
+        return sum(source_scores.values()) / len(source_scores)
 
     def get_sentiment(
         self,
@@ -1011,18 +1728,24 @@ class SentimentAnalyzer:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # Fetch from all sources
+        # Fetch from all social sources
         stocktwits_result = self.stocktwits.get_sentiment(ticker)
         finnhub_result = self.finnhub.get_social_sentiment(ticker) if self.finnhub.is_configured else None
+        reddit_result = self.reddit.get_sentiment(ticker) if self.reddit.is_configured else None
+        google_news_result = self.google_news.get_sentiment(ticker)
 
-        # Calculate aggregate score
-        scores = []
+        # Calculate weighted aggregate score
+        source_scores = {}
         if stocktwits_result and not stocktwits_result.error:
-            scores.append(stocktwits_result.sentiment_score)
+            source_scores["stocktwits"] = stocktwits_result.sentiment_score
         if finnhub_result and not finnhub_result.error:
-            scores.append(finnhub_result.sentiment_score)
+            source_scores["finnhub_news"] = finnhub_result.sentiment_score
+        if reddit_result and not reddit_result.error:
+            source_scores["reddit"] = reddit_result.sentiment_score
+        if google_news_result and not google_news_result.error:
+            source_scores["google_news"] = google_news_result.sentiment_score
 
-        aggregate_score = sum(scores) / len(scores) if scores else 50.0
+        aggregate_score = self._weighted_score(source_scores)
 
         # Determine aggregate label
         if aggregate_score >= 60:
@@ -1055,8 +1778,11 @@ class SentimentAnalyzer:
             "ticker": ticker,
             "aggregate_score": round(aggregate_score, 1),
             "aggregate_label": aggregate_label,
+            "source_scores": source_scores,
             "stocktwits": stocktwits_result.to_dict() if stocktwits_result else None,
             "finnhub": finnhub_result.to_dict() if finnhub_result else None,
+            "reddit": reddit_result.to_dict() if reddit_result else None,
+            "google_news": google_news_result.to_dict() if google_news_result else None,
             "ai_analysis": ai_analysis,
             "fetched_at": datetime.now().isoformat(),
         }
@@ -1085,7 +1811,7 @@ class SentimentAnalyzer:
         Returns:
             Dict with all sentiment data including analyst/insider signals
         """
-        # Get basic sentiment first
+        # Get basic sentiment first (includes social + news sources)
         result = self.get_sentiment(ticker, include_ai_analysis=False, price_context=price_context)
 
         # Add analyst ratings (FREE via Finnhub)
@@ -1108,34 +1834,58 @@ class SentimentAnalyzer:
             except Exception as e:
                 logger.debug(f"Insider transaction error for {ticker}: {e}")
 
-        # Calculate enhanced aggregate score
-        # Weight: Social 40%, Analyst 35%, Insider 25%
-        scores = []
-        weights = []
+        # Add alternative signals
+        trends_data = None
+        try:
+            trends_data = self.google_trends.get_search_interest(ticker)
+            if trends_data.get("error"):
+                trends_data = None
+        except Exception as e:
+            logger.debug(f"Google Trends error for {ticker}: {e}")
 
-        social_score = result.get("aggregate_score", 50)
-        if social_score != 50:  # Has real data
-            scores.append(social_score)
-            weights.append(0.4)
+        putcall_data = None
+        try:
+            putcall_data = self.options_sentiment.get_put_call_ratio(ticker)
+            if putcall_data.get("error"):
+                putcall_data = None
+        except Exception as e:
+            logger.debug(f"Put/call error for {ticker}: {e}")
+
+        wiki_data = None
+        try:
+            wiki_data = self.wikipedia.get_page_views(ticker)
+            if wiki_data.get("error"):
+                wiki_data = None
+        except Exception as e:
+            logger.debug(f"Wikipedia error for {ticker}: {e}")
+
+        # Build full source scores for enhanced weighted scoring
+        source_scores = dict(result.get("source_scores", {}))
 
         if analyst_data and analyst_data.get("total_analysts", 0) > 0:
-            scores.append(analyst_data.get("consensus_score", 50))
-            weights.append(0.35)
+            source_scores["analyst"] = analyst_data.get("consensus_score", 50)
 
         if insider_data and insider_data.get("total_transactions", 0) > 0:
-            scores.append(insider_data.get("insider_score", 50))
-            weights.append(0.25)
+            source_scores["insider"] = insider_data.get("insider_score", 50)
 
-        if scores and weights:
-            # Normalize weights to sum to 1
-            total_weight = sum(weights)
-            enhanced_score = sum(s * w for s, w in zip(scores, weights)) / total_weight
-        else:
-            enhanced_score = social_score
+        if trends_data:
+            source_scores["google_trends"] = trends_data.get("score", 50)
+
+        if putcall_data:
+            source_scores["put_call"] = putcall_data.get("score", 50)
+
+        if wiki_data:
+            source_scores["wiki"] = wiki_data.get("score", 50)
+
+        enhanced_score = self._weighted_score(source_scores)
 
         # Update result with enhanced data
         result["analyst_ratings"] = analyst_data
         result["insider_activity"] = insider_data
+        result["google_trends"] = trends_data
+        result["put_call_ratio"] = putcall_data
+        result["wikipedia"] = wiki_data
+        result["source_scores"] = source_scores
         result["enhanced_score"] = round(enhanced_score, 1)
 
         # Determine enhanced label
@@ -1421,54 +2171,64 @@ class SentimentStorage:
         logger.debug("Sentiment tables initialized")
 
     def store_sentiment(self, ticker: str, sentiment_data: dict) -> bool:
-        """Store sentiment data for a ticker."""
+        """Store sentiment data for a ticker (all sources)."""
         try:
             today = date.today().isoformat()
-
-            # Extract StockTwits data
-            st = sentiment_data.get("stocktwits", {})
             ai = sentiment_data.get("ai_analysis", {})
 
-            self.db.execute("""
-                INSERT INTO sentiment_daily (
-                    ticker, scan_date, source,
-                    bullish_count, bearish_count, neutral_count, total_messages,
-                    sentiment_score, sentiment_label, trending, message_velocity,
-                    sample_messages, ai_summary, ai_recommendation, ai_confidence,
-                    raw_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (ticker, scan_date, source) DO UPDATE SET
-                    bullish_count = excluded.bullish_count,
-                    bearish_count = excluded.bearish_count,
-                    neutral_count = excluded.neutral_count,
-                    total_messages = excluded.total_messages,
-                    sentiment_score = excluded.sentiment_score,
-                    sentiment_label = excluded.sentiment_label,
-                    trending = excluded.trending,
-                    message_velocity = excluded.message_velocity,
-                    sample_messages = excluded.sample_messages,
-                    ai_summary = excluded.ai_summary,
-                    ai_recommendation = excluded.ai_recommendation,
-                    ai_confidence = excluded.ai_confidence,
-                    raw_data = excluded.raw_data
-            """, (
-                ticker,
-                today,
-                "stocktwits",
-                st.get("bullish_count", 0),
-                st.get("bearish_count", 0),
-                st.get("neutral_count", 0),
-                st.get("total_messages", 0),
-                sentiment_data.get("aggregate_score", 50.0),
-                sentiment_data.get("aggregate_label", "neutral"),
-                1 if st.get("trending", False) else 0,
-                st.get("message_velocity", 0.0),
-                json.dumps(st.get("sample_messages", [])),
-                ai.get("summary", "") if ai else "",
-                ai.get("recommendation", "neutral") if ai else "neutral",
-                ai.get("confidence", 0) if ai else 0,
-                json.dumps(sentiment_data),
-            ))
+            # Store each source separately in sentiment_daily
+            sources_to_store = [
+                ("stocktwits", sentiment_data.get("stocktwits", {})),
+                ("reddit", sentiment_data.get("reddit", {})),
+                ("google_news", sentiment_data.get("google_news", {})),
+                ("finnhub", sentiment_data.get("finnhub", {})),
+            ]
+
+            for source_name, source_data in sources_to_store:
+                if not source_data or source_data.get("error"):
+                    continue
+
+                self.db.execute("""
+                    INSERT INTO sentiment_daily (
+                        ticker, scan_date, source,
+                        bullish_count, bearish_count, neutral_count, total_messages,
+                        sentiment_score, sentiment_label, trending, message_velocity,
+                        sample_messages, ai_summary, ai_recommendation, ai_confidence,
+                        raw_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (ticker, scan_date, source) DO UPDATE SET
+                        bullish_count = excluded.bullish_count,
+                        bearish_count = excluded.bearish_count,
+                        neutral_count = excluded.neutral_count,
+                        total_messages = excluded.total_messages,
+                        sentiment_score = excluded.sentiment_score,
+                        sentiment_label = excluded.sentiment_label,
+                        trending = excluded.trending,
+                        message_velocity = excluded.message_velocity,
+                        sample_messages = excluded.sample_messages,
+                        ai_summary = excluded.ai_summary,
+                        ai_recommendation = excluded.ai_recommendation,
+                        ai_confidence = excluded.ai_confidence,
+                        raw_data = excluded.raw_data
+                """, (
+                    ticker,
+                    today,
+                    source_name,
+                    source_data.get("bullish_count", 0),
+                    source_data.get("bearish_count", 0),
+                    source_data.get("neutral_count", 0),
+                    source_data.get("total_messages", 0),
+                    source_data.get("sentiment_score", 50.0),
+                    source_data.get("sentiment_label", "neutral"),
+                    1 if source_data.get("trending", False) else 0,
+                    source_data.get("message_velocity", 0.0),
+                    json.dumps(source_data.get("sample_messages", [])),
+                    ai.get("summary", "") if ai and source_name == "stocktwits" else "",
+                    ai.get("recommendation", "neutral") if ai and source_name == "stocktwits" else "neutral",
+                    ai.get("confidence", 0) if ai and source_name == "stocktwits" else 0,
+                    json.dumps(sentiment_data),
+                ))
+
             return True
 
         except Exception as e:
@@ -1829,6 +2589,38 @@ def run_daily_sentiment_scan(
 
         except Exception as e:
             logger.debug(f"Enhanced signal error for {ticker}: {e}")
+
+    # Fetch alternative signals (Google Trends, Put/Call, Wikipedia)
+    logger.info("Fetching alternative signals (trends, options, wiki)...")
+    for ticker in target_tickers[:20]:  # Limit to top 20 for heavier sources
+        try:
+            # Google Trends (rate limited, go slow)
+            trends = analyzer.google_trends.get_search_interest(ticker)
+            if not trends.get("error"):
+                storage.store_signal(ticker, "google_trends", trends)
+            time.sleep(1)  # Be nice to Google
+
+            # Options put/call ratio
+            putcall = analyzer.options_sentiment.get_put_call_ratio(ticker)
+            if not putcall.get("error"):
+                storage.store_signal(ticker, "put_call_ratio", putcall)
+
+            # Wikipedia page views
+            wiki = analyzer.wikipedia.get_page_views(ticker)
+            if not wiki.get("error"):
+                storage.store_signal(ticker, "wiki_attention", wiki)
+
+        except Exception as e:
+            logger.debug(f"Alternative signal error for {ticker}: {e}")
+
+    # Fetch Fear & Greed Index (one global call)
+    logger.info("Fetching CNN Fear & Greed Index...")
+    try:
+        fg = get_fear_greed_index()
+        if not fg.get("error"):
+            storage.store_signal("_MARKET", "fear_greed", fg)
+    except Exception as e:
+        logger.debug(f"Fear & Greed error: {e}")
 
     # Run AI analysis on most extreme sentiment stocks (LIMIT TO SAVE COSTS)
     # Only analyze top 3 bullish + top 3 bearish = 6 Haiku calls max

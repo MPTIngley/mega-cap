@@ -2870,6 +2870,34 @@ def render_ai_stocks_page(services: dict):
     st.title("🤖 AI Stocks")
     st.markdown("AI universe stocks ranked by opportunity score. Pullbacks + oversold = higher scores.")
 
+    # Market Mood Banner (Fear & Greed Index)
+    try:
+        from stockpulse.data.sentiment import SentimentStorage as _FGStorage
+        _fg_storage = _FGStorage()
+        _fg_data = _fg_storage.get_signals(["_MARKET"]).get("_MARKET", {}).get("fear_greed", {})
+        _fg_score = _fg_data.get("data", {}).get("score", 0) if _fg_data else 0
+        _fg_rating = _fg_data.get("data", {}).get("rating", "") if _fg_data else ""
+        if _fg_score > 0:
+            if _fg_score >= 75:
+                _fg_color, _fg_emoji = "#22c55e", "🟢"
+            elif _fg_score >= 55:
+                _fg_color, _fg_emoji = "#fbbf24", "🟡"
+            elif _fg_score >= 25:
+                _fg_color, _fg_emoji = "#f97316", "🟠"
+            else:
+                _fg_color, _fg_emoji = "#ef4444", "🔴"
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, #1e293b, #0f172a); padding: 10px 20px; border-radius: 8px;
+                        border: 1px solid #334155; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 15px;">
+                <span style="color: #94a3b8; font-size: 13px;">Market Mood</span>
+                <span style="color: {_fg_color}; font-weight: bold; font-size: 18px;">{_fg_emoji} {_fg_score:.0f}</span>
+                <span style="color: {_fg_color}; font-size: 13px;">{_fg_rating}</span>
+                <span style="color: #475569; font-size: 11px;">CNN Fear & Greed Index</span>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception:
+        pass
+
     # Scoring methodology
     with st.expander("📊 Scoring Methodology (click to expand)"):
         st.markdown("""
@@ -2964,6 +2992,34 @@ def render_ai_stocks_page(services: dict):
         best = ai_stocks[0] if ai_stocks else None
         st.metric("Top Pick", best.get("ticker", "N/A") if best else "N/A")
 
+    # Sentiment Sources Overview
+    with st.expander("📡 Sentiment Sources Overview", expanded=False):
+        _source_cols = st.columns(5)
+        _st_count = sum(1 for t, d in sentiment_data.items() if d.get("stocktwits", {}).get("total_messages", 0) > 0)
+        _reddit_count = sum(1 for t, d in sentiment_data.items() if d.get("reddit", {}).get("total_messages", 0) > 0)
+        _news_count = sum(1 for t, d in sentiment_data.items() if d.get("google_news", {}).get("total_messages", 0) > 0)
+        with _source_cols[0]:
+            st.metric("StockTwits", f"{_st_count} stocks")
+        with _source_cols[1]:
+            st.metric("Reddit", f"{_reddit_count} stocks")
+        with _source_cols[2]:
+            st.metric("Google News", f"{_news_count} stocks")
+        with _source_cols[3]:
+            # Load signals to check for analyst/insider data
+            try:
+                _sig_storage = SentimentStorage() if 'SentimentStorage' not in dir() else storage
+                _signals = _sig_storage.get_signals([s.get("ticker") for s in ai_stocks[:20]])
+                _analyst_count = sum(1 for t, d in _signals.items() if "analyst_rating" in d)
+                st.metric("Analyst Ratings", f"{_analyst_count} stocks")
+            except Exception:
+                st.metric("Analyst Ratings", "—")
+        with _source_cols[4]:
+            try:
+                _insider_count = sum(1 for t, d in _signals.items() if "insider_txn" in d)
+                st.metric("Insider Data", f"{_insider_count} stocks")
+            except Exception:
+                st.metric("Insider Data", "—")
+
     # Top picks (Score 65+, pullback)
     st.markdown("---")
     st.subheader("🎯 Top AI Stock Picks")
@@ -3044,10 +3100,30 @@ def render_ai_stocks_page(services: dict):
     if cat_rows:
         st.dataframe(pd.DataFrame(cat_rows), use_container_width=True, hide_index=True)
 
+    # Reddit Buzz Section
+    _reddit_buzz = []
+    for ticker, sent in sentiment_data.items():
+        reddit_data = sent.get("reddit", {})
+        if reddit_data and reddit_data.get("total_messages", 0) > 0:
+            _reddit_buzz.append({
+                "Ticker": ticker,
+                "Mentions": reddit_data.get("total_messages", 0),
+                "Sentiment": f"{'🟢' if reddit_data.get('sentiment_label') == 'bullish' else '🔴' if reddit_data.get('sentiment_label') == 'bearish' else '🟡'} {reddit_data.get('sentiment_score', 50):.0f}",
+                "Trending": "📈" if reddit_data.get("trending") else "",
+                "Velocity": f"{reddit_data.get('message_velocity', 0):.1f}/hr",
+            })
+
+    if _reddit_buzz:
+        st.markdown("---")
+        st.subheader("🔥 Reddit Buzz")
+        st.caption("Most-discussed AI stocks on Reddit today (r/wallstreetbets, r/stocks, r/investing)")
+        _reddit_buzz.sort(key=lambda x: x["Mentions"], reverse=True)
+        st.dataframe(pd.DataFrame(_reddit_buzz[:10]), use_container_width=True, hide_index=True)
+
     # Social Sentiment Summary section
     st.markdown("---")
     st.subheader("📊 Social Sentiment Summary")
-    st.caption("Sentiment from StockTwits - sorted by score. AI analysis available for top movers.")
+    st.caption("Sentiment across all sources - sorted by score. AI analysis available for top movers.")
 
     # Get sentiment with details for display
     sentiment_with_details = []
@@ -3211,15 +3287,31 @@ def render_ai_stocks_page(services: dict):
             st.markdown("#### Score Breakdown")
             breakdown = stock_data.get("score_breakdown", {})
             if breakdown:
-                breakdown_rows = []
-                for factor, data in breakdown.items():
-                    if factor != "total":
-                        breakdown_rows.append({
-                            "Factor": data.get("label", factor),
-                            "Points": f"{data.get('points', 0):+d}",
-                            "Value": data.get("raw_value", "—")
-                        })
-                st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+                _breakdown_col1, _breakdown_col2 = st.columns([1, 1])
+                with _breakdown_col1:
+                    breakdown_rows = []
+                    for factor, data in breakdown.items():
+                        if factor != "total":
+                            breakdown_rows.append({
+                                "Factor": data.get("label", factor),
+                                "Points": f"{data.get('points', 0):+d}",
+                                "Value": data.get("raw_value", "—")
+                            })
+                    st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+
+                # Score radar chart
+                with _breakdown_col2:
+                    try:
+                        from stockpulse.dashboard.charts import create_score_radar_chart
+                        _radar_scores = {}
+                        for factor, data in breakdown.items():
+                            if factor != "total":
+                                _radar_scores[data.get("label", factor)] = abs(data.get("points", 0))
+                        if _radar_scores:
+                            _radar_fig = create_score_radar_chart(_radar_scores, selected_ticker)
+                            st.plotly_chart(_radar_fig, use_container_width=True)
+                    except Exception:
+                        pass
 
             # Sentiment Analysis section for selected stock
             st.markdown("#### Social Sentiment")
@@ -3228,6 +3320,8 @@ def render_ai_stocks_page(services: dict):
                 sent_score = ticker_sent.get("aggregate_score", 50)
                 sent_label = ticker_sent.get("aggregate_label", "neutral")
                 st_data = ticker_sent.get("stocktwits", {})
+                reddit_data = ticker_sent.get("reddit", {})
+                gnews_data = ticker_sent.get("google_news", {})
                 ai_data = ticker_sent.get("ai_analysis", {})
 
                 # Sentiment metrics
@@ -3236,24 +3330,74 @@ def render_ai_stocks_page(services: dict):
                     emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
                     st.metric("Sentiment Score", f"{emoji} {sent_score:.0f}")
                 with scol2:
-                    st.metric("Bullish Messages", st_data.get("bullish_count", 0))
+                    _total_bull = st_data.get("bullish_count", 0) + (reddit_data.get("bullish_count", 0) if reddit_data else 0)
+                    st.metric("Bullish Messages", _total_bull)
                 with scol3:
-                    st.metric("Bearish Messages", st_data.get("bearish_count", 0))
+                    _total_bear = st_data.get("bearish_count", 0) + (reddit_data.get("bearish_count", 0) if reddit_data else 0)
+                    st.metric("Bearish Messages", _total_bear)
                 with scol4:
-                    trending = "📈 Yes" if st_data.get("trending", False) else "No"
+                    _is_trending = st_data.get("trending", False) or (reddit_data.get("trending", False) if reddit_data else False)
+                    trending = "📈 Yes" if _is_trending else "No"
                     st.metric("Trending", trending)
+
+                # Per-source breakdown
+                with st.expander("📡 Source Breakdown"):
+                    _src_rows = []
+                    if st_data and st_data.get("total_messages", 0) > 0:
+                        _src_rows.append({"Source": "StockTwits", "Score": f"{st_data.get('sentiment_score', 50):.0f}",
+                                          "Bull": st_data.get("bullish_count", 0), "Bear": st_data.get("bearish_count", 0),
+                                          "Total": st_data.get("total_messages", 0), "Trending": "📈" if st_data.get("trending") else ""})
+                    if reddit_data and reddit_data.get("total_messages", 0) > 0:
+                        _src_rows.append({"Source": "Reddit", "Score": f"{reddit_data.get('sentiment_score', 50):.0f}",
+                                          "Bull": reddit_data.get("bullish_count", 0), "Bear": reddit_data.get("bearish_count", 0),
+                                          "Total": reddit_data.get("total_messages", 0), "Trending": "📈" if reddit_data.get("trending") else ""})
+                    if gnews_data and gnews_data.get("total_messages", 0) > 0:
+                        _src_rows.append({"Source": "Google News", "Score": f"{gnews_data.get('sentiment_score', 50):.0f}",
+                                          "Bull": gnews_data.get("bullish_count", 0), "Bear": gnews_data.get("bearish_count", 0),
+                                          "Total": gnews_data.get("total_messages", 0), "Trending": ""})
+                    # Load signals for this ticker
+                    try:
+                        _det_signals = storage.get_signals([selected_ticker]).get(selected_ticker, {})
+                        _analyst = _det_signals.get("analyst_rating", {}).get("data", {})
+                        if _analyst and _analyst.get("total_analysts", 0) > 0:
+                            _src_rows.append({"Source": "Analyst Ratings", "Score": f"{_analyst.get('consensus_score', 50):.0f}",
+                                              "Bull": _analyst.get("buy", 0) + _analyst.get("strong_buy", 0),
+                                              "Bear": _analyst.get("sell", 0) + _analyst.get("strong_sell", 0),
+                                              "Total": _analyst.get("total_analysts", 0), "Trending": ""})
+                        _insider = _det_signals.get("insider_txn", {}).get("data", {})
+                        if _insider and _insider.get("total_transactions", 0) > 0:
+                            _src_rows.append({"Source": "Insider Activity", "Score": f"{_insider.get('insider_score', 50):.0f}",
+                                              "Bull": _insider.get("buy_transactions", 0),
+                                              "Bear": _insider.get("sell_transactions", 0),
+                                              "Total": _insider.get("total_transactions", 0), "Trending": ""})
+                    except Exception:
+                        pass
+                    if _src_rows:
+                        st.dataframe(pd.DataFrame(_src_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("No per-source breakdown available")
 
                 # AI Analysis
                 if ai_data and ai_data.get("summary"):
                     st.markdown("**AI Analysis:**")
                     st.info(ai_data.get("summary", ""))
 
-                # Sample messages
-                sample_msgs = st_data.get("sample_messages", [])
-                if sample_msgs:
-                    with st.expander("📝 Sample Messages from StockTwits"):
-                        for msg in sample_msgs[:5]:
-                            st.caption(f"• {msg}")
+                # Sample messages from all sources
+                _all_samples = []
+                for msg in st_data.get("sample_messages", [])[:3]:
+                    _all_samples.append(("StockTwits", msg))
+                if reddit_data:
+                    for msg in reddit_data.get("sample_messages", [])[:3]:
+                        _all_samples.append(("Reddit", msg))
+                if gnews_data:
+                    for msg in gnews_data.get("sample_messages", [])[:2]:
+                        _all_samples.append(("News", msg))
+                if _all_samples:
+                    with st.expander("📝 Sample Messages"):
+                        for source_name, msg in _all_samples:
+                            _s_icon = "🟢" if msg.get("sentiment") in ("Bullish", "bullish") else "🔴" if msg.get("sentiment") in ("Bearish", "bearish") else "🟡"
+                            _text = msg.get("text", str(msg))[:150] if isinstance(msg, dict) else str(msg)[:150]
+                            st.caption(f"[{source_name}] {_s_icon} {_text}")
             else:
                 st.caption("No sentiment data available for this stock. Run `stockpulse sentiment-scan` to fetch.")
 
@@ -3641,6 +3785,45 @@ def render_ai_theses_page(services: dict):
                     st.info(last_research[:500] + "..." if len(last_research) > 500 else last_research)
                 else:
                     st.caption("No research analysis yet. Run `stockpulse ai-scan` to generate.")
+
+            # Council Perspectives (if available)
+            thesis_id = thesis.get("id")
+            if thesis_id:
+                try:
+                    # Get council verdict
+                    _verdict_df = db.fetchdf("""
+                        SELECT * FROM council_verdicts
+                        WHERE thesis_id = ? ORDER BY research_date DESC LIMIT 1
+                    """, (thesis_id,))
+
+                    _persp_df = db.fetchdf("""
+                        SELECT * FROM council_perspectives
+                        WHERE thesis_id = ? ORDER BY research_date DESC LIMIT 6
+                    """, (thesis_id,))
+
+                    if not _verdict_df.empty:
+                        _v = _verdict_df.iloc[0]
+                        _agreement = _v.get("agreement_score", 0)
+                        _dissent = _v.get("dissenting_views", "")
+                        st.markdown(f"**Council Consensus:** {_v.get('consensus', 'N/A')} "
+                                    f"(Agreement: {_agreement:.0f}%)")
+                        if _dissent:
+                            st.caption(f"Dissenting views: {_dissent[:200]}")
+
+                    if not _persp_df.empty:
+                        with st.expander(f"🗣️ Council Perspectives ({len(_persp_df)} agents)"):
+                            _p_cols = st.columns(min(len(_persp_df), 3))
+                            for _p_idx, (_, _p_row) in enumerate(_persp_df.iterrows()):
+                                with _p_cols[_p_idx % 3]:
+                                    _p_rec = _p_row.get("recommendation", "neutral")
+                                    _p_icon = "📈" if _p_rec == "bullish" else "📉" if _p_rec == "bearish" else "➡️"
+                                    _p_conf = _p_row.get("confidence", 0)
+                                    _p_name = str(_p_row.get("perspective", "Agent")).title()
+                                    st.markdown(f"**{_p_icon} {_p_name}** — {_p_rec.upper()} ({_p_conf:.0f}%)")
+                                    _p_text = str(_p_row.get("analysis", ""))[:200]
+                                    st.caption(_p_text + "..." if len(str(_p_row.get("analysis", ""))) > 200 else _p_text)
+                except Exception:
+                    pass
 
             if updated_at:
                 st.caption(f"Last updated: {updated_at}")

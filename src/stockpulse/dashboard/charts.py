@@ -387,6 +387,139 @@ def create_pnl_distribution(trades_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def create_sentiment_trend_chart(
+    sentiment_history: list[dict],
+    ticker: str = "",
+) -> go.Figure:
+    """
+    Create a line chart of sentiment score over time.
+
+    Args:
+        sentiment_history: List of dicts with 'scan_date' and 'sentiment_score' keys.
+                          Can also have per-source scores.
+        ticker: Ticker name for title (empty = "AI Universe")
+
+    Returns:
+        Plotly Figure
+    """
+    if not sentiment_history:
+        fig = go.Figure()
+        fig.update_layout(**ChartTheme.get_layout("No sentiment history data", height=300))
+        return fig
+
+    df = pd.DataFrame(sentiment_history)
+
+    fig = go.Figure()
+
+    # Main aggregate line
+    if "sentiment_score" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["scan_date"],
+            y=df["sentiment_score"],
+            mode="lines+markers",
+            name="Aggregate",
+            line=dict(color=ChartTheme.PRIMARY_COLOR, width=3),
+            marker=dict(size=6),
+        ))
+
+    # Per-source lines if available
+    source_colors = {
+        "stocktwits": "#f59e0b",
+        "reddit": "#ef4444",
+        "google_news": "#22c55e",
+        "finnhub": "#a855f7",
+    }
+    for source, color in source_colors.items():
+        col = f"{source}_score"
+        if col in df.columns:
+            fig.add_trace(go.Scatter(
+                x=df["scan_date"],
+                y=df[col],
+                mode="lines",
+                name=source.replace("_", " ").title(),
+                line=dict(color=color, width=1.5, dash="dot"),
+                opacity=0.7,
+            ))
+
+    # Neutral reference line
+    fig.add_hline(y=50, line_dash="dash", line_color=ChartTheme.NEUTRAL_COLOR, opacity=0.5)
+
+    title = f"{ticker} Sentiment Trend" if ticker else "Sentiment Trend (14d)"
+    layout = ChartTheme.get_layout(title, height=350)
+    layout["yaxis_title"] = "Sentiment Score"
+    layout["yaxis_range"] = [0, 100]
+
+    fig.update_layout(**layout)
+    return fig
+
+
+def create_score_radar_chart(
+    scores: dict[str, float],
+    ticker: str = "",
+) -> go.Figure:
+    """
+    Create a radar/spider chart for AI scoring factors.
+
+    Args:
+        scores: Dict mapping factor name to score (0-100 or point value)
+        ticker: Ticker name for title
+
+    Returns:
+        Plotly Figure
+    """
+    if not scores:
+        fig = go.Figure()
+        fig.update_layout(**ChartTheme.get_layout("No score data", height=350))
+        return fig
+
+    categories = list(scores.keys())
+    values = list(scores.values())
+    # Close the polygon
+    categories.append(categories[0])
+    values.append(values[0])
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatterpolar(
+        r=values,
+        theta=categories,
+        fill="toself",
+        fillcolor="rgba(59, 130, 246, 0.2)",
+        line=dict(color=ChartTheme.PRIMARY_COLOR, width=2),
+        marker=dict(size=6, color=ChartTheme.PRIMARY_COLOR),
+        name=ticker or "Score",
+    ))
+
+    title = f"{ticker} Score Breakdown" if ticker else "Score Breakdown"
+    fig.update_layout(
+        polar=dict(
+            bgcolor=ChartTheme.BACKGROUND,
+            radialaxis=dict(
+                visible=True,
+                range=[0, max(values) * 1.2] if values else [0, 100],
+                gridcolor=ChartTheme.GRID_COLOR,
+                tickfont=dict(color=ChartTheme.TEXT_COLOR, size=10),
+            ),
+            angularaxis=dict(
+                gridcolor=ChartTheme.GRID_COLOR,
+                tickfont=dict(color=ChartTheme.TEXT_COLOR, size=11),
+            ),
+        ),
+        paper_bgcolor=ChartTheme.PAPER_BG,
+        font=dict(family=ChartTheme.FONT_FAMILY, color=ChartTheme.TEXT_COLOR),
+        title=dict(
+            text=title,
+            font=dict(size=ChartTheme.TITLE_SIZE, color=ChartTheme.TEXT_COLOR),
+            x=0.5, xanchor="center",
+        ),
+        height=400,
+        margin=dict(l=60, r=60, t=60, b=60),
+        showlegend=False,
+    )
+
+    return fig
+
+
 def create_sector_allocation(positions_df: pd.DataFrame, universe_df: pd.DataFrame) -> go.Figure:
     """Create a pie chart of sector allocation."""
     # Merge with universe to get sectors
