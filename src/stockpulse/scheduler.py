@@ -357,25 +357,10 @@ class StockPulseScheduler:
                 max_instances=1
             )
 
-        # AI Thesis scanner - 17:30 ET on weekdays (uses cached sentiment data)
-        ai_config = self.config.get("ai_pulse", {})
-        if ai_config.get("enabled", True):
-            run_time = ai_config.get("run_time", "17:30").split(":")
-            self.scheduler.add_job(
-                self._run_ai_pulse_scan_job,
-                CronTrigger(
-                    hour=int(run_time[0]),
-                    minute=int(run_time[1]),
-                    day_of_week="mon-fri",
-                    timezone=self.timezone
-                ),
-                id="ai_thesis_scan",
-                name="AI Thesis research scanner",
-                replace_existing=True,
-                misfire_grace_time=7200,  # 2 hours - allow late start
-                coalesce=True,
-                max_instances=1
-            )
+        # AI Thesis scanner - now chained after sentiment scan (no separate cron job)
+        # Previously ran at 17:30 ET, but the 28-min gap after sentiment (17:00)
+        # meant the scheduler could be killed before AI Pulse fired.
+        # Now on_sentiment_scan() calls on_ai_scan() directly after caching.
 
         # Daily digest email - configured time (default 17:00 ET)
         alerts_config = self.config.get("alerts", {})

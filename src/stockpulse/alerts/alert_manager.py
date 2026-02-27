@@ -2372,49 +2372,6 @@ class AlertManager:
         except Exception:
             pass
 
-        # Reddit buzz section
-        reddit_buzz_html = ""
-        try:
-            _reddit_stocks = []
-            for t, sd in sentiment_data.items():
-                rd = sd.get("reddit", {})
-                if rd and rd.get("total_messages", 0) > 0:
-                    _reddit_stocks.append({
-                        "ticker": t,
-                        "mentions": rd.get("total_messages", 0),
-                        "score": rd.get("sentiment_score", 50),
-                        "label": rd.get("sentiment_label", "neutral"),
-                    })
-            _reddit_stocks.sort(key=lambda x: x["mentions"], reverse=True)
-
-            if _reddit_stocks:
-                _r_rows = ""
-                for rs in _reddit_stocks[:5]:
-                    _r_emoji = "🟢" if rs["label"] == "bullish" else "🔴" if rs["label"] == "bearish" else "🟡"
-                    _r_rows += f"""
-                    <tr>
-                        <td><strong>{rs['ticker']}</strong></td>
-                        <td style="text-align: center;">{rs['mentions']}</td>
-                        <td style="text-align: center; color: {'#22c55e' if rs['label'] == 'bullish' else '#ef4444' if rs['label'] == 'bearish' else '#eab308'};">
-                            {_r_emoji} {rs['score']:.0f}
-                        </td>
-                    </tr>
-                    """
-                reddit_buzz_html = f"""
-                <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 15px; margin: 20px 0;">
-                    <h3 style="color: #c2410c; margin: 0 0 10px 0; font-size: 16px;">🔥 Reddit Buzz (Top 5)</h3>
-                    <p style="font-size: 12px; color: #9a3412; margin: 0 0 10px 0;">
-                        Most-discussed AI stocks on Reddit today
-                    </p>
-                    <table style="width: 100%;">
-                        <tr><th>Ticker</th><th style="text-align: center;">Mentions</th><th style="text-align: center;">Sentiment</th></tr>
-                        {_r_rows}
-                    </table>
-                </div>
-                """
-        except Exception:
-            pass
-
         # Sentiment reversal alerts
         reversal_html = ""
         try:
@@ -2537,8 +2494,6 @@ class AlertManager:
                 {thesis_html}
 
                 {sentiment_html}
-
-                {reddit_buzz_html}
 
                 {reversal_html}
 

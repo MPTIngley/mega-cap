@@ -538,7 +538,7 @@ def format_sentiment(sentiment_data: dict, ticker: str) -> str:
     Returns:
         Formatted string like "🟢 72" or "—" if no data
     """
-    sent = sentiment_data.get(ticker, {})
+    sent = sentiment_data.get(ticker) or {}
     sent_score = sent.get("aggregate_score", 0)
     sent_label = sent.get("aggregate_label", "")
     if sent_score > 0:
@@ -2995,14 +2995,11 @@ def render_ai_stocks_page(services: dict):
     # Sentiment Sources Overview
     with st.expander("📡 Sentiment Sources Overview", expanded=False):
         _source_cols = st.columns(5)
-        _st_count = sum(1 for t, d in sentiment_data.items() if d.get("stocktwits", {}).get("total_messages", 0) > 0)
-        _reddit_count = sum(1 for t, d in sentiment_data.items() if d.get("reddit", {}).get("total_messages", 0) > 0)
-        _news_count = sum(1 for t, d in sentiment_data.items() if d.get("google_news", {}).get("total_messages", 0) > 0)
+        _st_count = sum(1 for t, d in sentiment_data.items() if d and (d.get("stocktwits") or {}).get("total_messages", 0) > 0)
+        _news_count = sum(1 for t, d in sentiment_data.items() if d and (d.get("google_news") or {}).get("total_messages", 0) > 0)
         with _source_cols[0]:
             st.metric("StockTwits", f"{_st_count} stocks")
         with _source_cols[1]:
-            st.metric("Reddit", f"{_reddit_count} stocks")
-        with _source_cols[2]:
             st.metric("Google News", f"{_news_count} stocks")
         with _source_cols[3]:
             # Load signals to check for analyst/insider data
@@ -3073,7 +3070,7 @@ def render_ai_stocks_page(services: dict):
         cat_sent_scores = []
         for s in stocks:
             ticker = s.get("ticker", "")
-            sent = sentiment_data.get(ticker, {})
+            sent = sentiment_data.get(ticker) or {}
             if sent.get("aggregate_score", 0) > 0:
                 cat_sent_scores.append(sent.get("aggregate_score", 50))
 
@@ -3100,26 +3097,6 @@ def render_ai_stocks_page(services: dict):
     if cat_rows:
         st.dataframe(pd.DataFrame(cat_rows), use_container_width=True, hide_index=True)
 
-    # Reddit Buzz Section
-    _reddit_buzz = []
-    for ticker, sent in sentiment_data.items():
-        reddit_data = sent.get("reddit", {})
-        if reddit_data and reddit_data.get("total_messages", 0) > 0:
-            _reddit_buzz.append({
-                "Ticker": ticker,
-                "Mentions": reddit_data.get("total_messages", 0),
-                "Sentiment": f"{'🟢' if reddit_data.get('sentiment_label') == 'bullish' else '🔴' if reddit_data.get('sentiment_label') == 'bearish' else '🟡'} {reddit_data.get('sentiment_score', 50):.0f}",
-                "Trending": "📈" if reddit_data.get("trending") else "",
-                "Velocity": f"{reddit_data.get('message_velocity', 0):.1f}/hr",
-            })
-
-    if _reddit_buzz:
-        st.markdown("---")
-        st.subheader("🔥 Reddit Buzz")
-        st.caption("Most-discussed AI stocks on Reddit today (r/wallstreetbets, r/stocks, r/investing)")
-        _reddit_buzz.sort(key=lambda x: x["Mentions"], reverse=True)
-        st.dataframe(pd.DataFrame(_reddit_buzz[:10]), use_container_width=True, hide_index=True)
-
     # Social Sentiment Summary section
     st.markdown("---")
     st.subheader("📊 Social Sentiment Summary")
@@ -3128,9 +3105,11 @@ def render_ai_stocks_page(services: dict):
     # Get sentiment with details for display
     sentiment_with_details = []
     for ticker, sent in sentiment_data.items():
+        if not sent:
+            continue
         if sent.get("aggregate_score", 0) > 0:
-            st_data = sent.get("stocktwits", {})
-            ai_data = sent.get("ai_analysis", {})
+            st_data = sent.get("stocktwits") or {}
+            ai_data = sent.get("ai_analysis") or {}
             sentiment_with_details.append({
                 "ticker": ticker,
                 "score": sent.get("aggregate_score", 50),
@@ -3315,14 +3294,13 @@ def render_ai_stocks_page(services: dict):
 
             # Sentiment Analysis section for selected stock
             st.markdown("#### Social Sentiment")
-            ticker_sent = sentiment_data.get(selected_ticker, {})
+            ticker_sent = sentiment_data.get(selected_ticker) or {}
             if ticker_sent.get("aggregate_score", 0) > 0:
                 sent_score = ticker_sent.get("aggregate_score", 50)
                 sent_label = ticker_sent.get("aggregate_label", "neutral")
-                st_data = ticker_sent.get("stocktwits", {})
-                reddit_data = ticker_sent.get("reddit", {})
-                gnews_data = ticker_sent.get("google_news", {})
-                ai_data = ticker_sent.get("ai_analysis", {})
+                st_data = ticker_sent.get("stocktwits") or {}
+                gnews_data = ticker_sent.get("google_news") or {}
+                ai_data = ticker_sent.get("ai_analysis") or {}
 
                 # Sentiment metrics
                 scol1, scol2, scol3, scol4 = st.columns(4)
@@ -3330,14 +3308,11 @@ def render_ai_stocks_page(services: dict):
                     emoji = "🟢" if sent_label == "bullish" else ("🔴" if sent_label == "bearish" else "🟡")
                     st.metric("Sentiment Score", f"{emoji} {sent_score:.0f}")
                 with scol2:
-                    _total_bull = st_data.get("bullish_count", 0) + (reddit_data.get("bullish_count", 0) if reddit_data else 0)
-                    st.metric("Bullish Messages", _total_bull)
+                    st.metric("Bullish Messages", st_data.get("bullish_count", 0))
                 with scol3:
-                    _total_bear = st_data.get("bearish_count", 0) + (reddit_data.get("bearish_count", 0) if reddit_data else 0)
-                    st.metric("Bearish Messages", _total_bear)
+                    st.metric("Bearish Messages", st_data.get("bearish_count", 0))
                 with scol4:
-                    _is_trending = st_data.get("trending", False) or (reddit_data.get("trending", False) if reddit_data else False)
-                    trending = "📈 Yes" if _is_trending else "No"
+                    trending = "📈 Yes" if st_data.get("trending", False) else "No"
                     st.metric("Trending", trending)
 
                 # Per-source breakdown
@@ -3347,24 +3322,20 @@ def render_ai_stocks_page(services: dict):
                         _src_rows.append({"Source": "StockTwits", "Score": f"{st_data.get('sentiment_score', 50):.0f}",
                                           "Bull": st_data.get("bullish_count", 0), "Bear": st_data.get("bearish_count", 0),
                                           "Total": st_data.get("total_messages", 0), "Trending": "📈" if st_data.get("trending") else ""})
-                    if reddit_data and reddit_data.get("total_messages", 0) > 0:
-                        _src_rows.append({"Source": "Reddit", "Score": f"{reddit_data.get('sentiment_score', 50):.0f}",
-                                          "Bull": reddit_data.get("bullish_count", 0), "Bear": reddit_data.get("bearish_count", 0),
-                                          "Total": reddit_data.get("total_messages", 0), "Trending": "📈" if reddit_data.get("trending") else ""})
                     if gnews_data and gnews_data.get("total_messages", 0) > 0:
                         _src_rows.append({"Source": "Google News", "Score": f"{gnews_data.get('sentiment_score', 50):.0f}",
                                           "Bull": gnews_data.get("bullish_count", 0), "Bear": gnews_data.get("bearish_count", 0),
                                           "Total": gnews_data.get("total_messages", 0), "Trending": ""})
                     # Load signals for this ticker
                     try:
-                        _det_signals = storage.get_signals([selected_ticker]).get(selected_ticker, {})
-                        _analyst = _det_signals.get("analyst_rating", {}).get("data", {})
+                        _det_signals = storage.get_signals([selected_ticker]).get(selected_ticker) or {}
+                        _analyst = (_det_signals.get("analyst_rating") or {}).get("data") or {}
                         if _analyst and _analyst.get("total_analysts", 0) > 0:
                             _src_rows.append({"Source": "Analyst Ratings", "Score": f"{_analyst.get('consensus_score', 50):.0f}",
                                               "Bull": _analyst.get("buy", 0) + _analyst.get("strong_buy", 0),
                                               "Bear": _analyst.get("sell", 0) + _analyst.get("strong_sell", 0),
                                               "Total": _analyst.get("total_analysts", 0), "Trending": ""})
-                        _insider = _det_signals.get("insider_txn", {}).get("data", {})
+                        _insider = (_det_signals.get("insider_txn") or {}).get("data") or {}
                         if _insider and _insider.get("total_transactions", 0) > 0:
                             _src_rows.append({"Source": "Insider Activity", "Score": f"{_insider.get('insider_score', 50):.0f}",
                                               "Bull": _insider.get("buy_transactions", 0),
@@ -3386,9 +3357,6 @@ def render_ai_stocks_page(services: dict):
                 _all_samples = []
                 for msg in st_data.get("sample_messages", [])[:3]:
                     _all_samples.append(("StockTwits", msg))
-                if reddit_data:
-                    for msg in reddit_data.get("sample_messages", [])[:3]:
-                        _all_samples.append(("Reddit", msg))
                 if gnews_data:
                     for msg in gnews_data.get("sample_messages", [])[:2]:
                         _all_samples.append(("News", msg))
@@ -3560,9 +3528,11 @@ def render_trillion_club_page(services: dict):
         # Build sentiment details
         tc_sentiment = []
         for ticker, sent in sentiment_data.items():
+            if not sent:
+                continue
             if sent.get("aggregate_score", 0) > 0:
-                st_data = sent.get("stocktwits", {})
-                ai_data = sent.get("ai_analysis", {})
+                st_data = sent.get("stocktwits") or {}
+                ai_data = sent.get("ai_analysis") or {}
                 tc_sentiment.append({
                     "ticker": ticker,
                     "score": sent.get("aggregate_score", 50),

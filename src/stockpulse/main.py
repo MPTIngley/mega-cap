@@ -141,6 +141,13 @@ def main():
         help="Optional notes for the holding"
     )
 
+    parser.add_argument(
+        "--email",
+        action="store_true",
+        default=False,
+        help="Send email after sentiment-scan (runs AI Pulse scan + sends digest)"
+    )
+
     args = parser.parse_args()
 
     # Load configuration
@@ -204,7 +211,7 @@ def main():
     elif args.command == "ai-backfill":
         run_ai_backfill()
     elif args.command == "sentiment-scan":
-        run_sentiment_scan()
+        run_sentiment_scan(send_email=args.email)
     elif args.command == "sentiment-check":
         run_sentiment_check(args)
 
@@ -688,7 +695,7 @@ def run_scheduler():
         alert_manager.send_daily_digest()
 
     def on_sentiment_scan():
-        """Callback for sentiment scanner - runs before AI Pulse to cache data."""
+        """Callback for sentiment scanner - runs before AI Pulse to cache data, then chains into AI Pulse."""
         from stockpulse.data.sentiment import run_daily_sentiment_scan
 
         print("\n" + "=" * 60)
@@ -714,8 +721,12 @@ def run_scheduler():
         if results["trending"]:
             print(f"\n  📈 Trending: {', '.join(results['trending'][:5])}")
 
-        print("  ✅ Sentiment data cached for AI Pulse!")
+        print("  ✅ Sentiment data cached!")
         print("=" * 60)
+
+        # Chain directly into AI Pulse scan + email (no gap for scheduler to die)
+        print("\n  Chaining into AI Pulse scan...")
+        on_ai_scan()
 
     def on_hourly_sentiment_scan():
         """Callback for hourly sentiment scan - top 20 AI stocks only, no Haiku."""
@@ -792,11 +803,10 @@ def run_scheduler():
         "sentiment_hourly": "Hourly sentiment",
         "intraday_close": "Closing scan",
         "daily_scan": "Daily scan",
-        "sentiment_scan": "Sentiment scan",
+        "sentiment_scan": "Sentiment + AI Pulse scan",
         "daily_digest": "Daily digest email",
         "long_term_scan": "Long-term scan",
         "trillion_club_scan": "Trillion+ Club scan",
-        "ai_thesis_scan": "AI Thesis research",
     }
 
     # Track the last completed job
@@ -897,6 +907,7 @@ def run_scheduler():
         _finish_job("trillion_club_scan", warnings, error)
 
     def on_sentiment_scan_wrapper():
+        # Sentiment scan now chains into AI Pulse scan + email
         warnings, error = _run_quiet(on_sentiment_scan)
         _finish_job("sentiment_scan", warnings, error)
 
@@ -915,7 +926,7 @@ def run_scheduler():
     scheduler.on_trillion_scan = on_trillion_scan_wrapper
     scheduler.on_sentiment_scan = on_sentiment_scan_wrapper
     scheduler.on_hourly_sentiment_scan = on_hourly_sentiment_wrapper
-    scheduler.on_ai_pulse_scan = on_ai_scan_wrapper
+    scheduler.on_ai_pulse_scan = on_ai_scan_wrapper  # kept for run_now("ai_pulse")
 
     scheduler.start()
 
@@ -2456,13 +2467,14 @@ def run_ai_backfill():
     print("\n" + "=" * 70 + "\n")
 
 
-def run_sentiment_scan():
+def run_sentiment_scan(send_email: bool = False):
     """Run daily sentiment scan for AI universe stocks.
 
     Fetches sentiment from StockTwits (free, no API key) for all AI universe
     stocks and stores results in database for AI Pulse to use.
 
-    Can be run manually or scheduled daily before AI Pulse scan.
+    Args:
+        send_email: If True, also run AI Pulse scan and send email after caching.
     """
     from datetime import datetime
     from stockpulse.data.sentiment import run_daily_sentiment_scan
@@ -2511,9 +2523,18 @@ def run_sentiment_scan():
 
     print("\n" + "=" * 70)
     print(f"  Data cached at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("  Results stored in database. Run 'stockpulse ai-scan' to include")
-    print("  sentiment in AI Pulse email.")
-    print("=" * 70 + "\n")
+
+    if send_email:
+        # Run AI Pulse scan and send email
+        print("  Now running AI Pulse scan + sending email...")
+        print("=" * 70)
+        run_ai_scan()
+    else:
+        print("")
+        print("  *** NO EMAIL SENT ***")
+        print("  To also send the AI Pulse email, use: stockpulse sentiment-scan --email")
+        print("  Or run separately: stockpulse ai-scan")
+        print("=" * 70 + "\n")
 
 
 def run_sentiment_check(args):
